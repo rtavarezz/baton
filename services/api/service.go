@@ -73,8 +73,8 @@ var (
 	// Block builder API
 	pathBuilderGetValidators  = "/relay/v1/builder/validators"
 	pathSubmitNewBlock        = "/relay/v1/builder/blocks"
-	pathSubmitNewRobBlock     = "/relay/v1/builder/rob_blocks"
-	pathSubmitNewTobTxs       = "/relay/v1/builder/tob_txs"
+	pathSubmitNewRoBBlock     = "/relay/v1/builder/rob_blocks"
+	pathSubmitNewToBTxs       = "/relay/v1/builder/tob_txs"
 	pathGetTobGasReservations = "/relay/v1/builder/tob_gas_reservations"
 
 	// Data API
@@ -422,8 +422,8 @@ func (api *RelayAPI) getRouter() http.Handler {
 		api.log.Info("block builder API enabled")
 		r.HandleFunc(pathBuilderGetValidators, api.handleBuilderGetValidators).Methods(http.MethodGet)
 		r.HandleFunc(pathSubmitNewBlock, api.handleSubmitNewBlock).Methods(http.MethodPost)
-		r.HandleFunc(pathSubmitNewRobBlock, api.handleSubmitNewRobBlock).Methods(http.MethodPost)
-		r.HandleFunc(pathSubmitNewTobTxs, api.handleSubmitNewTobTxs).Methods(http.MethodPost)
+		r.HandleFunc(pathSubmitNewRoBBlock, api.handleSubmitNewRoBBlock).Methods(http.MethodPost)
+		r.HandleFunc(pathSubmitNewToBTxs, api.handleSubmitNewTobTxs).Methods(http.MethodPost)
 		r.HandleFunc(pathGetTobGasReservations, api.handleGetTobGasReservations).Methods(http.MethodGet)
 	}
 
@@ -2056,10 +2056,28 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 
 	slot := tobTxRequest.Slot
 	parentHash := tobTxRequest.ParentHash
-	if len(tobTxRequest.TobTxs.Transactions) == 0 {
-		log.Error("Empty TOB tx request sent!")
-		api.Respond(w, http.StatusBadRequest, "Empty TOB tx request sent!")
+	if len(tobTxRequest.TobTxs) == 0 {
+		logMsg := "Empty TOB tx map in request"
+		log.Error(logMsg)
+		api.Respond(w, http.StatusBadRequest, logMsg)
 		return
+	}
+
+	for k, v := range tobTxRequest.TobTxs {
+		if len(v.Transactions) == 0 {
+			logMsg := "Empty TOB tx request sent for chain: " + k
+			log.Error(logMsg)
+			api.Respond(w, http.StatusBadRequest, logMsg)
+			return
+		}
+
+		if len(v.Transactions) == 1 {
+			api.Respond(w, http.StatusBadRequest, "We require a payment tx along with the TOB txs!")
+		}
+
+		if len(v.Transactions) > common.MaxTobTxs+1 {
+			api.Respond(w, http.StatusBadRequest, fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(tobTxRequest.TobTxs.Transactions)))
+		}
 	}
 
 	if slot < headSlot {
@@ -2073,16 +2091,6 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 		log.Error("Slot's TOB bid not yet started!!")
 		api.Respond(w, http.StatusBadRequest, "Slot's TOB bid not yet started!!")
 		return
-	}
-
-	if len(tobTxRequest.TobTxs.Transactions) == 0 {
-		api.Respond(w, http.StatusBadRequest, "Empty TOB tx request sent!")
-	}
-	if len(tobTxRequest.TobTxs.Transactions) == 1 {
-		api.Respond(w, http.StatusBadRequest, "We require a payment tx along with the TOB txs!")
-	}
-	if len(tobTxRequest.TobTxs.Transactions) > common.MaxTobTxs+1 {
-		api.Respond(w, http.StatusBadRequest, fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(tobTxRequest.TobTxs.Transactions)))
 	}
 
 	api.proposerDutiesLock.RLock()
@@ -2114,11 +2122,22 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	simulationDuration := time.Since(startTime).Microseconds()
 
 	// decode the txs
-	transactionBytes := make([][]byte, len(tobTxRequest.TobTxs.Transactions))
-	for i, txHexBytes := range tobTxRequest.TobTxs.Transactions {
-		transactionBytes[i] = txHexBytes[:]
+	/*
+		transactionBytes := make([][]byte, len(tobTxRequest.TobTxs.Transactions))
+		for i, txHexBytes := range tobTxRequest.TobTxs.Transactions {
+			transactionBytes[i] = txHexBytes[:]
+		}
+	*/
+
+	execPayloads := common.MapValuesToSlice(tobTxRequest.TobTxs)
+	transactionBytes := make([][]byte, len(execPayloads))
+	for i, execPayload := range execPayloads {
+		for j, txHexBytes := range execPayload.Transactions {
+			transactionBytes[i][j] = txHexBytes[:]
+		}
 	}
-	txs, err := common.DecodeTransactions(transactionBytes)
+
+	tx, err := common.DecodeTransactions(transactionBytes)
 	if err != nil {
 		log.WithError(err).Warn("could not decode transactions")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -2134,6 +2153,7 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	}
 	tracerDuration := time.Since(startTime).Microseconds()
 
+	// TODO: Verify is the last tx the payment to chunk producer? Is it really synonymous with the entire chunk value?
 	lastTx := txs[len(txs)-1]
 
 	tx := api.redis.NewTxPipeline()
@@ -2186,7 +2206,7 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	return
 }
 
-func (api *RelayAPI) handleSubmitNewRobBlock(w http.ResponseWriter, req *http.Request) {
+func (api *RelayAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Request) {
 	var pf common.Profile
 	var prevTime, nextTime time.Time
 

@@ -178,15 +178,15 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 func (e *EthNetworkDetails) String() string {
 	return fmt.Sprintf(
 		`EthNetworkDetails{
-	Name: %s, 
-	GenesisForkVersionHex: %s, 
+	Name: %s,
+	GenesisForkVersionHex: %s,
 	GenesisValidatorsRootHex: %s,
-	BellatrixForkVersionHex: %s, 
-	CapellaForkVersionHex: %s, 
+	BellatrixForkVersionHex: %s,
+	CapellaForkVersionHex: %s,
 	DenebForkVersionHex: %s,
-	DomainBuilder: %x, 
-	DomainBeaconProposerBellatrix: %x, 
-	DomainBeaconProposerCapella: %x, 
+	DomainBuilder: %x,
+	DomainBeaconProposerBellatrix: %x,
+	DomainBeaconProposerCapella: %x,
 	DomainBeaconProposerDeneb: %x
 }`,
 		e.Name,
@@ -494,7 +494,10 @@ func (e *VersionedExecutionPayload) NumTx() int {
 	return 0
 }
 
+// TODO: Ask Noah what the thinks of adding the ChainID here
+// Also why are both needed?
 type BuilderSubmitBlockRequest struct {
+	ChainID   string
 	Bellatrix *boostTypes.BuilderSubmitBlockRequest
 	Capella   *capella.SubmitBlockRequest
 }
@@ -1134,9 +1137,17 @@ func DecodeTransactions(enc [][]byte) ([]*types.Transaction, error) {
 }
 
 type TobTxsSubmitRequest struct {
-	TobTxs     utilbellatrix.ExecutionPayloadTransactions
+	// Chain ID to rest of txs
+	TobTxs map[string]utilbellatrix.ExecutionPayloadTransactions
+
 	Slot       uint64
 	ParentHash string
+}
+
+func NewTobTxsSubmitRequest() TobTxsSubmitRequest {
+	return TobTxsSubmitRequest{
+		TobTxs: make(map[string]utilbellatrix.ExecutionPayloadTransactions),
+	}
 }
 
 type IntermediateTobTxsSubmitRequest struct {
