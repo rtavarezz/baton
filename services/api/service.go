@@ -2129,15 +2129,23 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 		}
 	*/
 
+	// note: chainID from request map is lost but should be fine since each request,
+	// will have a chain id and this func runs with a request at a time
 	execPayloads := common.MapValuesToSlice(tobTxRequest.TobTxs)
-	transactionBytes := make([][]byte, len(execPayloads))
+	// sum of txs in each payload
+	var sum int
+	for _, execPayload := range execPayloads {
+		sum += len(execPayload.Transactions)
+	}
+	transactionBytes := make([][]byte, sum)
 	for i, execPayload := range execPayloads {
-		for j, txHexBytes := range execPayload.Transactions {
-			transactionBytes[i][j] = txHexBytes[:]
+		for _, txHexBytes := range execPayload.Transactions {
+			// transactionBytes[i][j] = txHexBytes[:]
+			copy(transactionBytes[i], txHexBytes)
 		}
 	}
 
-	tx, err := common.DecodeTransactions(transactionBytes)
+	txs, err := common.DecodeTransactions(transactionBytes)
 	if err != nil {
 		log.WithError(err).Warn("could not decode transactions")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -2154,7 +2162,7 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	tracerDuration := time.Since(startTime).Microseconds()
 
 	// TODO: Verify is the last tx the payment to chunk producer? Is it really synonymous with the entire chunk value?
-	lastTx := txs[len(txs)-1]
+	lastTx := tobTxRequest.LastTx
 
 	tx := api.redis.NewTxPipeline()
 
