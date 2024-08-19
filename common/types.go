@@ -13,6 +13,7 @@ import (
 	"github.com/attestantio/go-builder-client/spec"
 	apiv1capella "github.com/attestantio/go-eth2-client/api/v1/capella"
 	consensusspec "github.com/attestantio/go-eth2-client/spec"
+	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	consensusbellatrix "github.com/attestantio/go-eth2-client/spec/bellatrix"
 	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -1136,10 +1137,29 @@ func DecodeTransactions(enc [][]byte) ([]*types.Transaction, error) {
 	return txs, nil
 }
 
+// note: every tx(s) on Baton and anchor should be type SEQ Tx
+// note: don't have to use eth payloads, because we just need to abide by seq standards so seq/anchor/baton
+type ExecutionPayloadTransactions struct {
+	//the note above means that 'Transactions' needs to be []SEQTransaction from seq-sdk/types
+	Transactions [][]byte
+}
+
+// this struct submits to seq
+// rollup -> seq
+type SequencerMsgRequest struct {
+	// id of seq chains to submit txs too
+	ChainID string
+	// tx data itself
+	Data []byte
+	// address of rollup submitting tx(s)
+	FromAddress string
+}
 type TobTxsSubmitRequest struct {
 	// Chain ID to rest of txs
-	TobTxs map[string]utilbellatrix.ExecutionPayloadTransactions
-
+	// TODO: since we introduce chain id to the map we lost ordering with the chain ids
+	TobTxs map[string]ExecutionPayloadTransactions
+	// chain needs to tell us which tx is their latest
+	LastTx 	   types.Transaction
 	Slot       uint64
 	ParentHash string
 }
