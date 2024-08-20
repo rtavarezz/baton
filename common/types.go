@@ -1156,19 +1156,15 @@ type SequencerMsgRequest struct {
 }
 */
 
-// TODO: Are these needed?
-/*
-BuilderPubkey        PublicKey `json:"builder_pubkey" ssz-size:"48"`
-ProposerPubkey       PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-*/
-
 type ToBTxsSubmitRequest struct {
 	ToBTxs          []*actions.SEQTransaction `json:"txs"`
 	Slot            uint64
 	ParentHash      string
 	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
 	ProposerPayment codec.Address
-	Signature       common.Signature `json:"signature" ssz-size:"96"`
+	Signature       boostTypes.Signature `json:"signature" ssz-size:"96"`
+	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
 }
 
 func NewToBTxsSubmitRequest() ToBTxsSubmitRequest {
@@ -1183,7 +1179,9 @@ type RoBTxsSubmitRequest struct {
 	ParentHash      string
 	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
 	ProposerPayment codec.Address
-	Signature       Signature `json:"signature" ssz-size:"96"`
+	Signature       boostTypes.Signature `json:"signature" ssz-size:"96"`
+	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
 }
 
 /*
@@ -1222,7 +1220,7 @@ func (t *ToBTxsSubmitRequest) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	err = t.TobTxs.UnmarshalSSZ(intermediateJson.TobTxs)
+	err = t.ToBTxs.UnmarshalSSZ(intermediateJson.TobTxs)
 	if err != nil {
 		return err
 	}
@@ -1313,7 +1311,7 @@ type CallTraceResponse struct {
 type NetworkTobTxChecker func(CallTrace) (bool, error)
 
 type TobValidationRequest struct {
-	TobTxs               map[string]ExecutionPayloadTransactions
+	TobTxs               []*actions.SEQTransaction
 	ParentHash           string
 	ProposerFeeRecipient string
 	TobGasLimit          uint64
@@ -1349,7 +1347,7 @@ func (t *TobValidationRequest) UnmarshalJson(data []byte) error {
 		return err
 	}
 
-	err = t.TobTxs.UnmarshalSSZ(intermediateJson.TobTxs)
+	err = t.ToBTxs.UnmarshalSSZ(intermediateJson.TobTxs)
 	if err != nil {
 		return err
 	}
