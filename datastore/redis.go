@@ -388,9 +388,10 @@ func (r *RedisCache) GetBestBid(slot uint64, parentHash, proposerPubkey string) 
 	return resp, err
 }
 
-func (r *RedisCache) GetHighestRob(slot uint64, parentHash string) (*common.BuilderSubmitBlockRequest, error) {
+// IMPORTANT: Changed from BuilderSubmitBlockRequest to RoBTxsSubmitRequest which is how we define RoB
+func (r *RedisCache) GetHighestRob(slot uint64, parentHash string) (*common.RoBTxsSubmitRequest, error) {
 	key := r.keyCacheGetHighestRob(slot, parentHash)
-	resp := new(common.BuilderSubmitBlockRequest)
+	resp := new(common.RoBTxsSubmitRequest)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
 		return nil, nil
