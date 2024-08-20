@@ -48,7 +48,7 @@ var (
 
 type testBackend struct {
 	t         require.TestingT
-	relay     *RelayAPI
+	relay     *BatonAPI
 	datastore *datastore.Datastore
 	redis     *datastore.RedisCache
 }
@@ -86,7 +86,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	mainnetDetails, err := common.NewEthNetworkDetails(network)
 	require.NoError(t, err)
 
-	opts := RelayAPIOpts{
+	opts := BatonAPIOpts{
 		Log:             common.TestLog,
 		ListenAddr:      "localhost:12345",
 		BeaconClient:    &beaconclient.MultiBeaconClient{},
@@ -101,7 +101,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 		InternalAPI:     true,
 	}
 
-	relay, err := NewRelayAPI(opts)
+	relay, err := NewBatonAPI(opts)
 	require.NoError(t, err)
 
 	relay.genesisInfo = &beaconclient.GetGenesisResponse{

@@ -144,7 +144,7 @@ var apiCmd = &cobra.Command{
 			log.WithError(err).Fatalf("Failed setting up prod datastore")
 		}
 
-		opts := api.RelayAPIOpts{
+		opts := api.BatonAPIOpts{
 			Log:           log,
 			ListenAddr:    apiListenAddr,
 			BeaconClient:  beaconClient,
@@ -179,7 +179,7 @@ var apiCmd = &cobra.Command{
 
 		// Create the relay service
 		log.Info("Setting up relay service...")
-		srv, err := api.NewRelayAPI(opts)
+		srv, err := api.NewBatonAPI(opts)
 		if err != nil {
 			log.WithError(err).Fatal("failed to create service")
 		}

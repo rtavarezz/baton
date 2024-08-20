@@ -7,17 +7,16 @@ import (
 	"math/big"
 	"os"
 
+	"github.com/AnomalyFi/hypersdk/codec"
+	actions "github.com/AnomalyFi/seq-sdk/types"
 	"github.com/attestantio/go-builder-client/api"
 	"github.com/attestantio/go-builder-client/api/capella"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-builder-client/spec"
 	apiv1capella "github.com/attestantio/go-eth2-client/api/v1/capella"
 	consensusspec "github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/bellatrix"
-	consensusbellatrix "github.com/attestantio/go-eth2-client/spec/bellatrix"
 	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	utilbellatrix "github.com/attestantio/go-eth2-client/util/bellatrix"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -1144,6 +1143,7 @@ type ExecutionPayloadTransactions struct {
 	Transactions [][]byte
 }
 
+/*
 // this struct submits to seq
 // rollup -> seq
 type SequencerMsgRequest struct {
@@ -1154,21 +1154,45 @@ type SequencerMsgRequest struct {
 	// address of rollup submitting tx(s)
 	FromAddress string
 }
-type TobTxsSubmitRequest struct {
-	// Chain ID to rest of txs
-	// TODO: since we introduce chain id to the map we lost ordering with the chain ids
-	TobTxs map[string]ExecutionPayloadTransactions
-	// chain needs to tell us which tx is their latest
-	LastTx 	   types.Transaction
-	Slot       uint64
-	ParentHash string
+*/
+
+// TODO: Are these needed?
+/*
+BuilderPubkey        PublicKey `json:"builder_pubkey" ssz-size:"48"`
+ProposerPubkey       PublicKey `json:"proposer_pubkey" ssz-size:"48"`
+*/
+
+type ToBTxsSubmitRequest struct {
+	ToBTxs          []*actions.SEQTransaction `json:"txs"`
+	Slot            uint64
+	ParentHash      string
+	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
+	ProposerPayment codec.Address
+	Signature       common.Signature `json:"signature" ssz-size:"96"`
 }
 
-func NewTobTxsSubmitRequest() TobTxsSubmitRequest {
-	return TobTxsSubmitRequest{
-		TobTxs: make(map[string]ExecutionPayloadTransactions),
+func NewToBTxsSubmitRequest() ToBTxsSubmitRequest {
+	return ToBTxsSubmitRequest{
+		ToBTxs: make([]*actions.SEQTransaction, 0),
 	}
 }
+
+type RoBTxsSubmitRequest struct {
+	RoBTxs          []*actions.SEQTransaction `json:"txs"`
+	Slot            uint64
+	ParentHash      string
+	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
+	ProposerPayment codec.Address
+	Signature       Signature `json:"signature" ssz-size:"96"`
+}
+
+/*
+type BuilderSubmitBlockRequest struct {
+  ChainID   string
+  Bellatrix *boostTypes.BuilderSubmitBlockRequest
+  Capella   *capella.SubmitBlockRequest
+}
+*/
 
 type IntermediateTobTxsSubmitRequest struct {
 	TobTxs     []byte `json:"tobTxs"`
@@ -1176,8 +1200,9 @@ type IntermediateTobTxsSubmitRequest struct {
 	ParentHash string `json:"parentHash"`
 }
 
-func (t *TobTxsSubmitRequest) MarshalJSON() ([]byte, error) {
-	txBytes, err := t.TobTxs.MarshalSSZ()
+// TODO: REVISIT LATER
+func (t *ToBTxsSubmitRequest) MarshalJSON() ([]byte, error) {
+	txBytes, err := json.Marshal(t.ToBTxs)
 	if err != nil {
 		return nil, err
 	}
@@ -1189,7 +1214,8 @@ func (t *TobTxsSubmitRequest) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (t *TobTxsSubmitRequest) UnmarshalJSON(data []byte) error {
+// TODO: REVISIT LATER
+func (t *ToBTxsSubmitRequest) UnmarshalJSON(data []byte) error {
 	var intermediateJson IntermediateTobTxsSubmitRequest
 	err := json.Unmarshal(data, &intermediateJson)
 	if err != nil {
@@ -1208,8 +1234,8 @@ func (t *TobTxsSubmitRequest) UnmarshalJSON(data []byte) error {
 
 type BlockAssemblerRequest struct {
 	TobTxs             ExecutionPayloadTransactions `json:"tob_txs"`
-	RobPayload         BuilderSubmitBlockRequest                  `json:"rob_payload"`
-	RegisteredGasLimit uint64                                     `json:"registered_gas_limit,string"`
+	RobPayload         BuilderSubmitBlockRequest    `json:"rob_payload"`
+	RegisteredGasLimit uint64                       `json:"registered_gas_limit,string"`
 }
 
 type IntermediateBlockAssemblerRequest struct {

@@ -124,8 +124,8 @@ var (
 	})
 )
 
-// RelayAPIOpts contains the options for a relay
-type RelayAPIOpts struct {
+// BatonAPIOpts contains the options for a relay
+type BatonAPIOpts struct {
 	Log *logrus.Entry
 
 	ListenAddr  string
@@ -205,9 +205,9 @@ type tracerResult struct {
 	tracerError    error
 }
 
-// RelayAPI represents a single Relay instance
-type RelayAPI struct {
-	opts RelayAPIOpts
+// BatonAPI represents a single Relay instance
+type BatonAPI struct {
+	opts BatonAPIOpts
 	log  *logrus.Entry
 
 	blsSk     *bls.SecretKey
@@ -268,7 +268,7 @@ type RelayAPI struct {
 	defiAddresses map[string]common2.Address
 }
 
-func FillUpDefiAddresses(opts RelayAPIOpts) map[string]common2.Address {
+func FillUpDefiAddresses(opts BatonAPIOpts) map[string]common2.Address {
 	defiAddresses := make(map[string]common2.Address)
 
 	if opts.EthNetDetails.Name == common.EthNetworkMainnet {
@@ -294,8 +294,8 @@ func FillUpDefiAddresses(opts RelayAPIOpts) map[string]common2.Address {
 	return defiAddresses
 }
 
-// NewRelayAPI creates a new service. if builders is nil, allow any builder
-func NewRelayAPI(opts RelayAPIOpts) (api *RelayAPI, err error) {
+// NewBatonAPI creates a new service. if builders is nil, allow any builder
+func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	if opts.Log == nil {
 		return nil, ErrMissingLogOpt
 	}
@@ -340,7 +340,7 @@ func NewRelayAPI(opts RelayAPIOpts) (api *RelayAPI, err error) {
 		}
 	}
 
-	api = &RelayAPI{
+	api = &BatonAPI{
 		opts:         opts,
 		log:          opts.Log,
 		blsSk:        opts.SecretKey,
@@ -401,7 +401,7 @@ func NewRelayAPI(opts RelayAPIOpts) (api *RelayAPI, err error) {
 	return api, nil
 }
 
-func (api *RelayAPI) getRouter() http.Handler {
+func (api *BatonAPI) getRouter() http.Handler {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/", api.handleRoot).Methods(http.MethodGet)
@@ -465,7 +465,7 @@ func (api *RelayAPI) getRouter() http.Handler {
 // StartServer starts up this API instance and HTTP server
 // - First it initializes the cache and updates local information
 // - Once that is done, the HTTP server is started
-func (api *RelayAPI) StartServer() (err error) {
+func (api *BatonAPI) StartServer() (err error) {
 	if api.srvStarted.Swap(true) {
 		return ErrServerAlreadyStarted
 	}
@@ -575,7 +575,7 @@ func (api *RelayAPI) StartServer() (err error) {
 	return err
 }
 
-func (api *RelayAPI) IsReady() bool {
+func (api *BatonAPI) IsReady() bool {
 	// If server is shutting down, return false
 	if api.srvShutdown.Load() {
 		return false
@@ -595,7 +595,7 @@ func (api *RelayAPI) IsReady() bool {
 // - Stop returning bids
 // - Set ready /readyz to negative status
 // - Wait a bit to allow removal of service from load balancer and draining of requests
-func (api *RelayAPI) StopServer() (err error) {
+func (api *BatonAPI) StopServer() (err error) {
 	// avoid running this twice. setting srvShutdown to true makes /readyz switch to negative status
 	if wasStopping := api.srvShutdown.Swap(true); wasStopping {
 		return nil
@@ -621,7 +621,7 @@ func (api *RelayAPI) StopServer() (err error) {
 	return api.srv.Shutdown(context.Background())
 }
 
-func (api *RelayAPI) startValidatorRegistrationDBProcessor() {
+func (api *BatonAPI) startValidatorRegistrationDBProcessor() {
 	for valReg := range api.validatorRegC {
 		err := api.datastore.SaveValidatorRegistration(valReg)
 		if err != nil {
@@ -635,7 +635,7 @@ func (api *RelayAPI) startValidatorRegistrationDBProcessor() {
 	}
 }
 
-func (api *RelayAPI) TobTxChecks(trace *common.CallTrace) (bool, error) {
+func (api *BatonAPI) TobTxChecks(trace *common.CallTrace) (bool, error) {
 	if api.opts.EthNetDetails.Name == common.EthNetworkCustom {
 		return api.TraceChecker(trace, api.IsTraceToWEthDaiPair)
 	} else if api.opts.EthNetDetails.Name == common.EthNetworkGoerli {
@@ -646,7 +646,7 @@ func (api *RelayAPI) TobTxChecks(trace *common.CallTrace) (bool, error) {
 }
 
 // just check if it goes to the DaiWethPair with a swap tx
-func (api *RelayAPI) TraceChecker(trace *common.CallTrace, f common.NetworkTobTxChecker) (bool, error) {
+func (api *BatonAPI) TraceChecker(trace *common.CallTrace, f common.NetworkTobTxChecker) (bool, error) {
 	stack := []common.CallTrace{*trace}
 
 	for len(stack) > 0 {
@@ -669,7 +669,7 @@ func (api *RelayAPI) TraceChecker(trace *common.CallTrace, f common.NetworkTobTx
 	return false, nil
 }
 
-func (api *RelayAPI) BaseTraceChecks(callTrace common.CallTrace) (bool, error) {
+func (api *BatonAPI) BaseTraceChecks(callTrace common.CallTrace) (bool, error) {
 	if callTrace.To == nil {
 		return false, nil
 	}
@@ -683,7 +683,7 @@ func (api *RelayAPI) BaseTraceChecks(callTrace common.CallTrace) (bool, error) {
 	return true, nil
 }
 
-func (api *RelayAPI) IsTraceUniV3EthUsdcSwap(callTrace common.CallTrace) (bool, error) {
+func (api *BatonAPI) IsTraceUniV3EthUsdcSwap(callTrace common.CallTrace) (bool, error) {
 	isValid, err := api.BaseTraceChecks(callTrace)
 	if err != nil {
 		return false, err
@@ -737,7 +737,7 @@ func (api *RelayAPI) IsTraceUniV3EthUsdcSwap(callTrace common.CallTrace) (bool, 
 }
 
 // This will change based on the state interference check
-func (api *RelayAPI) IsTraceToWEthDaiPair(callTrace common.CallTrace) (bool, error) {
+func (api *BatonAPI) IsTraceToWEthDaiPair(callTrace common.CallTrace) (bool, error) {
 	isValid, err := api.BaseTraceChecks(callTrace)
 	if err != nil {
 		return false, err
@@ -765,7 +765,7 @@ func (api *RelayAPI) IsTraceToWEthDaiPair(callTrace common.CallTrace) (bool, err
 	return true, nil
 }
 
-func (api *RelayAPI) getTraces(ctx context.Context, opts tracerOptions) (*common.CallTraceResponse, error) {
+func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common.CallTraceResponse, error) {
 	t := time.Now()
 	res, err := api.tracer.TraceTx(ctx, opts.tx)
 	log := opts.log.WithFields(logrus.Fields{
@@ -780,7 +780,7 @@ func (api *RelayAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 }
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-func (api *RelayAPI) assembleBlock(ctx context.Context, opts blockAssemblyOptions) (*capella2.ExecutionPayload, error, error) {
+func (api *BatonAPI) assembleBlock(ctx context.Context, opts blockAssemblyOptions) (*capella2.ExecutionPayload, error, error) {
 	t := time.Now()
 	res, requestErr, validationErr := api.blockAssembler.Send(ctx, opts.req)
 	log := opts.log.WithFields(logrus.Fields{
@@ -808,7 +808,7 @@ func (api *RelayAPI) assembleBlock(ctx context.Context, opts blockAssemblyOption
 }
 
 // simulateTob sends a request for a TOB tx simulation to blockSimRateLimiter.
-func (api *RelayAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) error {
+func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) error {
 	t := time.Now()
 	requestErr, validationErr := api.blockSimRateLimiter.TobSim(ctx, opts.req)
 	log := opts.log.WithFields(logrus.Fields{
@@ -828,7 +828,7 @@ func (api *RelayAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) err
 }
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-func (api *RelayAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
+func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
 	t := time.Now()
 	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
 	log := opts.log.WithFields(logrus.Fields{
@@ -855,7 +855,7 @@ func (api *RelayAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (r
 	return nil, nil
 }
 
-func (api *RelayAPI) demoteBuilder(pubkey string, req *common.BuilderSubmitBlockRequest, simError error) {
+func (api *BatonAPI) demoteBuilder(pubkey string, req *common.BuilderSubmitBlockRequest, simError error) {
 	builderEntry, ok := api.blockBuildersCache[pubkey]
 	if !ok {
 		api.log.Warnf("builder %v not in the builder cache", pubkey)
@@ -883,7 +883,7 @@ func (api *RelayAPI) demoteBuilder(pubkey string, req *common.BuilderSubmitBlock
 
 // processOptimisticBlock is called on a new goroutine when a optimistic block
 // needs to be simulated.
-func (api *RelayAPI) processOptimisticBlock(opts blockSimOptions, simResultC chan *blockSimResult) {
+func (api *BatonAPI) processOptimisticBlock(opts blockSimOptions, simResultC chan *blockSimResult) {
 	api.optimisticBlocksInFlight.Add(1)
 	defer func() { api.optimisticBlocksInFlight.Sub(1) }()
 	api.optimisticBlocksWG.Add(1)
@@ -917,7 +917,7 @@ func (api *RelayAPI) processOptimisticBlock(opts blockSimOptions, simResultC cha
 	}
 }
 
-func (api *RelayAPI) processPayloadAttributes(payloadAttributes beaconclient.PayloadAttributesEvent) {
+func (api *BatonAPI) processPayloadAttributes(payloadAttributes beaconclient.PayloadAttributesEvent) {
 	apiHeadSlot := api.headSlot.Load()
 	payloadAttrSlot := payloadAttributes.Data.ProposalSlot
 
@@ -982,7 +982,7 @@ func (api *RelayAPI) processPayloadAttributes(payloadAttributes beaconclient.Pay
 	}).Info("updated payload attributes")
 }
 
-func (api *RelayAPI) processNewSlot(headSlot uint64) {
+func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	prevHeadSlot := api.headSlot.Load()
 	if headSlot <= prevHeadSlot {
 		return
@@ -1020,7 +1020,7 @@ func (api *RelayAPI) processNewSlot(headSlot uint64) {
 	}).Infof("updated headSlot to %d", headSlot)
 }
 
-func (api *RelayAPI) updateProposerDuties(headSlot uint64) {
+func (api *BatonAPI) updateProposerDuties(headSlot uint64) {
 	// Ensure only one updating is running at a time
 	if api.isUpdatingProposerDuties.Swap(true) {
 		return
@@ -1069,7 +1069,7 @@ func (api *RelayAPI) updateProposerDuties(headSlot uint64) {
 	api.log.Infof("proposer duties updated: %s", strings.Join(_duties, ", "))
 }
 
-func (api *RelayAPI) prepareBuildersForSlot(headSlot uint64) {
+func (api *BatonAPI) prepareBuildersForSlot(headSlot uint64) {
 	// Wait until there are no optimistic blocks being processed. Then we can
 	// safely update the slot.
 	api.optimisticBlocksWG.Wait()
@@ -1104,19 +1104,19 @@ func (api *RelayAPI) prepareBuildersForSlot(headSlot uint64) {
 	api.blockBuildersCache = newCache
 }
 
-func (api *RelayAPI) RespondError(w http.ResponseWriter, code int, message string) {
+func (api *BatonAPI) RespondError(w http.ResponseWriter, code int, message string) {
 	api.Respond(w, code, HTTPErrorResp{code, message})
 }
 
-func (api *RelayAPI) RespondOK(w http.ResponseWriter, response any) {
+func (api *BatonAPI) RespondOK(w http.ResponseWriter, response any) {
 	api.Respond(w, http.StatusOK, response)
 }
 
-func (api *RelayAPI) RespondMsg(w http.ResponseWriter, code int, msg string) {
+func (api *BatonAPI) RespondMsg(w http.ResponseWriter, code int, msg string) {
 	api.Respond(w, code, HTTPMessageResp{msg})
 }
 
-func (api *RelayAPI) Respond(w http.ResponseWriter, code int, response any) {
+func (api *BatonAPI) Respond(w http.ResponseWriter, code int, response any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	if response == nil {
@@ -1130,7 +1130,7 @@ func (api *RelayAPI) Respond(w http.ResponseWriter, code int, response any) {
 	}
 }
 
-func (api *RelayAPI) handleStatus(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleStatus(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1138,16 +1138,16 @@ func (api *RelayAPI) handleStatus(w http.ResponseWriter, req *http.Request) {
 //  PROPOSER APIS
 // ---------------
 
-func (api *RelayAPI) handleRoot(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleRoot(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "MEV-Boost Relay API")
 }
 
-func (api *RelayAPI) handleGetSlot(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleGetSlot(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, api.headSlot.Load())
 }
 
-func (api *RelayAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http.Request) {
 	// slot is passed as url args
 	slotStr := mux.Vars(req)["slot"]
 	slot, err := strconv.ParseUint(slotStr, 10, 64)
@@ -1164,7 +1164,7 @@ func (api *RelayAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http
 	api.RespondOK(w, res.parentHash)
 }
 
-func (api *RelayAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.Request) {
 	// slot is passed as url args
 	slotStr := mux.Vars(req)["slot"]
 	slot, err := strconv.ParseUint(slotStr, 10, 64)
@@ -1190,7 +1190,7 @@ func (api *RelayAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.R
 	api.RespondOK(w, res.Entry.Message.FeeRecipient.String())
 }
 
-func (api *RelayAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
 	ua := req.UserAgent()
 	log := api.log.WithFields(logrus.Fields{
 		"method":        "registerValidator",
@@ -1401,7 +1401,7 @@ func (api *RelayAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 	w.WriteHeader(http.StatusOK)
 }
 
-func (api *RelayAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	slotStr := vars["slot"]
 	parentHashHex := vars["parent_hash"]
@@ -1493,7 +1493,7 @@ func (api *RelayAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, bid)
 }
 
-func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
 	api.getPayloadCallsInFlight.Add(1)
 	defer api.getPayloadCallsInFlight.Done()
 
@@ -1808,7 +1808,7 @@ func (api *RelayAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 //	BLOCK BUILDER APIS
 //
 // --------------------
-func (api *RelayAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http.Request) {
 	api.proposerDutiesLock.RLock()
 	resp := api.proposerDutiesResponse
 	api.proposerDutiesLock.RUnlock()
@@ -1818,7 +1818,7 @@ func (api *RelayAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http
 	}
 }
 
-func (api *RelayAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) (uint64, bool) {
+func (api *BatonAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) (uint64, bool) {
 	api.proposerDutiesLock.RLock()
 	slotDuty := api.proposerDutiesMap[payload.Slot()]
 	api.proposerDutiesLock.RUnlock()
@@ -1837,7 +1837,7 @@ func (api *RelayAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *log
 	return slotDuty.Entry.Message.GasLimit, true
 }
 
-func (api *RelayAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) bool {
+func (api *BatonAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) bool {
 	api.payloadAttributesLock.RLock()
 	attrs, ok := api.payloadAttributes[payload.ParentHash()]
 	api.payloadAttributesLock.RUnlock()
@@ -1873,7 +1873,7 @@ func (api *RelayAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *log
 	return true
 }
 
-func (api *RelayAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
+func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
 	// TODO: add deneb support.
 	if payload.Capella == nil {
 		log.Info("rejecting submission - non-capella payload for capella fork")
@@ -1898,7 +1898,7 @@ func (api *RelayAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 	return true
 }
 
-func (api *RelayAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry, builderPubkey phase0.BLSPubKey) (*blockBuilderCacheEntry, bool) {
+func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry, builderPubkey phase0.BLSPubKey) (*blockBuilderCacheEntry, bool) {
 	builderEntry, ok := api.blockBuildersCache[builderPubkey.String()]
 	if !ok {
 		log.Warnf("unable to read builder: %s from the builder cache, using low-prio and no collateral", builderPubkey.String())
@@ -1940,7 +1940,7 @@ func (api *RelayAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry,
 // }
 
 // Checks the quality of the TOB txs, if it is the txs expected in a TOB
-func (api *RelayAPI) checkTobTxsStateInterference(txs []*types.Transaction, log *logrus.Entry) error {
+func (api *BatonAPI) checkTobTxsStateInterference(txs []*types.Transaction, log *logrus.Entry) error {
 	var wg sync.WaitGroup
 
 	//// get traces
@@ -2005,11 +2005,16 @@ func (api *RelayAPI) checkTobTxsStateInterference(txs []*types.Transaction, log 
 	return nil
 }
 
-func (api *RelayAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, common.TobGasReservations)
 }
 
-func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Request) {
+// @TODO: Javellin builder should send us a list of tx. If the tx list doesn't include proposer payment,
+//
+//	then reject the block.
+//
+// @TODO: Unit test the above.
+func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Request) {
 	headSlot := api.headSlot.Load()
 	receivedAt := time.Now().UTC()
 
@@ -2028,7 +2033,7 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 		}).Info("request finished")
 	}()
 
-	tobTxRequest := new(common.TobTxsSubmitRequest)
+	tobTxRequest := new(common.ToBTxsSubmitRequest)
 
 	var r io.Reader = req.Body
 	limitReader := io.LimitReader(r, 10*1024*1024) // 10 MB
@@ -2215,7 +2220,7 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	return
 }
 
-func (api *RelayAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Request) {
 	var pf common.Profile
 	var prevTime, nextTime time.Time
 
@@ -2775,7 +2780,7 @@ type redisUpdateBidOpts struct {
 	payload              *common.BuilderSubmitBlockRequest
 }
 
-func (api *RelayAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBidAndUpdateTopBidResponse, *common.GetPayloadResponse, bool) {
+func (api *BatonAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBidAndUpdateTopBidResponse, *common.GetPayloadResponse, bool) {
 	// Prepare the response data
 	getHeaderResponse, err := common.BuildGetHeaderResponse(opts.payload, api.blsSk, api.publicKey, api.opts.EthNetDetails.DomainBuilder)
 	if err != nil {
@@ -2809,7 +2814,7 @@ func (api *RelayAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBid
 	return &updateBidResult, getPayloadResponse, true
 }
 
-func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Request) {
 	var pf common.Profile
 	var prevTime, nextTime time.Time
 
@@ -3224,7 +3229,7 @@ func (api *RelayAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 //	INTERNAL APIS
 //
 // ---------------
-func (api *RelayAPI) handleInternalBuilderStatus(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleInternalBuilderStatus(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	builderPubkey := vars["pubkey"]
 	builderEntry, err := api.db.GetBlockBuilderByPubkey(builderPubkey)
@@ -3275,7 +3280,7 @@ func (api *RelayAPI) handleInternalBuilderStatus(w http.ResponseWriter, req *htt
 	}
 }
 
-func (api *RelayAPI) handleInternalBuilderCollateral(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleInternalBuilderCollateral(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	builderPubkey := vars["pubkey"]
 	if req.Method == http.MethodPost || req.Method == http.MethodPut {
@@ -3302,7 +3307,7 @@ func (api *RelayAPI) handleInternalBuilderCollateral(w http.ResponseWriter, req 
 //  DATA APIS
 // -----------
 
-func (api *RelayAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, req *http.Request) {
 	var err error
 	args := req.URL.Query()
 
@@ -3395,7 +3400,7 @@ func (api *RelayAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, r
 	api.RespondOK(w, response)
 }
 
-func (api *RelayAPI) handleDataBuilderBidsReceived(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleDataBuilderBidsReceived(w http.ResponseWriter, req *http.Request) {
 	var err error
 	args := req.URL.Query()
 
@@ -3480,7 +3485,7 @@ func (api *RelayAPI) handleDataBuilderBidsReceived(w http.ResponseWriter, req *h
 	api.RespondOK(w, response)
 }
 
-func (api *RelayAPI) handleIncludedTobTxs(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleIncludedTobTxs(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	slotStr := vars["slot"]
 	slot, err := strconv.ParseUint(slotStr, 10, 64)
@@ -3509,7 +3514,7 @@ func (api *RelayAPI) handleIncludedTobTxs(w http.ResponseWriter, req *http.Reque
 	api.RespondOK(w, tobTxs)
 }
 
-func (api *RelayAPI) handleDataValidatorRegistration(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleDataValidatorRegistration(w http.ResponseWriter, req *http.Request) {
 	pkStr := req.URL.Query().Get("pubkey")
 	if pkStr == "" {
 		api.RespondError(w, http.StatusBadRequest, "missing pubkey argument")
@@ -3544,11 +3549,11 @@ func (api *RelayAPI) handleDataValidatorRegistration(w http.ResponseWriter, req 
 	api.RespondOK(w, signedRegistration)
 }
 
-func (api *RelayAPI) handleLivez(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleLivez(w http.ResponseWriter, req *http.Request) {
 	api.RespondMsg(w, http.StatusOK, "live")
 }
 
-func (api *RelayAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
+func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 	if api.IsReady() {
 		api.RespondMsg(w, http.StatusOK, "ready")
 	} else {

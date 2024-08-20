@@ -701,7 +701,7 @@ func TestNetworkIndependentTobTxChecks(t *testing.T) {
 				require.NoError(t, err)
 				tobTxReqs.Transactions = append(tobTxReqs.Transactions, txByte)
 			}
-			req := &common.TobTxsSubmitRequest{
+			req := &common.ToBTxsSubmitRequest{
 				ParentHash: parentHash,
 				TobTxs:     tobTxReqs,
 				Slot:       headSlot + 1,
@@ -1082,7 +1082,7 @@ func TestSubmitTobTxsInSequence(t *testing.T) {
 			}
 			firstSetTxHashRoot, err := tobTxReqs.HashTreeRoot()
 			require.NoError(t, err)
-			req := &common.TobTxsSubmitRequest{
+			req := &common.ToBTxsSubmitRequest{
 				ParentHash: parentHash,
 				TobTxs:     tobTxReqs,
 				Slot:       headSlot + 1,
@@ -1110,7 +1110,7 @@ func TestSubmitTobTxsInSequence(t *testing.T) {
 			}
 			secondSetTxHashRoot, err := tobTxReqs.HashTreeRoot()
 			require.NoError(t, err)
-			req = &common.TobTxsSubmitRequest{
+			req = &common.ToBTxsSubmitRequest{
 				ParentHash: parentHash,
 				TobTxs:     tobTxReqs,
 				Slot:       headSlot + 1,
@@ -1345,7 +1345,7 @@ func TestSubmitTobTxs(t *testing.T) {
 			}
 			txHashRoot, err := tobTxReqs.HashTreeRoot()
 			require.NoError(t, err)
-			req := &common.TobTxsSubmitRequest{
+			req := &common.ToBTxsSubmitRequest{
 				ParentHash: parentHash,
 				TobTxs:     tobTxReqs,
 				Slot:       headSlot + c.slotDelta,
@@ -1609,7 +1609,7 @@ func TestSubmitBuilderBlockInSequence(t *testing.T) {
 				txs.Transactions = append(txs.Transactions, txBytes)
 			}
 			txsHashRoot, err := txs.HashTreeRoot()
-			req := &common.TobTxsSubmitRequest{
+			req := &common.ToBTxsSubmitRequest{
 				ParentHash: parentHash,
 				TobTxs:     txs,
 				Slot:       headSlot + 1,
@@ -1664,7 +1664,7 @@ func TestSubmitBuilderBlockInSequence(t *testing.T) {
 				txs.Transactions = append(txs.Transactions, txBytes)
 			}
 			txsHashRoot, err = txs.HashTreeRoot()
-			req = &common.TobTxsSubmitRequest{
+			req = &common.ToBTxsSubmitRequest{
 				ParentHash: parentHash,
 				TobTxs:     txs,
 				Slot:       headSlot + 1,
@@ -1837,7 +1837,7 @@ func TestRebuildCachedRobBlock(t *testing.T) {
 			// create the ToB txs
 			tobTxsValue := big.NewInt(0)
 			if len(c.tobTxs) > 0 {
-				req := new(common.TobTxsSubmitRequest)
+				req := new(common.ToBTxsSubmitRequest)
 				txs := bellatrixUtil.ExecutionPayloadTransactions{Transactions: []bellatrix.Transaction{}}
 				for _, tx := range c.tobTxs {
 					txBytes, err := tx.MarshalBinary()
@@ -1845,7 +1845,7 @@ func TestRebuildCachedRobBlock(t *testing.T) {
 					txs.Transactions = append(txs.Transactions, txBytes)
 				}
 				txsHashRoot, err := txs.HashTreeRoot()
-				req = &common.TobTxsSubmitRequest{
+				req = &common.ToBTxsSubmitRequest{
 					ParentHash: parentHash,
 					TobTxs:     txs,
 					Slot:       headSlot + 1,
@@ -2026,7 +2026,7 @@ func TestSubmitBuilderBlock(t *testing.T) {
 			// create the ToB txs
 			tobTxsValue := big.NewInt(0)
 			if len(c.tobTxs) > 0 {
-				req := new(common.TobTxsSubmitRequest)
+				req := new(common.ToBTxsSubmitRequest)
 				txs := bellatrixUtil.ExecutionPayloadTransactions{Transactions: []bellatrix.Transaction{}}
 				for _, tx := range c.tobTxs {
 					txBytes, err := tx.MarshalBinary()
@@ -2034,7 +2034,7 @@ func TestSubmitBuilderBlock(t *testing.T) {
 					txs.Transactions = append(txs.Transactions, txBytes)
 				}
 				txsHashRoot, err := txs.HashTreeRoot()
-				req = &common.TobTxsSubmitRequest{
+				req = &common.ToBTxsSubmitRequest{
 					ParentHash: parentHash,
 					TobTxs:     txs,
 					Slot:       headSlot + 1,
