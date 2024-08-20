@@ -6,6 +6,8 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	utilcapella "github.com/attestantio/go-eth2-client/util/capella"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
 )
@@ -107,3 +109,12 @@ func hasReachedFork(slot, forkEpoch uint64) bool {
 	currentEpoch := slot / common.SlotsPerEpoch
 	return currentEpoch >= forkEpoch
 }
+
+func ConvertTxBytesToTransaction(data hexutil.Bytes) (*types.Transaction, error) {
+	rawBytes := []byte(data)
+	tx := &types.Transaction{}
+	if err := tx.UnmarshalBinary(rawBytes); err != nil {
+	  return nil, errors.New("ConvertTxBytesToTransaction() could convert bytes to transaction")
+	}
+	return tx, nil
+  }

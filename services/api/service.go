@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AnomalyFi/hypersdk/codec"
 	"github.com/NYTimes/gziphandler"
 	builderCapella "github.com/attestantio/go-builder-client/api/capella"
 	v1 "github.com/attestantio/go-builder-client/api/v1"
@@ -1817,19 +1818,20 @@ func (api *BatonAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http
 		api.log.WithError(err).Warn("failed to write response for builderGetValidators")
 	}
 }
-
-func (api *BatonAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) (uint64, bool) {
+// IMPORTANT: Changing from BuilderSubmitBlockRequest to RoBTxsSubmitRequest
+func (api *BatonAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *logrus.Entry, payload *common.RoBTxsSubmitRequest) (uint64, bool) {
 	api.proposerDutiesLock.RLock()
-	slotDuty := api.proposerDutiesMap[payload.Slot()]
+	slotDuty := api.proposerDutiesMap[payload.Slot]
 	api.proposerDutiesLock.RUnlock()
 	if slotDuty == nil {
 		log.Warn("could not find slot duty")
 		api.RespondError(w, http.StatusBadRequest, "could not find slot duty")
 		return 0, false
-	} else if !strings.EqualFold(slotDuty.Entry.Message.FeeRecipient.String(), payload.ProposerFeeRecipient()) {
+		//note type conversion
+	} else if !strings.EqualFold(slotDuty.Entry.Message.FeeRecipient.String(), string(payload.ProposerPayment)) {
 		log.WithFields(logrus.Fields{
 			"expectedFeeRecipient": slotDuty.Entry.Message.FeeRecipient.String(),
-			"actualFeeRecipient":   payload.ProposerFeeRecipient(),
+			"actualFeeRecipient":   payload.ProposerPayment,
 		}).Info("fee recipient does not match")
 		api.RespondError(w, http.StatusBadRequest, "fee recipient does not match")
 		return 0, false
@@ -2061,28 +2063,27 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 
 	slot := tobTxRequest.Slot
 	parentHash := tobTxRequest.ParentHash
-	if len(tobTxRequest.TobTxs) == 0 {
+	if len(tobTxRequest.ToBTxs) == 0 {
 		logMsg := "Empty TOB tx map in request"
 		log.Error(logMsg)
 		api.Respond(w, http.StatusBadRequest, logMsg)
 		return
 	}
 
-	for k, v := range tobTxRequest.TobTxs {
-		if len(v.Transactions) == 0 {
-			logMsg := "Empty TOB tx request sent for chain: " + k
+	for _, tx := range tobTxRequest.ToBTxs {
+		if len(tx.Transaction) == 0 {
+			logMsg := "Empty TOB tx request"
 			log.Error(logMsg)
 			api.Respond(w, http.StatusBadRequest, logMsg)
 			return
 		}
 
-		if len(v.Transactions) == 1 {
+		if len(tx.Transaction) == 1 {
 			api.Respond(w, http.StatusBadRequest, "We require a payment tx along with the TOB txs!")
 		}
-		for _, v := range tobTxRequest.TobTxs {
-			if len(v.Transactions) > common.MaxTobTxs+1 {
-				api.Respond(w, http.StatusBadRequest, fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(v.Transactions)))
-			}
+		
+		if len(tx.Transaction) > common.MaxTobTxs+1 {
+			api.Respond(w, http.StatusBadRequest, fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(v.Transactions)))
 		}
 	}
 
@@ -2107,14 +2108,16 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 		api.Respond(w, http.StatusBadRequest, "could not find slot duty")
 		return
 	}
+	// note: is this needed? no validator in this context because we have ProposerPayment in req
 	validatorFeeRecipient := slotDuty.Entry.Message.FeeRecipient
 
 	startTime := time.Now().UTC()
 	// simulate the TOB txs
+	// TODO: might need changing below with req
 	err = api.simulateTobTxs(context.Background(), tobSimOptions{
 		log: log,
 		req: &common.TobValidationRequest{
-			TobTxs:               tobTxRequest.TobTxs,
+			TobTxs:               tobTxRequest.ToBTxs,
 			ParentHash:           tobTxRequest.ParentHash,
 			ProposerFeeRecipient: validatorFeeRecipient.String(),
 			TobGasLimit:          uint64(common.TobGasReservations),
@@ -2127,28 +2130,10 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	}
 	simulationDuration := time.Since(startTime).Microseconds()
 
-	// decode the txs
-	/*
-		transactionBytes := make([][]byte, len(tobTxRequest.TobTxs.Transactions))
-		for i, txHexBytes := range tobTxRequest.TobTxs.Transactions {
-			transactionBytes[i] = txHexBytes[:]
-		}
-	*/
-
-	// note: chainID from request map is lost but should be fine since each request,
-	// will have a chain id and this func runs with a request at a time
-	execPayloads := common.MapValuesToSlice(tobTxRequest.TobTxs)
-	// sum of txs in each payload
-	var sum int
-	for _, execPayload := range execPayloads {
-		sum += len(execPayload.Transactions)
-	}
-	transactionBytes := make([][]byte, sum)
+	execPayloads := tobTxRequest.ToBTxs
+	transactionBytes := make([][]byte, len(execPayloads))
 	for i, execPayload := range execPayloads {
-		for _, txHexBytes := range execPayload.Transactions {
-			// transactionBytes[i][j] = txHexBytes[:]
-			copy(transactionBytes[i], txHexBytes)
-		}
+		copy(transactionBytes[i], execPayload.Transaction)
 	}
 
 	txs, err := common.DecodeTransactions(transactionBytes)
@@ -2168,8 +2153,14 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	tracerDuration := time.Since(startTime).Microseconds()
 
 	// TODO: Verify is the last tx the payment to chunk producer? Is it really synonymous with the entire chunk value?
-	lastTx := tobTxRequest.LastTx
-
+	lastTxBytes := tobTxRequest.ToBTxs[len(tobTxRequest.ToBTxs) - 1].Transaction 
+	lastTx, err := ConvertTxBytesToTransaction(lastTxBytes)
+	propPayment := tobTxRequest.ProposerPayment
+	if (codec.Address(lastTx.To().Bytes()) != propPayment) {
+		log.WithError(err).Error("error validating the lastTx recipient does not match proposer payment address")
+		api.RespondError(w, http.StatusBadRequest, "error validating the lastTx recipient does not match proposer payment address")
+		return
+	}
 	tx := api.redis.NewTxPipeline()
 
 	tobTxValue := lastTx.Value()
@@ -2270,8 +2261,10 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 		return
 	}
 
-	payload := new(common.BuilderSubmitBlockRequest)
+	payload := new(common.RoBTxsSubmitRequest)
 
+	// note: why do we need to rebuild cache? 
+	// Is it because if the curr cache becomes hacked or has issues etc that it needs a new cache?
 	if rebuildCacheRobBlock {
 		if slotStr == "" {
 			log.WithError(err).Warn("slot required to re-build rob block")
@@ -2302,11 +2295,12 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 			return
 		}
 	} else {
+		// TODO: need SSZ encoding for ToB and RoB requests as well as ExecutionPayload
 		// Check for SSZ encoding
 		contentType := req.Header.Get("Content-Type")
 		if contentType == "application/octet-stream" {
 			log = log.WithField("reqContentType", "ssz")
-			payload.Capella = new(builderCapella.SubmitBlockRequest)
+			payload = new(builderCapella.SubmitBlockRequest)
 			if err = payload.Capella.UnmarshalSSZ(requestPayloadBytes); err != nil {
 				log.WithError(err).Warn("could not decode payload - SSZ")
 
@@ -2348,20 +2342,22 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 		"isLargeRequest":         isLargeRequest,
 	})
 
-	if payload.Message() == nil || !payload.HasExecutionPayload() {
-		log.Error("submitNewBlock failed: missing execution payload")
-		api.RespondError(w, http.StatusBadRequest, "missing parts of the payload")
-		return
-	}
+	// TODO: revisit and do our own verification for slots and payload
 
-	ok := api.checkSubmissionSlotDetails(w, log, headSlot, payload)
-	if !ok {
-		log.WithError(err).Info("slot details check failed")
-		api.RespondError(w, http.StatusBadRequest, "slot details check failed")
-		return
-	}
-
-	builderPubkey := payload.BuilderPubkey()
+	// if payload.Message() == nil || !payload.HasExecutionPayload() {
+	// 	log.Error("submitNewBlock failed: missing execution payload")
+	// 	api.RespondError(w, http.StatusBadRequest, "missing parts of the payload")
+	// 	return
+	// }
+	
+	// ok := api.checkSubmissionSlotDetails(w, log, headSlot, payload)
+	// if !ok {
+	// 	log.WithError(err).Info("slot details check failed")
+	// 	api.RespondError(w, http.StatusBadRequest, "slot details check failed")
+	// 	return
+	// }
+	
+	builderPubkey := payload.BuilderPubkey
 	builderEntry, ok := api.checkBuilderEntry(w, log, builderPubkey)
 	if !ok {
 		log.WithError(err).Info("builder entry check failed")
@@ -2386,7 +2382,9 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 		log.Info("submitNewBlock failed: block with 0 value or no txs")
 		w.WriteHeader(http.StatusOK)
 		return
-	}
+	}	
+
+	// TODO: Don't accept blocks that don't include payload.ProposerPayment field
 
 	// Sanity check the submission
 	err = SanityCheckBuilderBlockSubmission(payload)
@@ -2407,7 +2405,8 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 
 	// Verify the signature
 	log = log.WithField("timestampBeforeSignatureCheck", time.Now().UTC().UnixMilli())
-	signature := payload.Signature()
+	signature := payload.Signature
+	// note: message is possibly needed for verification of signature
 	ok, err = boostTypes.VerifySignature(payload.Message(), api.opts.EthNetDetails.DomainBuilder, builderPubkey[:], signature[:])
 	log = log.WithField("timestampAfterSignatureCheck", time.Now().UTC().UnixMilli())
 	if err != nil {
@@ -2427,7 +2426,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 	slotLastPayloadDelivered, err := api.redis.GetLastSlotDelivered(context.Background(), tx)
 	if err != nil && !errors.Is(err, redis.Nil) {
 		log.WithError(err).Error("failed to get delivered payload slot from redis")
-	} else if payload.Slot() <= slotLastPayloadDelivered {
+	} else if payload.Slot <= slotLastPayloadDelivered {
 		log.Info("rejecting submission because payload for this slot was already delivered")
 		api.RespondError(w, http.StatusBadRequest, "payload for this slot was already delivered")
 		return
@@ -2442,7 +2441,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 	// Get the best TOB tx value set from Redis
 	// If so proceed with assembly.
 	// check if there is a TOB tx
-	tobTxs, err := api.redis.GetTobTx(context.Background(), tx, payload.Slot(), payload.ParentHash())
+	tobTxs, err := api.redis.GetTobTx(context.Background(), tx, payload.Slot, payload.ParentHash)
 	if err != nil {
 		log.WithError(err).Error("failed to get tob txs from redis")
 		api.RespondError(w, http.StatusInternalServerError, "failed to get tob txs from redis")
@@ -2452,7 +2451,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 	totalBidValue := payload.Value()
 	tobTxValue := big.NewInt(0)
 	if len(tobTxs) > 0 {
-		tobTxValue, err = api.redis.GetTobTxValue(context.Background(), tx, payload.Slot(), payload.ParentHash())
+		tobTxValue, err = api.redis.GetTobTxValue(context.Background(), tx, payload.Slot, payload.ParentHash)
 		if err != nil {
 			log.WithError(err).Error("failed to get tob tx value from redis")
 			api.RespondError(w, http.StatusInternalServerError, "failed to get tob tx value from redis")
@@ -2464,7 +2463,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 
 	// Get the latest top bid value from Redis
 	bidIsTopBid := false
-	topBidValue, err := api.redis.GetTopBidValue(context.Background(), tx, payload.Slot(), payload.ParentHash(), payload.ProposerPubkey())
+	topBidValue, err := api.redis.GetTopBidValue(context.Background(), tx, payload.Slot, payload.ParentHash, payload.ProposerPubkey.String())
 	if err != nil {
 		log.WithError(err).Error("failed to get top bid value from redis")
 		api.RespondError(w, http.StatusBadRequest, "failed to get top bid value from redis")
@@ -2477,7 +2476,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 		})
 	}
 
-	var builderSubmission *common.BuilderSubmitBlockRequest
+	var builderSubmission *common.RoBTxsSubmitRequest
 	var eligibleAt time.Time // will be set once the bid is ready
 	if len(tobTxs) > 0 {
 		// we have a TOB tx, now assemble the block. Block assembly has the same properties as simulation but returns the final
@@ -2553,7 +2552,8 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 		})
 
 		assembledPayload, requestErr, validationErr := api.assembleBlock(context.Background(), opts) // success/error logging happens inside
-		builderSubmission = &common.BuilderSubmitBlockRequest{
+		// note: this could be the response for anchor request
+		builderSubmission = &common.RoBTxsSubmitRequest{
 			Bellatrix: payload.Bellatrix,
 			Capella: &builderCapella.SubmitBlockRequest{
 				Message: &v1.BidTrace{

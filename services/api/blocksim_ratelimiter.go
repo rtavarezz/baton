@@ -73,6 +73,9 @@ func (b *BlockSimulationRateLimiter) TobSim(context context.Context, tobValidati
 	var simReq *jsonrpc.JSONRPCRequest
 
 	// Create and fire off JSON-RPC request
+	// TODO: do we need to sim the tob validator request again here since builder already does?
+	// or keep it for double verification from both builder and relayer
+	// lastly, where is this flashbots_validateTobSubmission since I couldn't find it in the library
 	simReq = jsonrpc.NewJSONRPCRequest("1", "flashbots_validateTobSubmission", tobValidationRequest)
 	_, requestErr, validationErr = SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, nil)
 	return requestErr, validationErr
