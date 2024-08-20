@@ -2074,9 +2074,10 @@ func (api *RelayAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 		if len(v.Transactions) == 1 {
 			api.Respond(w, http.StatusBadRequest, "We require a payment tx along with the TOB txs!")
 		}
-
-		if len(v.Transactions) > common.MaxTobTxs+1 {
-			api.Respond(w, http.StatusBadRequest, fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(tobTxRequest.TobTxs.Transactions)))
+		for _, v := range tobTxRequest.TobTxs {
+			if len(v.Transactions) > common.MaxTobTxs+1 {
+				api.Respond(w, http.StatusBadRequest, fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(v.Transactions)))
+			}
 		}
 	}
 
@@ -2521,7 +2522,7 @@ func (api *RelayAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 				log.WithError(err).Error("failed to upsert block-builder-entry")
 			}
 		}()
-
+		// note
 		tobTxsToSendToAssembler := bellatrix.ExecutionPayloadTransactions{
 			Transactions: []bellatrix2.Transaction{},
 		}

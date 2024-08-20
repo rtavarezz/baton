@@ -1166,7 +1166,7 @@ type TobTxsSubmitRequest struct {
 
 func NewTobTxsSubmitRequest() TobTxsSubmitRequest {
 	return TobTxsSubmitRequest{
-		TobTxs: make(map[string]utilbellatrix.ExecutionPayloadTransactions),
+		TobTxs: make(map[string]ExecutionPayloadTransactions),
 	}
 }
 
@@ -1207,7 +1207,7 @@ func (t *TobTxsSubmitRequest) UnmarshalJSON(data []byte) error {
 }
 
 type BlockAssemblerRequest struct {
-	TobTxs             utilbellatrix.ExecutionPayloadTransactions `json:"tob_txs"`
+	TobTxs             ExecutionPayloadTransactions `json:"tob_txs"`
 	RobPayload         BuilderSubmitBlockRequest                  `json:"rob_payload"`
 	RegisteredGasLimit uint64                                     `json:"registered_gas_limit,string"`
 }
@@ -1287,7 +1287,7 @@ type CallTraceResponse struct {
 type NetworkTobTxChecker func(CallTrace) (bool, error)
 
 type TobValidationRequest struct {
-	TobTxs               utilbellatrix.ExecutionPayloadTransactions
+	TobTxs               map[string]ExecutionPayloadTransactions
 	ParentHash           string
 	ProposerFeeRecipient string
 	TobGasLimit          uint64
