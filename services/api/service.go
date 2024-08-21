@@ -2015,7 +2015,15 @@ func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *htt
 // @TODO: Javellin builder should send us a list of tx. If the tx list doesn't include proposer payment,
 //
 //	then reject the block.
-//
+//	
+// Steps: 
+// 1.) The simulation should happen first for verfication of ToB txs.
+// 2.) create 1 function that handles block(both ToB and RoB reqs), if chainID of ToB is diff then it is ToB req,
+// otherwise it is RoB req. If ToB req, do logic for ToB and return var, and same for RoB.
+// Method should return var ToB and RoB. 
+// 3.) redis store needs to be rollup domain aware. 
+// So SEQ should add domain struct field that tells Anchor/Baton how many rollups are included in req
+
 // @TODO: Unit test the above.
 func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Request) {
 	headSlot := api.headSlot.Load()
@@ -2298,31 +2306,31 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 	} else {
 		// TODO: need SSZ encoding for ToB and RoB requests as well as ExecutionPayload
 		// Check for SSZ encoding
-		contentType := req.Header.Get("Content-Type")
-		if contentType == "application/octet-stream" {
-			log = log.WithField("reqContentType", "ssz")
-			payload = new(builderCapella.SubmitBlockRequest)
-			if err = payload.Capella.UnmarshalSSZ(requestPayloadBytes); err != nil {
-				log.WithError(err).Warn("could not decode payload - SSZ")
+		// contentType := req.Header.Get("Content-Type")
+		// if contentType == "application/octet-stream" {
+		// 	log = log.WithField("reqContentType", "ssz")
+		// 	payload = new(SubmitBlockRequest)
+		// 	if err = payload.Capella.UnmarshalSSZ(requestPayloadBytes); err != nil {
+		// 		log.WithError(err).Warn("could not decode payload - SSZ")
 
-				// SSZ decoding failed. try JSON as fallback (some builders used octet-stream for json before)
-				if err2 := json.Unmarshal(requestPayloadBytes, payload); err2 != nil {
-					log.WithError(fmt.Errorf("%w / %w", err, err2)).Warn("could not decode payload - SSZ or JSON")
-					api.RespondError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-				log = log.WithField("reqContentType", "json")
-			} else {
-				log.Debug("received ssz-encoded payload")
-			}
-		} else {
-			log = log.WithField("reqContentType", "json")
-			if err := json.Unmarshal(requestPayloadBytes, payload); err != nil {
-				log.WithError(err).Warn("could not decode payload - JSON")
-				api.RespondError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-		}
+		// 		// SSZ decoding failed. try JSON as fallback (some builders used octet-stream for json before)
+		// 		if err2 := json.Unmarshal(requestPayloadBytes, payload); err2 != nil {
+		// 			log.WithError(fmt.Errorf("%w / %w", err, err2)).Warn("could not decode payload - SSZ or JSON")
+		// 			api.RespondError(w, http.StatusBadRequest, err.Error())
+		// 			return
+		// 		}
+		// 		log = log.WithField("reqContentType", "json")
+		// 	} else {
+		// 		log.Debug("received ssz-encoded payload")
+		// 	}
+		// } else {
+		// 	log = log.WithField("reqContentType", "json")
+		// 	if err := json.Unmarshal(requestPayloadBytes, payload); err != nil {
+		// 		log.WithError(err).Warn("could not decode payload - JSON")
+		// 		api.RespondError(w, http.StatusBadRequest, err.Error())
+		// 		return
+		// 	}
+		// }
 	}
 
 	nextTime = time.Now().UTC()
@@ -2486,6 +2494,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 
 	var builderSubmission *common.RoBTxsSubmitRequest
 	var eligibleAt time.Time // will be set once the bid is ready
+	// note: 
 	if len(tobTxs) > 0 {
 		// we have a TOB tx, now assemble the block. Block assembly has the same properties as simulation but returns the final
 		// execution payload. If there are no TOB txs, we send an empty list to the assembler

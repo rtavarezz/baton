@@ -17,6 +17,7 @@ import (
 	consensusspec "github.com/attestantio/go-eth2-client/spec"
 	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -341,6 +342,31 @@ func (b *BidTraceV2WithTimestampJSON) ToCSVRecord() []string {
 	}
 }
 
+type ExecutionPayload struct {
+	BlockHash common.Hash `json:"blockHash"`
+	// Array of transaction objects, each object is a byte list (DATA) representing
+	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	Transactions []*actions.SEQTransaction `json:"transactions"`
+}
+type AnchorGetHeaderResponse struct {
+	// note: Message should be the anchor req
+	Slot uint64 `json:"slot"`
+	// nodeID of chunk producing validator.
+	Producer ids.NodeID `json:"producer"`
+	// block builder address
+	PriorityFeeReceiverAddr codec.Address `json:"priorityfeereceiveraddr"`
+	// hash of the anchor chunks (tob + robs)
+	ChunkHash common.Hash            `json:"chunkhash"`
+	ToBHash   common.Hash            `json:"tobhash"`
+	RoBHashes map[string]common.Hash `json:"robhashes"`
+}
+type AnchorGetPayloadResponse struct {
+	Slot        uint64                       `json:"slot"`
+	ToBPayload  ExecutionPayload            `json:"tobpayload"`
+	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
+}
+
+// note: likely not needed since we can define our own formats and dealing with SEQ.
 type SignedBlindedBeaconBlock struct {
 	Bellatrix *boostTypes.SignedBlindedBeaconBlock
 	Capella   *apiv1capella.SignedBlindedBeaconBlock
@@ -494,12 +520,10 @@ func (e *VersionedExecutionPayload) NumTx() int {
 	return 0
 }
 
-// TODO: Ask Noah what the thinks of adding the ChainID here
-// Also why are both needed?
 type BuilderSubmitBlockRequest struct {
-	ChainID   string
-	Bellatrix *boostTypes.BuilderSubmitBlockRequest
-	Capella   *capella.SubmitBlockRequest
+	AnchorSignature     boostTypes.Signature         `json:"signature" ssz-size:"96"`
+    AnchorMessage       *ToBTxsSubmitRequest        `json:"message"`
+    ExecutionPayload 	*ExecutionPayload `json:"execution_payload"`
 }
 
 func (b *BuilderSubmitBlockRequest) MarshalJSON() ([]byte, error) {
@@ -1183,14 +1207,6 @@ type RoBTxsSubmitRequest struct {
 	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
 }
-
-/*
-type BuilderSubmitBlockRequest struct {
-  ChainID   string
-  Bellatrix *boostTypes.BuilderSubmitBlockRequest
-  Capella   *capella.SubmitBlockRequest
-}
-*/
 
 type IntermediateTobTxsSubmitRequest struct {
 	TobTxs     []byte `json:"tobTxs"`
