@@ -1818,6 +1818,7 @@ func (api *BatonAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http
 		api.log.WithError(err).Warn("failed to write response for builderGetValidators")
 	}
 }
+
 // IMPORTANT: Changing from BuilderSubmitBlockRequest to RoBTxsSubmitRequest
 func (api *BatonAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *logrus.Entry, payload *common.RoBTxsSubmitRequest) (uint64, bool) {
 	api.proposerDutiesLock.RLock()
@@ -1828,7 +1829,7 @@ func (api *BatonAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *log
 		api.RespondError(w, http.StatusBadRequest, "could not find slot duty")
 		return 0, false
 		//note type conversion
-	} else if !strings.EqualFold(slotDuty.Entry.Message.FeeRecipient.String(), string(payload.ProposerPayment)) {
+	} else if !strings.EqualFold(slotDuty.Entry.Message.FeeRecipient.String(), string(payload.ProposerPayment[:])) {
 		log.WithFields(logrus.Fields{
 			"expectedFeeRecipient": slotDuty.Entry.Message.FeeRecipient.String(),
 			"actualFeeRecipient":   payload.ProposerPayment,
@@ -2081,7 +2082,7 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 		if len(tx.Transaction) == 1 {
 			api.Respond(w, http.StatusBadRequest, "We require a payment tx along with the TOB txs!")
 		}
-		
+
 		if len(tx.Transaction) > common.MaxTobTxs+1 {
 			api.Respond(w, http.StatusBadRequest, fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(v.Transactions)))
 		}
@@ -2153,10 +2154,10 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	tracerDuration := time.Since(startTime).Microseconds()
 
 	// TODO: Verify is the last tx the payment to chunk producer? Is it really synonymous with the entire chunk value?
-	lastTxBytes := tobTxRequest.ToBTxs[len(tobTxRequest.ToBTxs) - 1].Transaction 
+	lastTxBytes := tobTxRequest.ToBTxs[len(tobTxRequest.ToBTxs)-1].Transaction
 	lastTx, err := ConvertTxBytesToTransaction(lastTxBytes)
 	propPayment := tobTxRequest.ProposerPayment
-	if (codec.Address(lastTx.To().Bytes()) != propPayment) {
+	if codec.Address(lastTx.To().Bytes()) != propPayment {
 		log.WithError(err).Error("error validating the lastTx recipient does not match proposer payment address")
 		api.RespondError(w, http.StatusBadRequest, "error validating the lastTx recipient does not match proposer payment address")
 		return
@@ -2263,7 +2264,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 
 	payload := new(common.RoBTxsSubmitRequest)
 
-	// note: why do we need to rebuild cache? 
+	// note: why do we need to rebuild cache?
 	// Is it because if the curr cache becomes hacked or has issues etc that it needs a new cache?
 	if rebuildCacheRobBlock {
 		if slotStr == "" {
@@ -2349,14 +2350,14 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 	// 	api.RespondError(w, http.StatusBadRequest, "missing parts of the payload")
 	// 	return
 	// }
-	
+
 	// ok := api.checkSubmissionSlotDetails(w, log, headSlot, payload)
 	// if !ok {
 	// 	log.WithError(err).Info("slot details check failed")
 	// 	api.RespondError(w, http.StatusBadRequest, "slot details check failed")
 	// 	return
 	// }
-	
+
 	builderPubkey := payload.BuilderPubkey
 	builderEntry, ok := api.checkBuilderEntry(w, log, builderPubkey)
 	if !ok {
@@ -2382,7 +2383,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 		log.Info("submitNewBlock failed: block with 0 value or no txs")
 		w.WriteHeader(http.StatusOK)
 		return
-	}	
+	}
 
 	// TODO: Don't accept blocks that don't include payload.ProposerPayment field
 
@@ -2396,13 +2397,17 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 
 	log = log.WithField("timestampBeforeAttributesCheck", time.Now().UTC().UnixMilli())
 
-	ok = api.checkSubmissionPayloadAttrs(w, log, payload)
-	if !ok {
-		log.WithError(err).Info("payload attributes check failed")
-		api.RespondError(w, http.StatusBadRequest, "payload attributes check failed")
-		return
-	}
+	// TODO: Is this needed? How much of this is needed at all?
+	/*
+		ok = api.checkSubmissionPayloadAttrs(w, log, payload)
+		if !ok {
+			log.WithError(err).Info("payload attributes check failed")
+			api.RespondError(w, http.StatusBadRequest, "payload attributes check failed")
+			return
+		}
+	*/
 
+	// TODO: Figure out how to verify out own signature for our message type
 	// Verify the signature
 	log = log.WithField("timestampBeforeSignatureCheck", time.Now().UTC().UnixMilli())
 	signature := payload.Signature
@@ -2438,6 +2443,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 
 	robBid := payload
 
+	// TODO: What about RoB transactions?
 	// Get the best TOB tx value set from Redis
 	// If so proceed with assembly.
 	// check if there is a TOB tx
@@ -2447,6 +2453,8 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 		api.RespondError(w, http.StatusInternalServerError, "failed to get tob txs from redis")
 		return
 	}
+
+	// TODO: Below is incomplete. There are now multiple rollup domains which figure into the value below.
 	// if there are no TOB txs then the ROB block is the final block
 	totalBidValue := payload.Value()
 	tobTxValue := big.NewInt(0)
