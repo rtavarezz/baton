@@ -114,7 +114,7 @@ func ConvertTxBytesToTransaction(data hexutil.Bytes) (*types.Transaction, error)
 	rawBytes := []byte(data)
 	tx := &types.Transaction{}
 	if err := tx.UnmarshalBinary(rawBytes); err != nil {
-	  return nil, errors.New("ConvertTxBytesToTransaction() could convert bytes to transaction")
+		return nil, errors.New("ConvertTxBytesToTransaction() could convert bytes to transaction")
 	}
 	return tx, nil
-  }
+}

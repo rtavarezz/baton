@@ -3,7 +3,6 @@ package api
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -20,15 +19,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AnomalyFi/hypersdk/codec"
 	"github.com/NYTimes/gziphandler"
-	builderCapella "github.com/attestantio/go-builder-client/api/capella"
-	v1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/api/v1/capella"
-	bellatrix2 "github.com/attestantio/go-eth2-client/spec/bellatrix"
 	capella2 "github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/attestantio/go-eth2-client/util/bellatrix"
 	"github.com/buger/jsonparser"
 	common2 "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -43,7 +37,6 @@ import (
 	"github.com/flashbots/mev-boost-relay/datastore"
 	"github.com/go-redis/redis/v9"
 	"github.com/gorilla/mux"
-	"github.com/holiman/uint256"
 	"github.com/sirupsen/logrus"
 	uberatomic "go.uber.org/atomic"
 	"golang.org/x/exp/slices"
@@ -73,6 +66,7 @@ var (
 
 	// Block builder API
 	pathBuilderGetValidators  = "/relay/v1/builder/validators"
+	pathSubmitNewBlockRequest = "/relay/v1/builder/submit"
 	pathSubmitNewBlock        = "/relay/v1/builder/blocks"
 	pathSubmitNewRoBBlock     = "/relay/v1/builder/rob_blocks"
 	pathSubmitNewToBTxs       = "/relay/v1/builder/tob_txs"
@@ -160,6 +154,15 @@ type payloadAttributesHelper struct {
 
 // Data needed to issue a block validation request.
 type blockSimOptions struct {
+	isHighPrio bool
+	fastTrack  bool
+	log        *logrus.Entry
+	builder    *blockBuilderCacheEntry
+	req        *common.BuilderBlockValidationRequest
+}
+
+// Like the above but
+type blockSimOptions2 struct {
 	isHighPrio bool
 	fastTrack  bool
 	log        *logrus.Entry
@@ -422,9 +425,16 @@ func (api *BatonAPI) getRouter() http.Handler {
 	if api.opts.BlockBuilderAPI {
 		api.log.Info("block builder API enabled")
 		r.HandleFunc(pathBuilderGetValidators, api.handleBuilderGetValidators).Methods(http.MethodGet)
-		r.HandleFunc(pathSubmitNewBlock, api.handleSubmitNewBlock).Methods(http.MethodPost)
-		r.HandleFunc(pathSubmitNewRoBBlock, api.handleSubmitNewRoBBlock).Methods(http.MethodPost)
-		r.HandleFunc(pathSubmitNewToBTxs, api.handleSubmitNewTobTxs).Methods(http.MethodPost)
+
+		// Handles both ToB and RoB submissions
+		r.HandleFunc(pathSubmitNewBlockRequest, api.handleSubmitNewBlockRequest).Methods(http.MethodPost)
+
+		// DEPRECATED
+		/*
+			r.HandleFunc(pathSubmitNewBlock, api.handleSubmitNewBlock).Methods(http.MethodPost)
+			r.HandleFunc(pathSubmitNewRoBBlock, api.handleSubmitNewRoBBlock).Methods(http.MethodPost)
+			r.HandleFunc(pathSubmitNewToBTxs, api.handleSubmitNewTobTxs).Methods(http.MethodPost)
+		*/
 		r.HandleFunc(pathGetTobGasReservations, api.handleGetTobGasReservations).Methods(http.MethodGet)
 	}
 
@@ -830,6 +840,63 @@ func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) err
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
 func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
+	t := time.Now()
+	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
+	log := opts.log.WithFields(logrus.Fields{
+		"durationMs": time.Since(t).Milliseconds(),
+		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
+	})
+	if validationErr != nil {
+		if api.ffIgnorableValidationErrors {
+			// Operators chooses to ignore certain validation errors
+			ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
+			if ignoreError {
+				log.WithError(validationErr).Warn("block validation failed with ignorable error")
+				return nil, nil
+			}
+		}
+		log.WithError(validationErr).Warn("block validation failed")
+		return nil, validationErr
+	}
+	if requestErr != nil {
+		log.WithError(requestErr).Warn("block validation failed: request error")
+		return requestErr, nil
+	}
+	log.Info("block validation successful")
+	return nil, nil
+}
+
+// simulateBlock sends a request for a block simulation to blockSimRateLimiter.
+func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
+	t := time.Now()
+	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
+	log := opts.log.WithFields(logrus.Fields{
+		"durationMs": time.Since(t).Milliseconds(),
+		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
+	})
+	if validationErr != nil {
+		if api.ffIgnorableValidationErrors {
+			// Operators chooses to ignore certain validation errors
+			ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
+			if ignoreError {
+				log.WithError(validationErr).Warn("block validation failed with ignorable error")
+				return nil, nil
+			}
+		}
+		log.WithError(validationErr).Warn("block validation failed")
+		return nil, validationErr
+	}
+	if requestErr != nil {
+		log.WithError(requestErr).Warn("block validation failed: request error")
+		return requestErr, nil
+	}
+	log.Info("block validation successful")
+	return nil, nil
+}
+
+func (api *BatonAPI) simulateBlockTxs(
+	ctx context.Context,
+	blockReq *common.SubmitNewBlockRequest) (requestErr, validationErr error) {
 	t := time.Now()
 	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
 	log := opts.log.WithFields(logrus.Fields{
@@ -1876,7 +1943,44 @@ func (api *BatonAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *log
 	return true
 }
 
+func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.SubmitNewBlockRequest) bool {
+	if payload.Slot <= headSlot {
+		log.Info("submitNewBlock failed: submission for past slot")
+		api.RespondError(w, http.StatusBadRequest, "submission for past slot")
+		return false
+	}
+
+	return true
+}
+
+/* DEPRECATED
 func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
+	// TODO: add deneb support.
+	if payload.Capella == nil {
+		log.Info("rejecting submission - non-capella payload for capella fork")
+		api.RespondError(w, http.StatusBadRequest, "non-capella payload")
+		return false
+	}
+
+	if payload.Slot() <= headSlot {
+		log.Info("submitNewBlock failed: submission for past slot")
+		api.RespondError(w, http.StatusBadRequest, "submission for past slot")
+		return false
+	}
+
+	// Timestamp check
+	expectedTimestamp := api.genesisInfo.Data.GenesisTime + (payload.Slot() * common.SecondsPerSlot)
+	if payload.Timestamp() != expectedTimestamp {
+		log.Warnf("incorrect timestamp. got %d, expected %d", payload.Timestamp(), expectedTimestamp)
+		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("incorrect timestamp. got %d, expected %d", payload.Timestamp(), expectedTimestamp))
+		return false
+	}
+
+	return true
+}
+*/
+
+func (api *BatonAPI) checkSubmissionSlotDetails2(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
 	// TODO: add deneb support.
 	if payload.Capella == nil {
 		log.Info("rejecting submission - non-capella payload for capella fork")
@@ -2015,15 +2119,17 @@ func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *htt
 // @TODO: Javellin builder should send us a list of tx. If the tx list doesn't include proposer payment,
 //
 //	then reject the block.
-//	
-// Steps: 
+//
+// Steps:
 // 1.) The simulation should happen first for verfication of ToB txs.
 // 2.) create 1 function that handles block(both ToB and RoB reqs), if chainID of ToB is diff then it is ToB req,
 // otherwise it is RoB req. If ToB req, do logic for ToB and return var, and same for RoB.
-// Method should return var ToB and RoB. 
-// 3.) redis store needs to be rollup domain aware. 
+// Method should return var ToB and RoB.
+// 3.) redis store needs to be rollup domain aware.
 // So SEQ should add domain struct field that tells Anchor/Baton how many rollups are included in req
 
+// DEPRECATED
+/*
 // @TODO: Unit test the above.
 func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Request) {
 	headSlot := api.headSlot.Load()
@@ -2219,7 +2325,9 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	api.Respond(w, http.StatusOK, "Tob Tx submitted successfully!")
 	return
 }
+*/
 
+/*
 func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Request) {
 	var pf common.Profile
 	var prevTime, nextTime time.Time
@@ -2406,14 +2514,12 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 	log = log.WithField("timestampBeforeAttributesCheck", time.Now().UTC().UnixMilli())
 
 	// TODO: Is this needed? How much of this is needed at all?
-	/*
-		ok = api.checkSubmissionPayloadAttrs(w, log, payload)
-		if !ok {
-			log.WithError(err).Info("payload attributes check failed")
-			api.RespondError(w, http.StatusBadRequest, "payload attributes check failed")
-			return
-		}
-	*/
+	//	ok = api.checkSubmissionPayloadAttrs(w, log, payload)
+	//	if !ok {
+	//		log.WithError(err).Info("payload attributes check failed")
+	//		api.RespondError(w, http.StatusBadRequest, "payload attributes check failed")
+	//		return
+	//	}
 
 	// TODO: Figure out how to verify out own signature for our message type
 	// Verify the signature
@@ -2494,7 +2600,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 
 	var builderSubmission *common.RoBTxsSubmitRequest
 	var eligibleAt time.Time // will be set once the bid is ready
-	// note: 
+	// note:
 	if len(tobTxs) > 0 {
 		// we have a TOB tx, now assemble the block. Block assembly has the same properties as simulation but returns the final
 		// execution payload. If there are no TOB txs, we send an empty list to the assembler
@@ -2786,6 +2892,7 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 	w.WriteHeader(http.StatusOK)
 
 }
+*/
 
 type redisUpdateBidOpts struct {
 	w                    http.ResponseWriter
@@ -2831,6 +2938,132 @@ func (api *BatonAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBid
 	return &updateBidResult, getPayloadResponse, true
 }
 
+// This method used for both ToB and for RoB.
+func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *http.Request) {
+	var prevTime, nextTime time.Time
+	headSlot := api.headSlot.Load()
+	receivedAt := time.Now().UTC()
+	prevTime = receivedAt
+
+	log := api.log.WithFields(logrus.Fields{
+		"method":                "submitNewBlockRequest",
+		"contentLength":         req.ContentLength,
+		"headSlot":              headSlot,
+		"timestampRequestStart": receivedAt.UnixMilli(),
+	})
+
+	// Log at start and end of request
+	log.Info("request initiated")
+	defer func() {
+		log.WithFields(logrus.Fields{
+			"timestampRequestFin": time.Now().UTC().UnixMilli(),
+			"requestDurationMs":   time.Since(receivedAt).Milliseconds(),
+		}).Info("request finished")
+	}()
+
+	var err error
+	var r io.Reader = req.Body
+
+	limitReader := io.LimitReader(r, 10*1024*1024) // 10 MB
+	payloadBytes, err := io.ReadAll(limitReader)
+	if err != nil {
+		log.WithError(err).Warn("could not read payload")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	blockReq := new(common.SubmitNewBlockRequest)
+	err = blockReq.FromJSON(payloadBytes)
+	if err != nil {
+		log.WithError(err).Warn("could not parse payload into SubmitNewBlockRequest")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	isLargeRequest := len(payloadBytes) > fastTrackPayloadSizeLimit
+	slot := blockReq.Slot
+	parentHash := blockReq.ParentHash
+
+	if slot < headSlot {
+		log.Error("TOB tx request for past slot!")
+		api.Respond(w, http.StatusBadRequest, "Submitted TOB tx request for past slot!")
+		return
+	}
+
+	// We only allow bidding for block 1 slot prior
+	if (slot - headSlot) > 1 {
+		log.Error("Slot's TOB bid not yet started!!")
+		api.Respond(w, http.StatusBadRequest, "Slot's TOB bid not yet started!!")
+		return
+	}
+
+	ok := api.checkSubmissionSlotDetails(w, log, headSlot, blockReq)
+	if !ok {
+		log.WithError(err).Info("slot details check failed")
+		api.RespondError(w, http.StatusBadRequest, "slot details check failed")
+		return
+	}
+
+	if len(blockReq.Txs) > common.MaxTobTxs+1 {
+		msg := fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(blockReq.Txs))
+		log.WithError(err).Info(msg)
+		api.Respond(w, http.StatusBadRequest, msg)
+		return
+	}
+
+	// ToB will have varying chain id in txs, RoB will have uniform
+	// Also verifies len(txs) >= 2
+	isToBReq, err := api.checkBlockRequestIsToB(blockReq)
+	if err != nil {
+		log.WithError(err).Info(err.Error())
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	log = log.WithFields(logrus.Fields{
+		"timestampAfterDecoding": time.Now().UTC().UnixMilli(),
+		"slot":                   blockReq.Slot,
+		"numTx":                  len(blockReq.Txs),
+		"parentHash":             blockReq.ParentHash,
+		"blockHash":              blockReq.BlockHash,
+		"builderPubkey":          blockReq.BuilderPubkey.String(),
+		"proposerPubkey":         blockReq.ProposerPubkey.String(),
+		"proposerPayment":        blockReq.ProposerPayment,
+		"signature":              blockReq.Signature,
+		"isLargeRequest":         isLargeRequest,
+		"isToB":                  isToBReq,
+	})
+
+	// last tx should be the proposer payment
+	proposerTx, err := api.getProposerPayment(blockReq)
+	if err != nil {
+		log.WithError(err).Info(err.Error())
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	api.proposerDutiesLock.RLock()
+	slotDuty, ok := api.proposerDutiesMap[slot]
+	api.proposerDutiesLock.RUnlock()
+	if !ok {
+		log.Error("could not find slot duty")
+		api.Respond(w, http.StatusBadRequest, "could not find slot duty")
+		return
+	}
+
+	// Perform block simulation which makes sure all txs are valid before we allow it to participate in the auction
+	simStartTime := time.Now().UTC()
+	err = api.simulateBlockTxs(context.Background(), log, blockReq)
+	if err != nil {
+		log.WithError(err).Warn("could not simulate TOB txs")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	simulationDuration := time.Since(simStartTime).Microseconds()
+}
+
+// DEPRECATED
+/*
 func (api *BatonAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Request) {
 	var pf common.Profile
 	var prevTime, nextTime time.Time
@@ -3240,6 +3473,7 @@ func (api *BatonAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 	}).Info("received block from builder")
 	w.WriteHeader(http.StatusOK)
 }
+*/
 
 // ---------------
 //
@@ -3576,4 +3810,48 @@ func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 	} else {
 		api.RespondMsg(w, http.StatusServiceUnavailable, "not ready")
 	}
+}
+
+// Check if block request is ToB
+func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (bool, error) {
+	if len(req.Txs) == 0 {
+		return false, errors.New("block request has no transactions provided")
+	}
+
+	if len(req.Txs) == 1 {
+		return false, errors.New("block request needs more than one transaction provided")
+	}
+
+	// RoBs have txs with all the same chain id, ToBs has more than chain id
+	firstChainID := req.Txs[0].Namespace
+	for i := 1; i < len(req.Txs); i++ {
+		if req.Txs[i].Namespace != firstChainID {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// Proposer payment should be the last tx in the block request
+func (api *BatonAPI) getProposerPayment(req *common.SubmitNewBlockRequest) (*types.Transaction, error) {
+	if len(req.Txs) == 0 {
+		return nil, errors.New("block request has no transactions provided")
+	}
+
+	txBytes := req.Txs[len(req.Txs)-1].Transaction
+	lastTx, err := ConvertTxBytesToTransaction(txBytes)
+	if err != nil {
+		return nil, errors.New("block request had invalid proposer transaction")
+	}
+
+	lastTxToAddress := lastTx.To()
+	proposerTx := req.ProposerPayment
+
+	// TODO: Eth common.Address is [20]bytes while hypersdk coder.Address is [33]bytes. How to compare?
+	if !bytes.Equal(lastTxToAddress.Bytes(), proposerTx[:]) {
+		return nil, errors.New("block request had proposer address that mismatched last tx")
+	}
+
+	return lastTx, nil
 }

@@ -361,7 +361,7 @@ type AnchorGetHeaderResponse struct {
 	RoBHashes map[string]common.Hash `json:"robhashes"`
 }
 type AnchorGetPayloadResponse struct {
-	Slot        uint64                       `json:"slot"`
+	Slot        uint64                      `json:"slot"`
 	ToBPayload  ExecutionPayload            `json:"tobpayload"`
 	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
 }
@@ -521,9 +521,9 @@ func (e *VersionedExecutionPayload) NumTx() int {
 }
 
 type BuilderSubmitBlockRequest struct {
-	AnchorSignature     boostTypes.Signature         `json:"signature" ssz-size:"96"`
-    AnchorMessage       *ToBTxsSubmitRequest        `json:"message"`
-    ExecutionPayload 	*ExecutionPayload `json:"execution_payload"`
+	AnchorSignature  boostTypes.Signature `json:"signature" ssz-size:"96"`
+	AnchorMessage    *ToBTxsSubmitRequest `json:"message"`
+	ExecutionPayload *ExecutionPayload    `json:"execution_payload"`
 }
 
 func (b *BuilderSubmitBlockRequest) MarshalJSON() ([]byte, error) {
@@ -1180,6 +1180,32 @@ type SequencerMsgRequest struct {
 }
 */
 
+type SubmitNewBlockRequest struct {
+	Txs             []*actions.SEQTransaction `json:"txs"`
+	Slot            uint64
+	ParentHash      string
+	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
+	ProposerPayment codec.Address
+	Signature       boostTypes.Signature `json:"signature" ssz-size:"96"`
+	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
+}
+
+func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
+	return SubmitNewBlockRequest{
+		Txs: make([]*actions.SEQTransaction, 0),
+	}
+}
+
+func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+func (r *SubmitNewBlockRequest) ToJSON() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+/* DEPRECATED
 type ToBTxsSubmitRequest struct {
 	ToBTxs          []*actions.SEQTransaction `json:"txs"`
 	Slot            uint64
@@ -1207,7 +1233,9 @@ type RoBTxsSubmitRequest struct {
 	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
 }
+*/
 
+/* DEPRECATED
 type IntermediateTobTxsSubmitRequest struct {
 	TobTxs     []byte `json:"tobTxs"`
 	Slot       uint64 `json:"slot"`
@@ -1245,6 +1273,7 @@ func (t *ToBTxsSubmitRequest) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
+*/
 
 type BlockAssemblerRequest struct {
 	TobTxs             ExecutionPayloadTransactions `json:"tob_txs"`
