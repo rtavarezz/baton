@@ -838,33 +838,33 @@ func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) err
 	return nil
 }
 
-// simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
-	t := time.Now()
-	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
-	log := opts.log.WithFields(logrus.Fields{
-		"durationMs": time.Since(t).Milliseconds(),
-		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
-	})
-	if validationErr != nil {
-		if api.ffIgnorableValidationErrors {
-			// Operators chooses to ignore certain validation errors
-			ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
-			if ignoreError {
-				log.WithError(validationErr).Warn("block validation failed with ignorable error")
-				return nil, nil
-			}
-		}
-		log.WithError(validationErr).Warn("block validation failed")
-		return nil, validationErr
-	}
-	if requestErr != nil {
-		log.WithError(requestErr).Warn("block validation failed: request error")
-		return requestErr, nil
-	}
-	log.Info("block validation successful")
-	return nil, nil
-}
+// // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
+// func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
+// 	t := time.Now()
+// 	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
+// 	log := opts.log.WithFields(logrus.Fields{
+// 		"durationMs": time.Since(t).Milliseconds(),
+// 		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
+// 	})
+// 	if validationErr != nil {
+// 		if api.ffIgnorableValidationErrors {
+// 			// Operators chooses to ignore certain validation errors
+// 			ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
+// 			if ignoreError {
+// 				log.WithError(validationErr).Warn("block validation failed with ignorable error")
+// 				return nil, nil
+// 			}
+// 		}
+// 		log.WithError(validationErr).Warn("block validation failed")
+// 		return nil, validationErr
+// 	}
+// 	if requestErr != nil {
+// 		log.WithError(requestErr).Warn("block validation failed: request error")
+// 		return requestErr, nil
+// 	}
+// 	log.Info("block validation successful")
+// 	return nil, nil
+// }
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
 func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
@@ -3053,11 +3053,18 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// Perform block simulation which makes sure all txs are valid before we allow it to participate in the auction
 	simStartTime := time.Now().UTC()
-	err = api.simulateBlockTxs(context.Background(), log, blockReq)
-	if err != nil {
+	var reqErr error
+	var validErr error
+	reqErr, validErr = api.simulateBlockTxs(context.Background(), blockReq)
+	if reqErr != nil {
 		log.WithError(err).Warn("could not simulate TOB txs")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if validErr != nil {
+        log.WithError(validErr).Warn("validation error during TOB txs simulation")
+        api.RespondError(w, http.StatusBadRequest, validErr.Error())
+        return
 	}
 	simulationDuration := time.Since(simStartTime).Microseconds()
 }
