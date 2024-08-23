@@ -522,7 +522,7 @@ func (e *VersionedExecutionPayload) NumTx() int {
 
 type BuilderSubmitBlockRequest struct {
 	AnchorSignature  boostTypes.Signature `json:"signature" ssz-size:"96"`
-	AnchorMessage    *ToBTxsSubmitRequest `json:"message"`
+	AnchorMessage    *SubmitNewBlockRequest `json:"message"`
 	ExecutionPayload *ExecutionPayload    `json:"execution_payload"`
 }
 

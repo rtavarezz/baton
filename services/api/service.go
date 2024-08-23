@@ -3035,6 +3035,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	})
 
 	// last tx should be the proposer payment
+	// TODO: instead of calling func below, we extract it from builder's block by getting addr
+	// builder needs a from addr and we call seq action getBalance() to check if the builder has enough or not.
 	proposerTx, err := api.getProposerPayment(blockReq)
 	if err != nil {
 		log.WithError(err).Info(err.Error())
@@ -3067,7 +3069,55 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
         return
 	}
 	simulationDuration := time.Since(simStartTime).Microseconds()
+	// TODO: Create the response data for both header and payload
+	// type AnchorGetHeaderResponse struct {
+	// 	// note: Message should be the anchor req
+	// 	Slot uint64 `json:"slot"`
+	// 	// nodeID of chunk producing validator.
+	// 	Producer ids.NodeID `json:"producer"`
+	// 	// block builder address
+	// 	PriorityFeeReceiverAddr codec.Address `json:"priorityfeereceiveraddr"`
+	// 	// hash of the anchor chunks (tob + robs)
+	// 	ChunkHash common.Hash            `json:"chunkhash"`
+	// 	ToBHash   common.Hash            `json:"tobhash"`
+	// 	RoBHashes map[string]common.Hash `json:"robhashes"`
+	// }
+	// type AnchorGetPayloadResponse struct {
+	// 	Slot        uint64                      `json:"slot"`
+	// 	ToBPayload  AnchorPayload            `json:"tobpayload"`
+	// 	RoBPayloads map[string]AnchorPayload `json:"robpayloads"`
+	// }
+	// type AnchorPayload struct {
+	// 	Slot      uint64      `json:"slot"`
+	// 	Header common.Hash `json:"blockHash"`
+	// 	// Array of transaction objects, each object is a byte list (DATA) representing
+	// 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	// 	Transactions []Data `json:"transactions"`
+	// }
+	// note: 
+	getHeader, err := buildHeader(blockReq)
+	if err != nil {
+		log.WithError(validErr).Warn("failed to build header")
+        api.RespondError(w, http.StatusBadRequest, validErr.Error())
+        return
+	}
+	getPayload, err:= buildPayload(blockReq)
+	if err != nil {
+		log.WithError(validErr).Warn("failed to build payload")
+        api.RespondError(w, http.StatusBadRequest, validErr.Error())
+        return
+	}
+	
+
+	// this is on hold: think of special cases like in the original function handleSubmitNewTobTxs 
+	// use variables above to pass as args into the new header/payload responses method
+	// update auction in databases
+	// update blocks databases
+	// respond ok if all passes
+
+	// note: execution payload/header not needed after simulation passes
 }
+
 
 // DEPRECATED
 /*

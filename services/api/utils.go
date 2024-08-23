@@ -1,15 +1,19 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 
 	"github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	utilcapella "github.com/attestantio/go-eth2-client/util/capella"
+	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -117,4 +121,53 @@ func ConvertTxBytesToTransaction(data hexutil.Bytes) (*types.Transaction, error)
 		return nil, errors.New("ConvertTxBytesToTransaction() could convert bytes to transaction")
 	}
 	return tx, nil
+}
+
+func Sha256ToCommonHash(data []byte) eth.Hash {
+    shaHash := sha256.Sum256(data)
+    return eth.BytesToHash(shaHash[:])
+}
+
+func hashHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
+    hasher := sha256.New()
+
+    // Serialize the struct to JSON
+    structBytes, err := json.Marshal(s)
+    if err != nil {
+        return eth.Hash{}, err
+    }
+
+    // Write the struct bytes to the hasher
+    hasher.Write(structBytes)
+
+    // Compute and return the hash as common.Hash
+    hash := Sha256ToCommonHash(hasher.Sum(nil))
+    return hash, nil
+}
+
+func buildHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
+	header, err := hashHeader(s)
+	if err != nil {
+		log.Error("failed to hash header")
+	}
+	return header, nil
+}
+// type AnchorPayload struct {
+	// 	Slot      uint64      `json:"slot"`
+	// 	Header common.Hash `json:"blockHash"`
+	// 	// Array of transaction objects, each object is a byte list (DATA) representing
+	// 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	// 	Transactions []*SEQTransaction `json:"transactions"`
+	// }
+func buildPayload(s *common.SubmitNewBlockRequest) (anchor.AnchorPayload, error) {
+	hash, err := buildHeader(s)
+	if err != nil {
+		log.Error("failed to hash header")
+	}
+	payload := anchor.AnchorPayload {
+		Slot: s.Slot,
+		Header: hash,
+		Transactions: s.Transactions,
+	}
+	return payload
 }

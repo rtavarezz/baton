@@ -388,10 +388,13 @@ func (r *RedisCache) GetBestBid(slot uint64, parentHash, proposerPubkey string) 
 	return resp, err
 }
 
-// IMPORTANT: Changed from BuilderSubmitBlockRequest to RoBTxsSubmitRequest which is how we define RoB
-func (r *RedisCache) GetHighestRob(slot uint64, parentHash string) (*common.RoBTxsSubmitRequest, error) {
+
+// TODO: We need to figure how to save multiple ToB/RoB domains to the database. 
+// Currently it is just Get/Set functions for each
+
+func (r *RedisCache) GetHighestRob(slot uint64, parentHash string) (*common.BuilderSubmitBlockRequest, error) {
 	key := r.keyCacheGetHighestRob(slot, parentHash)
-	resp := new(common.RoBTxsSubmitRequest)
+	resp := new(common.BuilderSubmitBlockRequest)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
 		return nil, nil
@@ -504,6 +507,7 @@ func (r *RedisCache) GetTobTxValue(ctx context.Context, tx redis.Pipeliner, slot
 	return tobTxValue, nil
 }
 
+// Here is how they save information
 func (r *RedisCache) SaveExecutionPayloadCapella(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, proposerPubkey, blockHash string, execPayload *capella.ExecutionPayload) (err error) {
 	key := r.keyExecPayloadCapella(slot, proposerPubkey, blockHash)
 	b, err := execPayload.MarshalSSZ()
@@ -559,6 +563,7 @@ func (r *RedisCache) GetBuilderLatestPayloadReceivedAt(ctx context.Context, pipe
 	return c.Int64()
 }
 
+// Note
 // SaveBuilderBid saves the latest bid by a specific builder. TODO: use transaction to make these writes atomic
 func (r *RedisCache) SaveBuilderBid(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey, builderPubkey string, receivedAt time.Time, headerResp *common.GetHeaderResponse) (err error) {
 	// save the actual bid
@@ -588,6 +593,7 @@ func (r *RedisCache) SaveBuilderBid(ctx context.Context, pipeliner redis.Pipelin
 	return pipeliner.Expire(ctx, keyLatestBidsValue, expiryBidCache).Err()
 }
 
+// how to save bid
 type SaveBidAndUpdateTopBidResponse struct {
 	WasBidSaved      bool // Whether this bid was saved
 	WasTopBidUpdated bool // Whether the top bid was updated
@@ -640,7 +646,7 @@ func (r *RedisCache) SaveBidAndUpdateTopBid(ctx context.Context, pipeliner redis
 	state.TimePrep = nextTime.Sub(prevTime)
 	prevTime = nextTime
 
-	//
+	// note
 	// Time to save things in Redis
 	//
 	// 1. Save the execution payload

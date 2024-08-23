@@ -117,7 +117,8 @@ func (b *BlockSimulationRateLimiter) Send(context context.Context, payload *comm
 	}
 
 	// Create and fire off JSON-RPC request
-	simReq = jsonrpc.NewJSONRPCRequest("1", "flashbots_validateBuilderSubmissionV3", payload)
+	// TODO: figure out what flashbots func includes
+	simReq = jsonrpc.NewJSONRPCRequest("1", "flashbots_validateBuilderSubmissionV2", payload)
 	_, requestErr, validationErr = SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, headers)
 	return requestErr, validationErr
 }
