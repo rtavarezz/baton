@@ -1,28 +1,28 @@
 package common
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"math/big"
-	"os"
+  "encoding/json"
+  "errors"
+  "fmt"
+  "math/big"
+  "os"
 
-	"github.com/AnomalyFi/hypersdk/codec"
-	actions "github.com/AnomalyFi/seq-sdk/types"
-	"github.com/attestantio/go-builder-client/api"
-	"github.com/attestantio/go-builder-client/api/capella"
-	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/attestantio/go-builder-client/spec"
-	apiv1capella "github.com/attestantio/go-eth2-client/api/v1/capella"
-	consensusspec "github.com/attestantio/go-eth2-client/spec"
-	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/ava-labs/avalanchego/ids"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
-	ssz "github.com/ferranbt/fastssz"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
+  "github.com/AnomalyFi/hypersdk/codec"
+  actions "github.com/AnomalyFi/seq-sdk/types"
+  "github.com/attestantio/go-builder-client/api"
+  "github.com/attestantio/go-builder-client/api/capella"
+  apiv1 "github.com/attestantio/go-builder-client/api/v1"
+  "github.com/attestantio/go-builder-client/spec"
+  apiv1capella "github.com/attestantio/go-eth2-client/api/v1/capella"
+  consensusspec "github.com/attestantio/go-eth2-client/spec"
+  consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
+  "github.com/attestantio/go-eth2-client/spec/phase0"
+  "github.com/ava-labs/avalanchego/ids"
+  "github.com/ethereum/go-ethereum/common"
+  "github.com/ethereum/go-ethereum/common/hexutil"
+  "github.com/ethereum/go-ethereum/core/types"
+  ssz "github.com/ferranbt/fastssz"
+  boostTypes "github.com/flashbots/go-boost-utils/types"
 )
 
 var (
@@ -521,9 +521,9 @@ func (e *VersionedExecutionPayload) NumTx() int {
 }
 
 type BuilderSubmitBlockRequest struct {
-	AnchorSignature  boostTypes.Signature `json:"signature" ssz-size:"96"`
+	AnchorSignature  boostTypes.Signature   `json:"signature" ssz-size:"96"`
 	AnchorMessage    *SubmitNewBlockRequest `json:"message"`
-	ExecutionPayload *ExecutionPayload    `json:"execution_payload"`
+	ExecutionPayload *ExecutionPayload      `json:"execution_payload"`
 }
 
 func (b *BuilderSubmitBlockRequest) MarshalJSON() ([]byte, error) {
@@ -1189,6 +1189,7 @@ type SubmitNewBlockRequest struct {
 	Signature       boostTypes.Signature `json:"signature" ssz-size:"96"`
 	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
+	Value           *big.Int
 }
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
@@ -1401,4 +1402,13 @@ func (t *TobValidationRequest) UnmarshalJson(data []byte) error {
 	t.TobGasLimit = intermediateJson.TobGasLimit
 
 	return nil
+}
+
+// TODO: REMOVE ME LATER. USE VERSION FROM WITHIN ANCHOR
+type AnchorPayload struct {
+	Slot   uint64      `json:"slot"`
+	Header common.Hash `json:"blockHash"`
+	// Array of transaction objects, each object is a byte list (DATA) representing
+	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	Transactions []hexutil.Bytes `json:"seqtransactions"`
 }

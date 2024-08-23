@@ -4,6 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	actions "github.com/AnomalyFi/seq-sdk/types"
+	"github.com/ethereum/go-ethereum/log"
+	"strconv"
 
 	"github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -13,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -124,25 +126,25 @@ func ConvertTxBytesToTransaction(data hexutil.Bytes) (*types.Transaction, error)
 }
 
 func Sha256ToCommonHash(data []byte) eth.Hash {
-    shaHash := sha256.Sum256(data)
-    return eth.BytesToHash(shaHash[:])
+	shaHash := sha256.Sum256(data)
+	return eth.BytesToHash(shaHash[:])
 }
 
 func hashHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
-    hasher := sha256.New()
+	hasher := sha256.New()
 
-    // Serialize the struct to JSON
-    structBytes, err := json.Marshal(s)
-    if err != nil {
-        return eth.Hash{}, err
-    }
+	// Serialize the struct to JSON
+	structBytes, err := json.Marshal(s)
+	if err != nil {
+		return eth.Hash{}, err
+	}
 
-    // Write the struct bytes to the hasher
-    hasher.Write(structBytes)
+	// Write the struct bytes to the hasher
+	hasher.Write(structBytes)
 
-    // Compute and return the hash as common.Hash
-    hash := Sha256ToCommonHash(hasher.Sum(nil))
-    return hash, nil
+	// Compute and return the hash as common.Hash
+	hash := Sha256ToCommonHash(hasher.Sum(nil))
+	return hash, nil
 }
 
 func buildHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
@@ -152,22 +154,45 @@ func buildHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
 	}
 	return header, nil
 }
-// type AnchorPayload struct {
-	// 	Slot      uint64      `json:"slot"`
-	// 	Header common.Hash `json:"blockHash"`
-	// 	// Array of transaction objects, each object is a byte list (DATA) representing
-	// 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
-	// 	Transactions []*SEQTransaction `json:"transactions"`
-	// }
-func buildPayload(s *common.SubmitNewBlockRequest) (anchor.AnchorPayload, error) {
+
+//	type AnchorPayload struct {
+//		Slot      uint64      `json:"slot"`
+//		Header common.Hash `json:"blockHash"`
+//		// Array of transaction objects, each object is a byte list (DATA) representing
+//		// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+//		Transactions []*SEQTransaction `json:"transactions"`
+//	}
+func buildPayload(s *common.SubmitNewBlockRequest) (*common.AnchorPayload, error) {
 	hash, err := buildHeader(s)
 	if err != nil {
 		log.Error("failed to hash header")
 	}
-	payload := anchor.AnchorPayload {
-		Slot: s.Slot,
-		Header: hash,
-		Transactions: s.Transactions,
+
+	seqTxs, err := marshalSeqTxs(s.Txs)
+	if err != nil {
+		log.Error("failed to marshal txs, err: " + err.Error())
+		return nil, err
 	}
-	return payload
+
+	payload := common.AnchorPayload{
+		Slot:         s.Slot,
+		Header:       hash,
+		Transactions: seqTxs,
+	}
+
+	return &payload, nil
+}
+
+func marshalSeqTxs(txs []*actions.SEQTransaction) ([]hexutil.Bytes, error) {
+	ret := make([]hexutil.Bytes, len(txs))
+	for i, _ := range txs {
+		seqTxBytes, err := json.Marshal(txs[i])
+		if err != nil {
+			logMsg := "failed to marshal seq tx with index " + strconv.Itoa(i) + ": " + err.Error()
+			log.Error(logMsg)
+			return nil, err
+		}
+		ret[i] = seqTxBytes
+	}
+	return ret, nil
 }

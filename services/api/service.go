@@ -3094,7 +3094,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	// 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
 	// 	Transactions []Data `json:"transactions"`
 	// }
-	// note: 
+	// note:
 	getHeader, err := buildHeader(blockReq)
 	if err != nil {
 		log.WithError(validErr).Warn("failed to build header")
@@ -3107,9 +3107,27 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
         api.RespondError(w, http.StatusBadRequest, validErr.Error())
         return
 	}
-	
 
-	// this is on hold: think of special cases like in the original function handleSubmitNewTobTxs 
+  // Create the redis pipeline tx
+  tx := api.redis.NewTxPipeline()
+
+  //
+  // Save to Redis
+  //
+  var updateBidResult datastore.SaveBidAndUpdateTopBidResponse
+  if isToBReq {
+    updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx,  builderSubmission, getPayloadResponse, getHeaderResponse, receivedAt, false, nil)
+    if err != nil {
+      log.WithError(err).Error("could not save bid and update top bids")
+      api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
+      return
+    }
+  } else {
+
+  }
+
+
+	// this is on hold: think of special cases like in the original function handleSubmitNewTobTxs
 	// use variables above to pass as args into the new header/payload responses method
 	// update auction in databases
 	// update blocks databases
