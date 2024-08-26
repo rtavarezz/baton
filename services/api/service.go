@@ -3019,6 +3019,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	chainID := blockReq.Txs[0].Namespace
 
 	log = log.WithFields(logrus.Fields{
 		"timestampAfterDecoding": time.Now().UTC().UnixMilli(),
@@ -3116,23 +3117,25 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
   //
   var updateBidResult datastore.SaveBidAndUpdateTopBidResponse
   if isToBReq {
-    updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx,  builderSubmission, getPayloadResponse, getHeaderResponse, receivedAt, false, nil)
+    updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx,  blockReq, getPayload, &getHeader, receivedAt, false, nil)
     if err != nil {
       log.WithError(err).Error("could not save bid and update top bids")
       api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
       return
     }
   } else {
-
+	//RoB case
+	updateBidResult, err = api.redis.SaveRoBBidAndUpdateRopBid(context.Background(), tx,  blockReq, getPayload, &getHeader, chainID, receivedAt, false, nil)
+    if err != nil {
+      log.WithError(err).Error("could not save bid and update top bids for RoB")
+      api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
+      return
   }
 
-
+  	// FOR TOMORROW: go to commented out SubmitToB function as well as look at GetHeader() and GetPayload() functions.
 	// this is on hold: think of special cases like in the original function handleSubmitNewTobTxs
 	// use variables above to pass as args into the new header/payload responses method
-	// update auction in databases
-	// update blocks databases
 	// respond ok if all passes
-
 	// note: execution payload/header not needed after simulation passes
 }
 
