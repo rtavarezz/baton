@@ -26,7 +26,20 @@ type Memcached struct {
 // (i.e. same slot, proposer public key, and block hash) will overwrite the existing entry.
 func (m *Memcached) SaveExecutionPayload(slot uint64, proposerPubKey, blockHash string, payload *common.GetPayloadResponse) error {
 	// TODO: standardize key format with redis cache and re-use the same function(s)
-	key := fmt.Sprintf("boost-relay/%s:cache-getpayload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
+	key := fmt.Sprintf("anchor/%s:cache-getpayload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
+
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	//nolint:exhaustruct // "Flags" variable unused and opaque server-side
+	return m.client.Set(&memcache.Item{Key: key, Value: bytes, Expiration: defaultMemcachedExpirySeconds})
+}
+
+func (m *Memcached) SaveAnchorPayload(slot uint64, proposerPubKey, blockHash string, payload *common.AnchorPayload) error {
+	// TODO: standardize key format with redis cache and re-use the same function(s)
+	key := fmt.Sprintf("anchor/%s:cache-get-anchor-payload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
 
 	bytes, err := json.Marshal(payload)
 	if err != nil {
@@ -41,7 +54,7 @@ func (m *Memcached) SaveExecutionPayload(slot uint64, proposerPubKey, blockHash 
 // proposer public key, block hash, and cache prefix if specified.
 func (m *Memcached) GetExecutionPayload(slot uint64, proposerPubKey, blockHash string) (*common.VersionedExecutionPayload, error) {
 	// TODO: standardize key format with redis cache and re-use the same function(s)
-	key := fmt.Sprintf("boost-relay/%s:cache-getpayload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
+	key := fmt.Sprintf("anchor/%s:cache-getpayload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
 	item, err := m.client.Get(key)
 	if err != nil {
 		return nil, err

@@ -2316,7 +2316,7 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 		}
 		txHashes := strings.Join(txHashList, ",")
 
-		err := api.db.InsertTobSubmitProfile(slot, parentHash, txHashes, uint64(simulationDuration), uint64(tracerDuration), uint64(totalDuration))
+		err := api.db.InsertToBSubmitProfile(slot, parentHash, txHashes, uint64(simulationDuration), uint64(tracerDuration), uint64(totalDuration))
 		if err != nil {
 			log.WithError(err).Error("failed to insert tob submit profile into db")
 		}
@@ -3058,87 +3058,131 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	simStartTime := time.Now().UTC()
 	var reqErr error
 	var validErr error
+
+	simResultC := make(chan *blockSimResult, 1)
+
+	defer func() {
+		savePayloadToDatabase := !api.ffDisablePayloadDBStorage
+		var simResult *blockSimResult
+		select {
+		case simResult = <-simResultC:
+		case <-time.After(10 * time.Second):
+			log.Warn("timed out waiting for simulation result")
+			simResult = &blockSimResult{false, false, nil, nil}
+		}
+
+		submissionEntry, err := api.db.SaveBuilderBlockSubmission2(blockReq, simResult.requestErr, simResult.validationErr, receivedAt, eligibleAt, simResult.wasSimulated, savePayloadToDatabase, pf, simResult.optimisticSubmission)
+		if err != nil {
+			log.WithError(err).WithField("payload", blockReq).Error("saving builder block submission to database failed")
+			return
+		}
+
+		err = api.db.UpsertBlockBuilderEntryAfterSubmission2(submissionEntry, simResult.validationErr != nil)
+		if err != nil {
+			log.WithError(err).Error("failed to upsert block-builder-entry")
+		}
+	}()
+
+	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 	reqErr, validErr = api.simulateBlockTxs(context.Background(), blockReq)
+	simResultC <- &blockSimResult{requestErr == nil, false, requestErr, validationErr}
 	if reqErr != nil {
 		log.WithError(err).Warn("could not simulate TOB txs")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if validErr != nil {
-        log.WithError(validErr).Warn("validation error during TOB txs simulation")
-        api.RespondError(w, http.StatusBadRequest, validErr.Error())
-        return
+		log.WithError(validErr).Warn("validation error during TOB txs simulation")
+		api.RespondError(w, http.StatusBadRequest, validErr.Error())
+		return
 	}
 	simulationDuration := time.Since(simStartTime).Microseconds()
-	// TODO: Create the response data for both header and payload
-	// type AnchorGetHeaderResponse struct {
-	// 	// note: Message should be the anchor req
-	// 	Slot uint64 `json:"slot"`
-	// 	// nodeID of chunk producing validator.
-	// 	Producer ids.NodeID `json:"producer"`
-	// 	// block builder address
-	// 	PriorityFeeReceiverAddr codec.Address `json:"priorityfeereceiveraddr"`
-	// 	// hash of the anchor chunks (tob + robs)
-	// 	ChunkHash common.Hash            `json:"chunkhash"`
-	// 	ToBHash   common.Hash            `json:"tobhash"`
-	// 	RoBHashes map[string]common.Hash `json:"robhashes"`
-	// }
-	// type AnchorGetPayloadResponse struct {
-	// 	Slot        uint64                      `json:"slot"`
-	// 	ToBPayload  AnchorPayload            `json:"tobpayload"`
-	// 	RoBPayloads map[string]AnchorPayload `json:"robpayloads"`
-	// }
-	// type AnchorPayload struct {
-	// 	Slot      uint64      `json:"slot"`
-	// 	Header common.Hash `json:"blockHash"`
-	// 	// Array of transaction objects, each object is a byte list (DATA) representing
-	// 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
-	// 	Transactions []Data `json:"transactions"`
-	// }
-	// note:
+
+	// Build the header and payload for this block request.
 	getHeader, err := buildHeader(blockReq)
 	if err != nil {
 		log.WithError(validErr).Warn("failed to build header")
-        api.RespondError(w, http.StatusBadRequest, validErr.Error())
-        return
+		api.RespondError(w, http.StatusBadRequest, validErr.Error())
+		return
 	}
-	getPayload, err:= buildPayload(blockReq)
+	getPayload, err := buildPayload(blockReq)
 	if err != nil {
 		log.WithError(validErr).Warn("failed to build payload")
-        api.RespondError(w, http.StatusBadRequest, validErr.Error())
-        return
+		api.RespondError(w, http.StatusBadRequest, validErr.Error())
+		return
 	}
 
-  // Create the redis pipeline tx
-  tx := api.redis.NewTxPipeline()
+	// Save the header and payloads for this block request to Redis.
+	// The auction is processed here where the best bid for the ToB or RoB namespace is saved to the database.
+	tx := api.redis.NewTxPipeline()
+	var updateBidResult datastore.SaveBidAndUpdateTopBidResponse
+	if isToBReq {
+		// ToB case
+		updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx, blockReq, getPayload, &getHeader, receivedAt, false, nil)
+		if err != nil {
+			log.WithError(err).Error("could not save bid and update top bids")
+			api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
+			return
+		}
+	} else {
+		//RoB case
+		updateBidResult, err = api.redis.SaveRoBBidAndUpdateRopBid(context.Background(), tx, blockReq, getPayload,
+			&getHeader, chainID, receivedAt, false, nil)
+		if err != nil {
+			log.WithError(err).Error("could not save bid and update top bids for RoB")
+			api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
+			return
+		}
+	}
 
-  //
-  // Save to Redis
-  //
-  var updateBidResult datastore.SaveBidAndUpdateTopBidResponse
-  if isToBReq {
-    updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx,  blockReq, getPayload, &getHeader, receivedAt, false, nil)
-    if err != nil {
-      log.WithError(err).Error("could not save bid and update top bids")
-      api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
-      return
-    }
-  } else {
-	//RoB case
-	updateBidResult, err = api.redis.SaveRoBBidAndUpdateRopBid(context.Background(), tx,  blockReq, getPayload, &getHeader, chainID, receivedAt, false, nil)
-    if err != nil {
-      log.WithError(err).Error("could not save bid and update top bids for RoB")
-      api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
-      return
-  }
+	var eligibleAt time.Time // will be set once the bid is ready
+	if updateBidResult.WasBidSaved {
+		// Bid is eligible to win the auction
+		eligibleAt = time.Now().UTC()
+		log = log.WithField("timestampEligibleAt", eligibleAt.UnixMilli())
 
-  	// FOR TOMORROW: go to commented out SubmitToB function as well as look at GetHeader() and GetPayload() functions.
+		// Save to memcache in the background
+		if api.memcached != nil {
+			go func() {
+				err = api.memcached.SaveAnchorPayload(blockReq.Slot,
+					blockReq.ProposerPubkey.String(),
+					blockReq.BlockHash.String(),
+					getPayload)
+				if err != nil {
+					log.WithError(err).Error("failed saving execution payload in memcached")
+				}
+			}()
+		}
+	}
+
+	defer func() {
+		totalDuration := time.Since(receivedAt).Microseconds()
+		txHashList := []string{}
+		for _, tx := range blockReq.Txs {
+			txHashList = append(txHashList, string(tx.Transaction))
+		}
+		txHashes := strings.Join(txHashList, ",")
+
+		if isToBReq {
+			err := api.db.InsertToBSubmitProfile(slot, parentHash, txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
+			if err != nil {
+				log.WithError(err).Error("failed to insert tob submit profile into db")
+			}
+		} else {
+			err := api.db.InsertRoBSubmitProfile(slot, parentHash, txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
+			if err != nil {
+				log.WithError(err).Error("failed to insert tob submit profile into db")
+			}
+		}
+	}()
+
+	// FOR TOMORROW: go to commented out SubmitToB function as well as look at GetHeader() and GetPayload() functions.
 	// this is on hold: think of special cases like in the original function handleSubmitNewTobTxs
 	// use variables above to pass as args into the new header/payload responses method
 	// respond ok if all passes
 	// note: execution payload/header not needed after simulation passes
-}
 
+}
 
 // DEPRECATED
 /*

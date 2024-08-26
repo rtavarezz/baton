@@ -57,8 +57,11 @@ type IDatabaseService interface {
 	InsertIncludedTobTx(txHash string, slot uint64, parentHash string, blockHash string) error
 	GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(slot uint64, parentHash string, blockHash string) ([]*IncludedTobTxEntry, error)
 
-	InsertTobSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
-	GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (*TobSubmitProfileEntry, error)
+	InsertToBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
+	GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
+
+	InsertRoBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
+	GetRobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
 }
 
 type DatabaseService struct {
@@ -181,7 +184,85 @@ func (s *DatabaseService) GetLatestValidatorRegistrations(timestampOnly bool) ([
 	return registrations, err
 }
 
-func (s *DatabaseService) SaveBuilderBlockSubmission(payload *common.BuilderSubmitBlockRequest, requestError, validationError error, receivedAt, eligibleAt time.Time, wasSimulated, saveExecPayload bool, profile common.Profile, optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error) {
+func (s *DatabaseService) SaveBuilderBlockSubmission(
+	payload *common.BuilderSubmitBlockRequest,
+	requestError, validationError error,
+	receivedAt, eligibleAt time.Time,
+	wasSimulated, saveExecPayload bool,
+	profile common.Profile,
+	optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error) {
+	// Save execution_payload: insert, or if already exists update to be able to return the id ('on conflict do nothing' doesn't return an id)
+	execPayloadEntry, err := PayloadToExecPayloadEntry(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if saveExecPayload {
+		err = s.nstmtInsertExecutionPayload.QueryRow(execPayloadEntry).Scan(&execPayloadEntry.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Save block_submission
+	simErrStr := ""
+	if validationError != nil {
+		simErrStr = validationError.Error()
+	}
+
+	requestErrStr := ""
+	if requestError != nil {
+		requestErrStr = requestError.Error()
+	}
+
+	blockSubmissionEntry := &BuilderBlockSubmissionEntry{
+		ReceivedAt:         NewNullTime(receivedAt),
+		EligibleAt:         NewNullTime(eligibleAt),
+		ExecutionPayloadID: NewNullInt64(execPayloadEntry.ID),
+
+		WasSimulated: wasSimulated,
+		SimSuccess:   wasSimulated && validationError == nil,
+		SimError:     simErrStr,
+		SimReqError:  requestErrStr,
+
+		Signature: payload.Signature().String(),
+
+		Slot:       payload.Slot(),
+		BlockHash:  payload.BlockHash(),
+		ParentHash: payload.ParentHash(),
+
+		BuilderPubkey:        payload.BuilderPubkey().String(),
+		ProposerPubkey:       payload.ProposerPubkey(),
+		ProposerFeeRecipient: payload.ProposerFeeRecipient(),
+
+		GasUsed:  payload.GasUsed(),
+		GasLimit: payload.GasLimit(),
+
+		NumTx: uint64(payload.NumTx()),
+		Value: payload.Value().String(),
+
+		Epoch:       payload.Slot() / common.SlotsPerEpoch,
+		BlockNumber: payload.BlockNumber(),
+
+		DecodeDuration:       profile.Decode,
+		PrechecksDuration:    profile.Prechecks,
+		SimulationDuration:   profile.Simulation,
+		AssemblyDuration:     profile.Assembly,
+		RedisUpdateDuration:  profile.RedisUpdate,
+		TotalDuration:        profile.Total,
+		OptimisticSubmission: optimisticSubmission,
+	}
+	err = s.nstmtInsertBlockBuilderSubmission.QueryRow(blockSubmissionEntry).Scan(&blockSubmissionEntry.ID)
+	return blockSubmissionEntry, err
+}
+
+func (s *DatabaseService) SaveBuilderBlockSubmission2(
+	payload *common.BuilderSubmitBlockRequest,
+	requestError, validationError error,
+	receivedAt, eligibleAt time.Time,
+	wasSimulated, saveExecPayload bool,
+	profile common.Profile,
+	optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error) {
 	// Save execution_payload: insert, or if already exists update to be able to return the id ('on conflict do nothing' doesn't return an id)
 	execPayloadEntry, err := PayloadToExecPayloadEntry(payload)
 	if err != nil {
@@ -248,7 +329,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(payload *common.BuilderSubm
 }
 
 func (s *DatabaseService) GetBlockSubmissionEntry(slot uint64, proposerPubkey, blockHash string) (entry *BuilderBlockSubmissionEntry, err error) {
-	query := `SELECT id, inserted_at, received_at, eligible_at, execution_payload_id, sim_success, sim_error, signature, slot, parent_hash, block_hash, builder_pubkey, proposer_pubkey, proposer_fee_recipient, gas_used, gas_limit, num_tx, value, epoch, block_number, decode_duration, prechecks_duration, simulation_duration, redis_update_duration, total_duration, optimistic_submission 
+	query := `SELECT id, inserted_at, received_at, eligible_at, execution_payload_id, sim_success, sim_error, signature, slot, parent_hash, block_hash, builder_pubkey, proposer_pubkey, proposer_fee_recipient, gas_used, gas_limit, num_tx, value, epoch, block_number, decode_duration, prechecks_duration, simulation_duration, redis_update_duration, total_duration, optimistic_submission
 	FROM ` + vars.TableBuilderBlockSubmission + `
 	WHERE slot=$1 AND proposer_pubkey=$2 AND block_hash=$3
 	ORDER BY builder_pubkey ASC
@@ -647,8 +728,14 @@ func (s *DatabaseService) GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash
 	return entries, err
 }
 
-func (s *DatabaseService) InsertTobSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
-	entry := TobSubmitProfileEntry{
+func (s *DatabaseService) InsertToBSubmitProfile(
+	slot uint64,
+	parentHash string,
+	txHashes string,
+	simulationDuration uint64,
+	tracerDuration uint64,
+	totalDuration uint64) error {
+	entry := ToBSubmitProfileEntry{
 		Slot:       slot,
 		ParentHash: parentHash,
 		TxHashes:   txHashes,
@@ -665,9 +752,33 @@ func (s *DatabaseService) InsertTobSubmitProfile(slot uint64, parentHash string,
 	return err
 }
 
-func (s *DatabaseService) GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *TobSubmitProfileEntry, err error) {
-	entries := []*TobSubmitProfileEntry{}
-	query := `SELECT id, inserted_at, slot, parent_hash, tx_hashes, simulation_duration_us, tracer_duration_us, total_duration_us FROM ` + vars.TableTobSubmitProfile + ` WHERE slot = $1 AND parent_hash = $2 AND tx_hashes = $3`
+func (s *DatabaseService) InsertRoBSubmitProfile(
+	slot uint64,
+	parentHash string,
+	txHashes string,
+	simulationDuration uint64,
+	tracerDuration uint64,
+	totalDuration uint64) error {
+	entry := RoBSubmitProfileEntry{
+		Slot:       slot,
+		ParentHash: parentHash,
+		TxHashes:   txHashes,
+
+		SimulationDurationUs: simulationDuration,
+		TracerDurationUs:     tracerDuration,
+		TotalDurationUs:      totalDuration,
+	}
+
+	query := `INSERT INTO ` + vars.TableRobSubmitProfile + `
+		(slot, parent_hash, tx_hashes, simulation_duration_us, tracer_duration_us, total_duration_us) VALUES
+		(:slot, :parent_hash, :tx_hashes, :simulation_duration_us, :tracer_duration_us, :total_duration_us);`
+	_, err := s.DB.NamedExec(query, entry)
+	return err
+}
+
+func (s *DatabaseService) GetRoBSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *RoBSubmitProfileEntry, err error) {
+	entries := []*RoBSubmitProfileEntry{}
+	query := `SELECT id, inserted_at, slot, parent_hash, tx_hashes, simulation_duration_us, tracer_duration_us, total_duration_us FROM ` + vars.TableRobSubmitProfile + ` WHERE slot = $1 AND parent_hash = $2 AND tx_hashes = $3`
 	err = s.DB.Select(&entries, query, slot, parentHash, txHashes)
 	return entries[0], err
 }

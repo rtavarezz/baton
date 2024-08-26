@@ -16,7 +16,7 @@ type MockDB struct {
 	Demotions        map[string]bool
 	Refunds          map[string]bool
 	IncludedTobTxs   map[string][]*IncludedTobTxEntry
-	TobSubmitProfile map[string]*TobSubmitProfileEntry
+	TobSubmitProfile map[string]*ToBSubmitProfileEntry
 }
 
 func (db MockDB) NumRegisteredValidators() (count uint64, err error) {
@@ -282,9 +282,9 @@ func (db MockDB) GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(slot uin
 	return entries, nil
 }
 
-func (db MockDB) InsertTobSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
+func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
 	key := fmt.Sprintf("%d-%s-%s", slot, parentHash, txHashes)
-	db.TobSubmitProfile[key] = &TobSubmitProfileEntry{
+	db.TobSubmitProfile[key] = &ToBSubmitProfileEntry{
 		TxHashes:             txHashes,
 		Slot:                 slot,
 		ParentHash:           parentHash,
@@ -296,7 +296,7 @@ func (db MockDB) InsertTobSubmitProfile(slot uint64, parentHash string, txHashes
 	return nil
 }
 
-func (db MockDB) GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *TobSubmitProfileEntry, err error) {
+func (db MockDB) GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *ToBSubmitProfileEntry, err error) {
 	key := fmt.Sprintf("%d-%s-%s", slot, parentHash, txHashes)
 
 	res, ok := db.TobSubmitProfile[key]

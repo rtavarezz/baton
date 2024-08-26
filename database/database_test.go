@@ -502,10 +502,10 @@ func TestTobSubmitProfile(t *testing.T) {
 	tracerDuration := uint64(50)
 	simulationDuration := uint64(10)
 
-	err := db.InsertTobSubmitProfile(slot, parentHash.String(), txHashes, simulationDuration, tracerDuration, totalReqDuration)
+	err := db.InsertToBSubmitProfile(slot, parentHash.String(), txHashes, simulationDuration, tracerDuration, totalReqDuration)
 	require.NoError(t, err)
 
-	tobSubmitProfile, err := db.GetTobSubmitProfile(slot, parentHash.String(), txHashes)
+	tobSubmitProfile, err := db.GetToBSubmitProfile(slot, parentHash.String(), txHashes)
 	require.NoError(t, err)
 	require.Equal(t, tobSubmitProfile.Slot, slot)
 	require.Equal(t, tobSubmitProfile.ParentHash, parentHash.String())

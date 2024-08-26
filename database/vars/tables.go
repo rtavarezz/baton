@@ -17,4 +17,5 @@ var (
 	TableTooLateGetPayload      = tableBase + "_too_late_get_payload"
 	TableIncludedTobTxs         = tableBase + "_included_tob_txs"
 	TableTobSubmitProfile       = tableBase + "_tob_submit_profile"
+	TableRobSubmitProfile       = tableBase + "_rob_submit_profile"
 )
