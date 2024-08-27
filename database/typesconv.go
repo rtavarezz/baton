@@ -12,7 +12,7 @@ import (
 )
 
 var ErrUnsupportedExecutionPayload = errors.New("unsupported execution payload version")
-
+// note: need to change 
 func PayloadToExecPayloadEntry(payload *common.BuilderSubmitBlockRequest) (*ExecutionPayloadEntry, error) {
 	var _payload []byte
 	var version string

@@ -520,6 +520,7 @@ func (e *VersionedExecutionPayload) NumTx() int {
 	return 0
 }
 
+// note: maybe used for db?
 type BuilderSubmitBlockRequest struct {
 	AnchorSignature  boostTypes.Signature   `json:"signature" ssz-size:"96"`
 	AnchorMessage    *SubmitNewBlockRequest `json:"message"`

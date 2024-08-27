@@ -62,6 +62,8 @@ type IDatabaseService interface {
 
 	InsertRoBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
 	GetRobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
+	SaveBuilderBlockSubmission2( payload *common.BuilderSubmitBlockRequest, requestError, validationError error, receivedAt, eligibleAt time.Time, wasSimulated, saveExecPayload bool, profile common.Profile, optimisticSubmission bool, isToB bool, chainID string) (entry *BuilderBlockSubmissionEntry, err error)
+	UpsertBlockBuilderEntryAfterSubmission2(lastSubmission *BuilderBlockSubmissionEntry, isToB bool, chainID string, isError bool) error
 }
 
 type DatabaseService struct {
@@ -262,7 +264,9 @@ func (s *DatabaseService) SaveBuilderBlockSubmission2(
 	receivedAt, eligibleAt time.Time,
 	wasSimulated, saveExecPayload bool,
 	profile common.Profile,
-	optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error) {
+	optimisticSubmission bool,
+	isToB bool,
+	chainID string) (entry *BuilderBlockSubmissionEntry, err error) {
 	// Save execution_payload: insert, or if already exists update to be able to return the id ('on conflict do nothing' doesn't return an id)
 	execPayloadEntry, err := PayloadToExecPayloadEntry(payload)
 	if err != nil {
@@ -288,6 +292,8 @@ func (s *DatabaseService) SaveBuilderBlockSubmission2(
 	}
 
 	blockSubmissionEntry := &BuilderBlockSubmissionEntry{
+		chainID: chainID,
+		isToB: isToB,
 		ReceivedAt:         NewNullTime(receivedAt),
 		EligibleAt:         NewNullTime(eligibleAt),
 		ExecutionPayloadID: NewNullInt64(execPayloadEntry.ID),
@@ -556,6 +562,34 @@ func (s *DatabaseService) UpsertBlockBuilderEntryAfterSubmission(lastSubmission 
 	query := `INSERT INTO ` + vars.TableBlockBuilder + `
 		(builder_pubkey, description, is_high_prio, is_blacklisted, is_optimistic, collateral, builder_id, last_submission_id, last_submission_slot, num_submissions_total, num_submissions_simerror) VALUES
 		(:builder_pubkey, :description, :is_high_prio, :is_blacklisted, :is_optimistic, :collateral, :builder_id, :last_submission_id, :last_submission_slot, :num_submissions_total, :num_submissions_simerror)
+		ON CONFLICT (builder_pubkey) DO UPDATE SET
+			last_submission_id = :last_submission_id,
+			last_submission_slot = :last_submission_slot,
+			num_submissions_total = ` + vars.TableBlockBuilder + `.num_submissions_total + 1,
+			num_submissions_simerror = ` + vars.TableBlockBuilder + `.num_submissions_simerror + :num_submissions_simerror;`
+	_, err := s.DB.NamedExec(query, entry)
+	return err
+}
+
+func (s *DatabaseService) UpsertBlockBuilderEntryAfterSubmission2(lastSubmission *BuilderBlockSubmissionEntry, isToB bool, chainID string, isError bool) error {
+	entry := BlockBuilderEntry{
+		BuilderPubkey:          lastSubmission.BuilderPubkey,
+		LastSubmissionID:       NewNullInt64(lastSubmission.ID),
+		LastSubmissionSlot:     lastSubmission.Slot,
+		NumSubmissionsTotal:    1,
+		NumSubmissionsSimError: 0,
+		Collateral:             "0", // required to satisfy numeric type, will not override collateral
+		isToB: isToB,
+		ChainID: chainID,
+	}
+	if isError {
+		entry.NumSubmissionsSimError = 1
+	}
+
+	// Upsert
+	query := `INSERT INTO ` + vars.TableBlockBuilder + `
+		(builder_pubkey, description, is_high_prio, is_blacklisted, is_optimistic, is_tob, collateral, builder_id, chain_id, last_submission_id, last_submission_slot, num_submissions_total, num_submissions_simerror) VALUES
+		(:builder_pubkey, :description, :is_high_prio, :is_blacklisted, :is_optimistic, :is_tob, :collateral, :builder_id, :chain_id, :last_submission_id, :last_submission_slot, :num_submissions_total, :num_submissions_simerror)
 		ON CONFLICT (builder_pubkey) DO UPDATE SET
 			last_submission_id = :last_submission_id,
 			last_submission_slot = :last_submission_slot,

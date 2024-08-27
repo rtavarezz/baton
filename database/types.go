@@ -125,6 +125,8 @@ func (e *ExecutionPayloadEntry) ToCSVRecord() []string {
 
 type BuilderBlockSubmissionEntry struct {
 	ID         int64        `db:"id"`
+	chainID	   string		`db:chain_id`
+	isToB	   bool	        `db:"is_tob"`
 	InsertedAt time.Time    `db:"inserted_at"`
 	ReceivedAt sql.NullTime `db:"received_at"`
 	EligibleAt sql.NullTime `db:"eligible_at"`
@@ -206,9 +208,11 @@ type BlockBuilderEntry struct {
 	IsHighPrio    bool `db:"is_high_prio"   json:"is_high_prio"`
 	IsBlacklisted bool `db:"is_blacklisted" json:"is_blacklisted"`
 	IsOptimistic  bool `db:"is_optimistic"  json:"is_optimistic"`
+	isToB 		  bool `db:"is_tob"			json:"is_tob"`
 
 	Collateral string `db:"collateral" json:"collateral"`
 	BuilderID  string `db:"builder_id" json:"builder_id"`
+	ChainID  string `db:"chain_id" json:"chain_id"`
 
 	LastSubmissionID   sql.NullInt64 `db:"last_submission_id"   json:"last_submission_id"`
 	LastSubmissionSlot uint64        `db:"last_submission_slot" json:"last_submission_slot"`
@@ -217,6 +221,7 @@ type BlockBuilderEntry struct {
 	NumSubmissionsSimError uint64 `db:"num_submissions_simerror" json:"num_submissions_simerror"`
 
 	NumSentGetPayload uint64 `db:"num_sent_getpayload" json:"num_sent_getpayload"`
+
 }
 
 type BuilderDemotionEntry struct {

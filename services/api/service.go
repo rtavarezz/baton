@@ -1687,7 +1687,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 			return
 		}
-
+		// note needs sharding
 		err = api.db.SaveDeliveredPayload(bidTrace, payload, decodeTime, msNeededForPublishing)
 		if err != nil {
 			log.WithError(err).WithFields(logrus.Fields{
@@ -3059,11 +3059,25 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.Respond(w, http.StatusBadRequest, logMsg)
 		return
 	}
+	var validErr error
+
+	// Build the header and payload for this block request.
+	getHeader, err := buildHeader(blockReq)
+	if err != nil {
+		log.WithError(validErr).Warn("failed to build header")
+		api.RespondError(w, http.StatusBadRequest, validErr.Error())
+		return
+	}
+	getPayload, err := buildPayload(blockReq)
+	if err != nil {
+		log.WithError(validErr).Warn("failed to build payload")
+		api.RespondError(w, http.StatusBadRequest, validErr.Error())
+		return
+	}
 
 	// Perform block simulation which makes sure all txs are valid before we allow it to participate in the auction
 	simStartTime := time.Now().UTC()
 	var reqErr error
-	var validErr error
 
 	simResultC := make(chan *blockSimResult, 1)
 
@@ -3082,19 +3096,39 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 	simulationDuration := time.Since(simStartTime).Microseconds()
 
-	// Build the header and payload for this block request.
-	getHeader, err := buildHeader(blockReq)
-	if err != nil {
-		log.WithError(validErr).Warn("failed to build header")
-		api.RespondError(w, http.StatusBadRequest, validErr.Error())
-		return
-	}
-	getPayload, err := buildPayload(blockReq)
-	if err != nil {
-		log.WithError(validErr).Warn("failed to build payload")
-		api.RespondError(w, http.StatusBadRequest, validErr.Error())
-		return
-	}
+	// Once we process the sim, then we want to save the results to the redis database.
+	defer func() {
+		savePayloadToDatabase := !api.ffDisablePayloadDBStorage
+		var simResult *blockSimResult
+		select {
+		case simResult = <-simResultC:
+		case <-time.After(10 * time.Second):
+			log.Warn("timed out waiting for simulation result")
+			simResult = &blockSimResult{false, false, nil, nil}
+		}
+
+		submissionEntry, err := api.db.SaveBuilderBlockSubmission2(
+			blockReq,
+			simResult.requestErr,
+			simResult.validationErr,
+			receivedAt,
+			eligibleAt,
+			simResult.wasSimulated,
+			savePayloadToDatabase,
+			pf,
+			simResult.optimisticSubmission,
+			isToBReq,
+			chainID)
+		if err != nil {
+			log.WithError(err).WithField("payload", blockReq).Error("saving builder block submission to database failed")
+			return
+		}
+
+		err = api.db.UpsertBlockBuilderEntryAfterSubmission2(submissionEntry, isToBReq, chainID, simResult.validationErr != nil)
+		if err != nil {
+			log.WithError(err).Error("failed to upsert block-builder-entry")
+		}
+	}()
 
 	// Save the header and payloads for this block request to Redis.
 	// The auction is processed here where the best bid for the ToB or RoB namespace is saved to the database.
@@ -3139,37 +3173,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}
 
-	// Once we process the sim, then we want to save the results to the redis database.
-	defer func() {
-		savePayloadToDatabase := !api.ffDisablePayloadDBStorage
-		var simResult *blockSimResult
-		select {
-		case simResult = <-simResultC:
-		case <-time.After(10 * time.Second):
-			log.Warn("timed out waiting for simulation result")
-			simResult = &blockSimResult{false, false, nil, nil}
-		}
-
-		submissionEntry, err := api.db.SaveBuilderBlockSubmission2(
-			blockReq,
-			simResult.requestErr,
-			simResult.validationErr,
-			receivedAt,
-			eligibleAt,
-			simResult.wasSimulated,
-			savePayloadToDatabase,
-			pf,
-			simResult.optimisticSubmission)
-		if err != nil {
-			log.WithError(err).WithField("payload", blockReq).Error("saving builder block submission to database failed")
-			return
-		}
-
-		err = api.db.UpsertBlockBuilderEntryAfterSubmission2(submissionEntry, simResult.validationErr != nil)
-		if err != nil {
-			log.WithError(err).Error("failed to upsert block-builder-entry")
-		}
-	}()
+	
 
 	defer func() {
 		totalDuration := time.Since(receivedAt).Microseconds()
@@ -3194,10 +3198,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// FOR TOMORROW: go to commented out SubmitToB function as well as look at GetHeader() and GetPayload() functions.
 	// this is on hold: think of special cases like in the original function handleSubmitNewTobTxs
-	// use variables above to pass as args into the new header/payload responses method
 	// respond ok if all passes
-	// note: execution payload/header not needed after simulation passes
-
 }
 
 // DEPRECATED
