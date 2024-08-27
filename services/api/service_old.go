@@ -1,4 +1,3 @@
-// Package api contains the API webserver for the proposer and block-builder APIs
 package api
 
 import (
@@ -8,6 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AnomalyFi/hypersdk/codec"
+	builderCapella "github.com/attestantio/go-builder-client/api/capella"
+	v1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-eth2-client/util/bellatrix"
+	"github.com/holiman/uint256"
 	"io"
 	"math/big"
 	"net/http"
@@ -28,7 +32,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/flashbots/go-boost-utils/bls"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
-	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/go-utils/httplogger"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/flashbots/mev-boost-relay/common"
@@ -42,176 +45,9 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-const (
-	ErrBlockAlreadyKnown  = "simulation failed: block already known"
-	ErrBlockRequiresReorg = "simulation failed: block requires a reorg"
-	ErrMissingTrieNode    = "missing trie node"
-)
-
-var (
-	ErrMissingLogOpt              = errors.New("log parameter is nil")
-	ErrMissingBeaconClientOpt     = errors.New("beacon-client is nil")
-	ErrMissingDatastoreOpt        = errors.New("proposer datastore is nil")
-	ErrRelayPubkeyMismatch        = errors.New("relay pubkey does not match existing one")
-	ErrServerAlreadyStarted       = errors.New("server was already started")
-	ErrBuilderAPIWithoutSecretKey = errors.New("cannot start builder API without secret key")
-)
-
-var (
-	// Proposer API (builder-specs)
-	pathStatus            = "/eth/v1/builder/status"
-	pathRegisterValidator = "/eth/v1/builder/validators"
-	pathGetHeader         = "/eth/v1/builder/header/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{pubkey:0x[a-fA-F0-9]+}"
-	pathGetPayload        = "/eth/v1/builder/blinded_blocks"
-
-	// Block builder API
-	pathBuilderGetValidators  = "/relay/v1/builder/validators"
-	pathSubmitNewBlockRequest = "/relay/v1/builder/submit"
-	pathSubmitNewBlock        = "/relay/v1/builder/blocks"
-	pathSubmitNewRoBBlock     = "/relay/v1/builder/rob_blocks"
-	pathSubmitNewToBTxs       = "/relay/v1/builder/tob_txs"
-	pathGetTobGasReservations = "/relay/v1/builder/tob_gas_reservations"
-
-	// Data API
-	pathDataProposerPayloadDelivered = "/relay/v1/data/bidtraces/proposer_payload_delivered"
-	pathDataBuilderBidsReceived      = "/relay/v1/data/bidtraces/builder_blocks_received"
-	pathDataValidatorRegistration    = "/relay/v1/data/validator_registration"
-	pathIncludedTobTxs               = "/relay/v1/data/included_tob_txs/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{block_hash:0x[a-fA-F0-9]+}"
-
-	// Internal API
-	pathInternalBuilderStatus     = "/internal/v1/builder/{pubkey:0x[a-fA-F0-9]+}"
-	pathInternalBuilderCollateral = "/internal/v1/builder/collateral/{pubkey:0x[a-fA-F0-9]+}"
-
-	// Testing APIs
-	// TODO - lets keep this for v0 launch for ease of testing but after that remove it.
-	pathGetSlot              = "/eth/v1/relay/get_head_slot"
-	pathGetParentHashForSlot = "/eth/v1/relay/get_parent_hash_for_slot/{slot:[0-9]+}"
-	pathGetProposerForSlot   = "/eth/v1/relay/get_proposer_for_slot/{slot:[0-9]+}"
-
-	// number of goroutines to save active validator
-	numValidatorRegProcessors = cli.GetEnvInt("NUM_VALIDATOR_REG_PROCESSORS", 10)
-
-	// various timings
-	timeoutGetPayloadRetryMs  = cli.GetEnvInt("GETPAYLOAD_RETRY_TIMEOUT_MS", 100)
-	getHeaderRequestCutoffMs  = cli.GetEnvInt("GETHEADER_REQUEST_CUTOFF_MS", 3000)
-	getPayloadRequestCutoffMs = cli.GetEnvInt("GETPAYLOAD_REQUEST_CUTOFF_MS", 4000)
-	getPayloadResponseDelayMs = cli.GetEnvInt("GETPAYLOAD_RESPONSE_DELAY_MS", 1000)
-
-	// api settings
-	apiReadTimeoutMs       = cli.GetEnvInt("API_TIMEOUT_READ_MS", 1500)
-	apiReadHeaderTimeoutMs = cli.GetEnvInt("API_TIMEOUT_READHEADER_MS", 600)
-	apiIdleTimeoutMs       = cli.GetEnvInt("API_TIMEOUT_IDLE_MS", 3_000)
-	apiWriteTimeoutMs      = cli.GetEnvInt("API_TIMEOUT_WRITE_MS", 10_000)
-	apiMaxHeaderBytes      = cli.GetEnvInt("API_MAX_HEADER_BYTES", 60_000)
-
-	// api shutdown: wait time (to allow removal from load balancer before stopping http server)
-	apiShutdownWaitDuration = common.GetEnvDurationSec("API_SHUTDOWN_WAIT_SEC", 30)
-
-	// api shutdown: whether to stop sending bids during shutdown phase (only useful if running a single-instance testnet setup)
-	apiShutdownStopSendingBids = os.Getenv("API_SHUTDOWN_STOP_SENDING_BIDS") == "1"
-
-	// maximum payload bytes for a block submission to be fast-tracked (large payloads slow down other fast-tracked requests!)
-	fastTrackPayloadSizeLimit = cli.GetEnvInt("FAST_TRACK_PAYLOAD_SIZE_LIMIT", 230_000)
-
-	// user-agents which shouldn't receive bids
-	apiNoHeaderUserAgents = common.GetEnvStrSlice("NO_HEADER_USERAGENTS", []string{
-		"mev-boost/v1.5.0 Go-http-client/1.1", // Prysm v4.0.1 (Shapella signing issue)
-	})
-)
-
-// BatonAPIOpts contains the options for a relay
-type BatonAPIOpts struct {
-	Log *logrus.Entry
-
-	ListenAddr  string
-	BlockSimURL string
-
-	BeaconClient beaconclient.IMultiBeaconClient
-	Datastore    *datastore.Datastore
-	Redis        *datastore.RedisCache
-	Memcached    *datastore.Memcached
-	DB           database.IDatabaseService
-
-	SecretKey *bls.SecretKey // used to sign bids (getHeader responses)
-
-	// Network specific variables
-	EthNetDetails common.EthNetworkDetails
-
-	// APIs to enable
-	ProposerAPI     bool
-	BlockBuilderAPI bool
-	DataAPI         bool
-	PprofAPI        bool
-	InternalAPI     bool
-}
-
-type payloadAttributesHelper struct {
-	slot              uint64
-	parentHash        string
-	withdrawalsRoot   phase0.Root
-	payloadAttributes beaconclient.PayloadAttributes
-}
-
-// Data needed to issue a block validation request.
-type blockSimOptions struct {
-	isHighPrio bool
-	fastTrack  bool
-	log        *logrus.Entry
-	builder    *blockBuilderCacheEntry
-	req        *common.BuilderBlockValidationRequest
-}
-
-// Like the above but
-type blockSimOptions2 struct {
-	isHighPrio bool
-	fastTrack  bool
-	log        *logrus.Entry
-	builder    *blockBuilderCacheEntry
-	req        *common.BuilderBlockValidationRequest
-}
-
-// Data needed to issue a block validation request.
-type tobSimOptions struct {
-	log *logrus.Entry
-	req *common.TobValidationRequest
-}
-
-type blockBuilderCacheEntry struct {
-	status     common.BuilderStatus
-	collateral *big.Int
-}
-
-type blockSimResult struct {
-	wasSimulated         bool
-	optimisticSubmission bool
-	requestErr           error
-	validationErr        error
-}
-
-type blockAssemblyOptions struct {
-	log *logrus.Entry
-	req *common.BlockAssemblerRequest
-}
-
-type blockAssemblyResult struct {
-	assembledPayload *common.BuilderSubmitBlockRequest
-	requestErr       error
-	validationErr    error
-}
-
-type tracerOptions struct {
-	log *logrus.Entry
-	tx  *types.Transaction
-}
-
-type tracerResult struct {
-	tracerResponse *common.CallTraceResponse
-	tracerError    error
-}
-
-// BatonAPI represents a single Relay instance
-type BatonAPI struct {
-	opts BatonAPIOpts
+// BatonOldAPI represents a single Relay instance
+type BatonOldAPI struct {
+	opts BatonOldAPIOpts
 	log  *logrus.Entry
 
 	blsSk     *bls.SecretKey
@@ -272,7 +108,7 @@ type BatonAPI struct {
 	defiAddresses map[string]common2.Address
 }
 
-func FillUpDefiAddresses(opts BatonAPIOpts) map[string]common2.Address {
+func FillUpDefiAddresses(opts BatonOldAPIOpts) map[string]common2.Address {
 	defiAddresses := make(map[string]common2.Address)
 
 	if opts.EthNetDetails.Name == common.EthNetworkMainnet {
@@ -298,8 +134,8 @@ func FillUpDefiAddresses(opts BatonAPIOpts) map[string]common2.Address {
 	return defiAddresses
 }
 
-// NewBatonAPI creates a new service. if builders is nil, allow any builder
-func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
+// NewBatonOldAPI creates a new service. if builders is nil, allow any builder
+func NewBatonOldAPI(opts BatonOldAPIOpts) (api *BatonOldAPI, err error) {
 	if opts.Log == nil {
 		return nil, ErrMissingLogOpt
 	}
@@ -344,7 +180,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		}
 	}
 
-	api = &BatonAPI{
+	api = &BatonOldAPI{
 		opts:         opts,
 		log:          opts.Log,
 		blsSk:        opts.SecretKey,
@@ -405,7 +241,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	return api, nil
 }
 
-func (api *BatonAPI) getRouter() http.Handler {
+func (api *BatonOldAPI) getRouter() http.Handler {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/", api.handleRoot).Methods(http.MethodGet)
@@ -476,7 +312,7 @@ func (api *BatonAPI) getRouter() http.Handler {
 // StartServer starts up this API instance and HTTP server
 // - First it initializes the cache and updates local information
 // - Once that is done, the HTTP server is started
-func (api *BatonAPI) StartServer() (err error) {
+func (api *BatonOldAPI) StartServer() (err error) {
 	if api.srvStarted.Swap(true) {
 		return ErrServerAlreadyStarted
 	}
@@ -586,7 +422,7 @@ func (api *BatonAPI) StartServer() (err error) {
 	return err
 }
 
-func (api *BatonAPI) IsReady() bool {
+func (api *BatonOldAPI) IsReady() bool {
 	// If server is shutting down, return false
 	if api.srvShutdown.Load() {
 		return false
@@ -606,7 +442,7 @@ func (api *BatonAPI) IsReady() bool {
 // - Stop returning bids
 // - Set ready /readyz to negative status
 // - Wait a bit to allow removal of service from load balancer and draining of requests
-func (api *BatonAPI) StopServer() (err error) {
+func (api *BatonOldAPI) StopServer() (err error) {
 	// avoid running this twice. setting srvShutdown to true makes /readyz switch to negative status
 	if wasStopping := api.srvShutdown.Swap(true); wasStopping {
 		return nil
@@ -632,7 +468,7 @@ func (api *BatonAPI) StopServer() (err error) {
 	return api.srv.Shutdown(context.Background())
 }
 
-func (api *BatonAPI) startValidatorRegistrationDBProcessor() {
+func (api *BatonOldAPI) startValidatorRegistrationDBProcessor() {
 	for valReg := range api.validatorRegC {
 		err := api.datastore.SaveValidatorRegistration(valReg)
 		if err != nil {
@@ -646,7 +482,7 @@ func (api *BatonAPI) startValidatorRegistrationDBProcessor() {
 	}
 }
 
-func (api *BatonAPI) TobTxChecks(trace *common.CallTrace) (bool, error) {
+func (api *BatonOldAPI) TobTxChecks(trace *common.CallTrace) (bool, error) {
 	if api.opts.EthNetDetails.Name == common.EthNetworkCustom {
 		return api.TraceChecker(trace, api.IsTraceToWEthDaiPair)
 	} else if api.opts.EthNetDetails.Name == common.EthNetworkGoerli {
@@ -657,7 +493,7 @@ func (api *BatonAPI) TobTxChecks(trace *common.CallTrace) (bool, error) {
 }
 
 // just check if it goes to the DaiWethPair with a swap tx
-func (api *BatonAPI) TraceChecker(trace *common.CallTrace, f common.NetworkTobTxChecker) (bool, error) {
+func (api *BatonOldAPI) TraceChecker(trace *common.CallTrace, f common.NetworkTobTxChecker) (bool, error) {
 	stack := []common.CallTrace{*trace}
 
 	for len(stack) > 0 {
@@ -680,7 +516,7 @@ func (api *BatonAPI) TraceChecker(trace *common.CallTrace, f common.NetworkTobTx
 	return false, nil
 }
 
-func (api *BatonAPI) BaseTraceChecks(callTrace common.CallTrace) (bool, error) {
+func (api *BatonOldAPI) BaseTraceChecks(callTrace common.CallTrace) (bool, error) {
 	if callTrace.To == nil {
 		return false, nil
 	}
@@ -694,7 +530,7 @@ func (api *BatonAPI) BaseTraceChecks(callTrace common.CallTrace) (bool, error) {
 	return true, nil
 }
 
-func (api *BatonAPI) IsTraceUniV3EthUsdcSwap(callTrace common.CallTrace) (bool, error) {
+func (api *BatonOldAPI) IsTraceUniV3EthUsdcSwap(callTrace common.CallTrace) (bool, error) {
 	isValid, err := api.BaseTraceChecks(callTrace)
 	if err != nil {
 		return false, err
@@ -748,7 +584,7 @@ func (api *BatonAPI) IsTraceUniV3EthUsdcSwap(callTrace common.CallTrace) (bool, 
 }
 
 // This will change based on the state interference check
-func (api *BatonAPI) IsTraceToWEthDaiPair(callTrace common.CallTrace) (bool, error) {
+func (api *BatonOldAPI) IsTraceToWEthDaiPair(callTrace common.CallTrace) (bool, error) {
 	isValid, err := api.BaseTraceChecks(callTrace)
 	if err != nil {
 		return false, err
@@ -776,7 +612,7 @@ func (api *BatonAPI) IsTraceToWEthDaiPair(callTrace common.CallTrace) (bool, err
 	return true, nil
 }
 
-func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common.CallTraceResponse, error) {
+func (api *BatonOldAPI) getTraces(ctx context.Context, opts tracerOptions) (*common.CallTraceResponse, error) {
 	t := time.Now()
 	res, err := api.tracer.TraceTx(ctx, opts.tx)
 	log := opts.log.WithFields(logrus.Fields{
@@ -791,7 +627,7 @@ func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 }
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-func (api *BatonAPI) assembleBlock(ctx context.Context, opts blockAssemblyOptions) (*capella2.ExecutionPayload, error, error) {
+func (api *BatonOldAPI) assembleBlock(ctx context.Context, opts blockAssemblyOptions) (*capella2.ExecutionPayload, error, error) {
 	t := time.Now()
 	res, requestErr, validationErr := api.blockAssembler.Send(ctx, opts.req)
 	log := opts.log.WithFields(logrus.Fields{
@@ -819,7 +655,7 @@ func (api *BatonAPI) assembleBlock(ctx context.Context, opts blockAssemblyOption
 }
 
 // simulateTob sends a request for a TOB tx simulation to blockSimRateLimiter.
-func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) error {
+func (api *BatonOldAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) error {
 	t := time.Now()
 	requestErr, validationErr := api.blockSimRateLimiter.TobSim(ctx, opts.req)
 	log := opts.log.WithFields(logrus.Fields{
@@ -839,7 +675,7 @@ func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) err
 }
 
 // // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-// func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
+// func (api *BatonOldAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
 // 	t := time.Now()
 // 	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
 // 	log := opts.log.WithFields(logrus.Fields{
@@ -867,7 +703,7 @@ func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) err
 // }
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
+func (api *BatonOldAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
 	t := time.Now()
 	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
 	log := opts.log.WithFields(logrus.Fields{
@@ -894,7 +730,7 @@ func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (r
 	return nil, nil
 }
 
-func (api *BatonAPI) simulateBlockTxs(
+func (api *BatonOldAPI) simulateBlockTxs(
 	ctx context.Context,
 	blockReq *common.SubmitNewBlockRequest) (requestErr, validationErr error) {
 	t := time.Now()
@@ -923,7 +759,7 @@ func (api *BatonAPI) simulateBlockTxs(
 	return nil, nil
 }
 
-func (api *BatonAPI) demoteBuilder(pubkey string, req *common.BuilderSubmitBlockRequest, simError error) {
+func (api *BatonOldAPI) demoteBuilder(pubkey string, req *common.BuilderSubmitBlockRequest, simError error) {
 	builderEntry, ok := api.blockBuildersCache[pubkey]
 	if !ok {
 		api.log.Warnf("builder %v not in the builder cache", pubkey)
@@ -951,7 +787,7 @@ func (api *BatonAPI) demoteBuilder(pubkey string, req *common.BuilderSubmitBlock
 
 // processOptimisticBlock is called on a new goroutine when a optimistic block
 // needs to be simulated.
-func (api *BatonAPI) processOptimisticBlock(opts blockSimOptions, simResultC chan *blockSimResult) {
+func (api *BatonOldAPI) processOptimisticBlock(opts blockSimOptions, simResultC chan *blockSimResult) {
 	api.optimisticBlocksInFlight.Add(1)
 	defer func() { api.optimisticBlocksInFlight.Sub(1) }()
 	api.optimisticBlocksWG.Add(1)
@@ -985,7 +821,7 @@ func (api *BatonAPI) processOptimisticBlock(opts blockSimOptions, simResultC cha
 	}
 }
 
-func (api *BatonAPI) processPayloadAttributes(payloadAttributes beaconclient.PayloadAttributesEvent) {
+func (api *BatonOldAPI) processPayloadAttributes(payloadAttributes beaconclient.PayloadAttributesEvent) {
 	apiHeadSlot := api.headSlot.Load()
 	payloadAttrSlot := payloadAttributes.Data.ProposalSlot
 
@@ -1050,7 +886,7 @@ func (api *BatonAPI) processPayloadAttributes(payloadAttributes beaconclient.Pay
 	}).Info("updated payload attributes")
 }
 
-func (api *BatonAPI) processNewSlot(headSlot uint64) {
+func (api *BatonOldAPI) processNewSlot(headSlot uint64) {
 	prevHeadSlot := api.headSlot.Load()
 	if headSlot <= prevHeadSlot {
 		return
@@ -1088,7 +924,7 @@ func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	}).Infof("updated headSlot to %d", headSlot)
 }
 
-func (api *BatonAPI) updateProposerDuties(headSlot uint64) {
+func (api *BatonOldAPI) updateProposerDuties(headSlot uint64) {
 	// Ensure only one updating is running at a time
 	if api.isUpdatingProposerDuties.Swap(true) {
 		return
@@ -1137,7 +973,7 @@ func (api *BatonAPI) updateProposerDuties(headSlot uint64) {
 	api.log.Infof("proposer duties updated: %s", strings.Join(_duties, ", "))
 }
 
-func (api *BatonAPI) prepareBuildersForSlot(headSlot uint64) {
+func (api *BatonOldAPI) prepareBuildersForSlot(headSlot uint64) {
 	// Wait until there are no optimistic blocks being processed. Then we can
 	// safely update the slot.
 	api.optimisticBlocksWG.Wait()
@@ -1172,19 +1008,19 @@ func (api *BatonAPI) prepareBuildersForSlot(headSlot uint64) {
 	api.blockBuildersCache = newCache
 }
 
-func (api *BatonAPI) RespondError(w http.ResponseWriter, code int, message string) {
+func (api *BatonOldAPI) RespondError(w http.ResponseWriter, code int, message string) {
 	api.Respond(w, code, HTTPErrorResp{code, message})
 }
 
-func (api *BatonAPI) RespondOK(w http.ResponseWriter, response any) {
+func (api *BatonOldAPI) RespondOK(w http.ResponseWriter, response any) {
 	api.Respond(w, http.StatusOK, response)
 }
 
-func (api *BatonAPI) RespondMsg(w http.ResponseWriter, code int, msg string) {
+func (api *BatonOldAPI) RespondMsg(w http.ResponseWriter, code int, msg string) {
 	api.Respond(w, code, HTTPMessageResp{msg})
 }
 
-func (api *BatonAPI) Respond(w http.ResponseWriter, code int, response any) {
+func (api *BatonOldAPI) Respond(w http.ResponseWriter, code int, response any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	if response == nil {
@@ -1198,7 +1034,7 @@ func (api *BatonAPI) Respond(w http.ResponseWriter, code int, response any) {
 	}
 }
 
-func (api *BatonAPI) handleStatus(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleStatus(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1206,16 +1042,16 @@ func (api *BatonAPI) handleStatus(w http.ResponseWriter, req *http.Request) {
 //  PROPOSER APIS
 // ---------------
 
-func (api *BatonAPI) handleRoot(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleRoot(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "MEV-Boost Relay API")
 }
 
-func (api *BatonAPI) handleGetSlot(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleGetSlot(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, api.headSlot.Load())
 }
 
-func (api *BatonAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http.Request) {
 	// slot is passed as url args
 	slotStr := mux.Vars(req)["slot"]
 	slot, err := strconv.ParseUint(slotStr, 10, 64)
@@ -1232,7 +1068,7 @@ func (api *BatonAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http
 	api.RespondOK(w, res.parentHash)
 }
 
-func (api *BatonAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.Request) {
 	// slot is passed as url args
 	slotStr := mux.Vars(req)["slot"]
 	slot, err := strconv.ParseUint(slotStr, 10, 64)
@@ -1258,7 +1094,7 @@ func (api *BatonAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.R
 	api.RespondOK(w, res.Entry.Message.FeeRecipient.String())
 }
 
-func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
 	ua := req.UserAgent()
 	log := api.log.WithFields(logrus.Fields{
 		"method":        "registerValidator",
@@ -1469,7 +1305,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 	w.WriteHeader(http.StatusOK)
 }
 
-func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	slotStr := vars["slot"]
 	parentHashHex := vars["parent_hash"]
@@ -1561,7 +1397,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, bid)
 }
 
-func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
 	api.getPayloadCallsInFlight.Add(1)
 	defer api.getPayloadCallsInFlight.Done()
 
@@ -1876,7 +1712,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 //	BLOCK BUILDER APIS
 //
 // --------------------
-func (api *BatonAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http.Request) {
 	api.proposerDutiesLock.RLock()
 	resp := api.proposerDutiesResponse
 	api.proposerDutiesLock.RUnlock()
@@ -1887,7 +1723,7 @@ func (api *BatonAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http
 }
 
 // IMPORTANT: Changing from BuilderSubmitBlockRequest to RoBTxsSubmitRequest
-func (api *BatonAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *logrus.Entry, payload *common.RoBTxsSubmitRequest) (uint64, bool) {
+func (api *BatonOldAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *logrus.Entry, payload *common.RoBTxsSubmitRequest) (uint64, bool) {
 	api.proposerDutiesLock.RLock()
 	slotDuty := api.proposerDutiesMap[payload.Slot]
 	api.proposerDutiesLock.RUnlock()
@@ -1907,7 +1743,7 @@ func (api *BatonAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *log
 	return slotDuty.Entry.Message.GasLimit, true
 }
 
-func (api *BatonAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) bool {
+func (api *BatonOldAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) bool {
 	api.payloadAttributesLock.RLock()
 	attrs, ok := api.payloadAttributes[payload.ParentHash()]
 	api.payloadAttributesLock.RUnlock()
@@ -1943,7 +1779,7 @@ func (api *BatonAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *log
 	return true
 }
 
-func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.SubmitNewBlockRequest) bool {
+func (api *BatonOldAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.SubmitNewBlockRequest) bool {
 	if payload.Slot <= headSlot {
 		log.Info("submitNewBlock failed: submission for past slot")
 		api.RespondError(w, http.StatusBadRequest, "submission for past slot")
@@ -1954,7 +1790,7 @@ func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 }
 
 /* DEPRECATED
-func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
+func (api *BatonOldAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
 	// TODO: add deneb support.
 	if payload.Capella == nil {
 		log.Info("rejecting submission - non-capella payload for capella fork")
@@ -1980,7 +1816,7 @@ func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 }
 */
 
-func (api *BatonAPI) checkSubmissionSlotDetails2(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
+func (api *BatonOldAPI) checkSubmissionSlotDetails2(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
 	// TODO: add deneb support.
 	if payload.Capella == nil {
 		log.Info("rejecting submission - non-capella payload for capella fork")
@@ -2005,7 +1841,7 @@ func (api *BatonAPI) checkSubmissionSlotDetails2(w http.ResponseWriter, log *log
 	return true
 }
 
-func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry, builderPubkey phase0.BLSPubKey) (*blockBuilderCacheEntry, bool) {
+func (api *BatonOldAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry, builderPubkey phase0.BLSPubKey) (*blockBuilderCacheEntry, bool) {
 	builderEntry, ok := api.blockBuildersCache[builderPubkey.String()]
 	if !ok {
 		log.Warnf("unable to read builder: %s from the builder cache, using low-prio and no collateral", builderPubkey.String())
@@ -2047,7 +1883,7 @@ func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry,
 // }
 
 // Checks the quality of the TOB txs, if it is the txs expected in a TOB
-func (api *BatonAPI) checkTobTxsStateInterference(txs []*types.Transaction, log *logrus.Entry) error {
+func (api *BatonOldAPI) checkTobTxsStateInterference(txs []*types.Transaction, log *logrus.Entry) error {
 	var wg sync.WaitGroup
 
 	//// get traces
@@ -2112,7 +1948,7 @@ func (api *BatonAPI) checkTobTxsStateInterference(txs []*types.Transaction, log 
 	return nil
 }
 
-func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, common.TobGasReservations)
 }
 
@@ -2129,9 +1965,7 @@ func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *htt
 // So SEQ should add domain struct field that tells Anchor/Baton how many rollups are included in req
 
 // DEPRECATED
-/*
-// @TODO: Unit test the above.
-func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Request) {
 	headSlot := api.headSlot.Load()
 	receivedAt := time.Now().UTC()
 
@@ -2325,10 +2159,9 @@ func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Requ
 	api.Respond(w, http.StatusOK, "Tob Tx submitted successfully!")
 	return
 }
-*/
 
-/*
-func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Request) {
+// DEPRECATED
+func (api *BatonOldAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Request) {
 	var pf common.Profile
 	var prevTime, nextTime time.Time
 
@@ -2892,19 +2725,8 @@ func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Re
 	w.WriteHeader(http.StatusOK)
 
 }
-*/
 
-type redisUpdateBidOpts struct {
-	w                    http.ResponseWriter
-	tx                   redis.Pipeliner
-	log                  *logrus.Entry
-	cancellationsEnabled bool
-	receivedAt           time.Time
-	floorBidValue        *big.Int
-	payload              *common.BuilderSubmitBlockRequest
-}
-
-func (api *BatonAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBidAndUpdateTopBidResponse, *common.GetPayloadResponse, bool) {
+func (api *BatonOldAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBidAndUpdateTopBidResponse, *common.GetPayloadResponse, bool) {
 	// Prepare the response data
 	getHeaderResponse, err := common.BuildGetHeaderResponse(opts.payload, api.blsSk, api.publicKey, api.opts.EthNetDetails.DomainBuilder)
 	if err != nil {
@@ -2939,7 +2761,7 @@ func (api *BatonAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBid
 }
 
 // This method used for both ToB and for RoB.
-func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *http.Request) {
 	var prevTime, nextTime time.Time
 	headSlot := api.headSlot.Load()
 	receivedAt := time.Now().UTC()
@@ -3035,28 +2857,22 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		"isToB":                  isToBReq,
 	})
 
-	// ND 8-27: I suspect the below code isn't needed. This was used to check the fee recipient before which came
-	// the validator but now the fee recipient is set from javelin.
-	/*
-		// last tx should be the proposer payment
-		// TODO: instead of calling func below, we extract it from builder's block by getting addr
-		// builder needs a from addr and we call seq action getBalance() to check if the builder has enough or not.
-		proposerTx, err := api.getProposerPayment(blockReq)
-		if err != nil {
-			log.WithError(err).Info(err.Error())
-			api.RespondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	*/
+	// last tx should be the proposer payment
+	// TODO: instead of calling func below, we extract it from builder's block by getting addr
+	// builder needs a from addr and we call seq action getBalance() to check if the builder has enough or not.
+	proposerTx, err := api.getProposerPayment(blockReq)
+	if err != nil {
+		log.WithError(err).Info(err.Error())
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
-	// Checks that we are processing this slot
 	api.proposerDutiesLock.RLock()
-	_, ok = api.proposerDutiesMap[slot]
+	slotDuty, ok := api.proposerDutiesMap[slot]
 	api.proposerDutiesLock.RUnlock()
 	if !ok {
-		logMsg := "could not find slot duty for slot " + strconv.FormatUint(slot, 10)
-		log.Error(logMsg)
-		api.Respond(w, http.StatusBadRequest, logMsg)
+		log.Error("could not find slot duty")
+		api.Respond(w, http.StatusBadRequest, "could not find slot duty")
 		return
 	}
 
@@ -3067,9 +2883,31 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	simResultC := make(chan *blockSimResult, 1)
 
+	defer func() {
+		savePayloadToDatabase := !api.ffDisablePayloadDBStorage
+		var simResult *blockSimResult
+		select {
+		case simResult = <-simResultC:
+		case <-time.After(10 * time.Second):
+			log.Warn("timed out waiting for simulation result")
+			simResult = &blockSimResult{false, false, nil, nil}
+		}
+
+		submissionEntry, err := api.db.SaveBuilderBlockSubmission2(blockReq, simResult.requestErr, simResult.validationErr, receivedAt, eligibleAt, simResult.wasSimulated, savePayloadToDatabase, pf, simResult.optimisticSubmission)
+		if err != nil {
+			log.WithError(err).WithField("payload", blockReq).Error("saving builder block submission to database failed")
+			return
+		}
+
+		err = api.db.UpsertBlockBuilderEntryAfterSubmission2(submissionEntry, simResult.validationErr != nil)
+		if err != nil {
+			log.WithError(err).Error("failed to upsert block-builder-entry")
+		}
+	}()
+
 	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 	reqErr, validErr = api.simulateBlockTxs(context.Background(), blockReq)
-	simResultC <- &blockSimResult{reqErr == nil, false, reqErr, validErr}
+	simResultC <- &blockSimResult{requestErr == nil, false, requestErr, validationErr}
 	if reqErr != nil {
 		log.WithError(err).Warn("could not simulate TOB txs")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -3139,38 +2977,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}
 
-	// Once we process the sim, then we want to save the results to the redis database.
-	defer func() {
-		savePayloadToDatabase := !api.ffDisablePayloadDBStorage
-		var simResult *blockSimResult
-		select {
-		case simResult = <-simResultC:
-		case <-time.After(10 * time.Second):
-			log.Warn("timed out waiting for simulation result")
-			simResult = &blockSimResult{false, false, nil, nil}
-		}
-
-		submissionEntry, err := api.db.SaveBuilderBlockSubmission2(
-			blockReq,
-			simResult.requestErr,
-			simResult.validationErr,
-			receivedAt,
-			eligibleAt,
-			simResult.wasSimulated,
-			savePayloadToDatabase,
-			pf,
-			simResult.optimisticSubmission)
-		if err != nil {
-			log.WithError(err).WithField("payload", blockReq).Error("saving builder block submission to database failed")
-			return
-		}
-
-		err = api.db.UpsertBlockBuilderEntryAfterSubmission2(submissionEntry, simResult.validationErr != nil)
-		if err != nil {
-			log.WithError(err).Error("failed to upsert block-builder-entry")
-		}
-	}()
-
 	defer func() {
 		totalDuration := time.Since(receivedAt).Microseconds()
 		txHashList := []string{}
@@ -3202,7 +3008,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 // DEPRECATED
 /*
-func (api *BatonAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Request) {
 	var pf common.Profile
 	var prevTime, nextTime time.Time
 
@@ -3618,7 +3424,7 @@ func (api *BatonAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Reque
 //	INTERNAL APIS
 //
 // ---------------
-func (api *BatonAPI) handleInternalBuilderStatus(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleInternalBuilderStatus(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	builderPubkey := vars["pubkey"]
 	builderEntry, err := api.db.GetBlockBuilderByPubkey(builderPubkey)
@@ -3669,7 +3475,7 @@ func (api *BatonAPI) handleInternalBuilderStatus(w http.ResponseWriter, req *htt
 	}
 }
 
-func (api *BatonAPI) handleInternalBuilderCollateral(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleInternalBuilderCollateral(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	builderPubkey := vars["pubkey"]
 	if req.Method == http.MethodPost || req.Method == http.MethodPut {
@@ -3696,7 +3502,7 @@ func (api *BatonAPI) handleInternalBuilderCollateral(w http.ResponseWriter, req 
 //  DATA APIS
 // -----------
 
-func (api *BatonAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, req *http.Request) {
 	var err error
 	args := req.URL.Query()
 
@@ -3789,7 +3595,7 @@ func (api *BatonAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, r
 	api.RespondOK(w, response)
 }
 
-func (api *BatonAPI) handleDataBuilderBidsReceived(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleDataBuilderBidsReceived(w http.ResponseWriter, req *http.Request) {
 	var err error
 	args := req.URL.Query()
 
@@ -3874,7 +3680,7 @@ func (api *BatonAPI) handleDataBuilderBidsReceived(w http.ResponseWriter, req *h
 	api.RespondOK(w, response)
 }
 
-func (api *BatonAPI) handleIncludedTobTxs(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleIncludedTobTxs(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	slotStr := vars["slot"]
 	slot, err := strconv.ParseUint(slotStr, 10, 64)
@@ -3903,7 +3709,7 @@ func (api *BatonAPI) handleIncludedTobTxs(w http.ResponseWriter, req *http.Reque
 	api.RespondOK(w, tobTxs)
 }
 
-func (api *BatonAPI) handleDataValidatorRegistration(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleDataValidatorRegistration(w http.ResponseWriter, req *http.Request) {
 	pkStr := req.URL.Query().Get("pubkey")
 	if pkStr == "" {
 		api.RespondError(w, http.StatusBadRequest, "missing pubkey argument")
@@ -3938,11 +3744,11 @@ func (api *BatonAPI) handleDataValidatorRegistration(w http.ResponseWriter, req 
 	api.RespondOK(w, signedRegistration)
 }
 
-func (api *BatonAPI) handleLivez(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleLivez(w http.ResponseWriter, req *http.Request) {
 	api.RespondMsg(w, http.StatusOK, "live")
 }
 
-func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
+func (api *BatonOldAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 	if api.IsReady() {
 		api.RespondMsg(w, http.StatusOK, "ready")
 	} else {
@@ -3951,7 +3757,7 @@ func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 }
 
 // Check if block request is ToB
-func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (bool, error) {
+func (api *BatonOldAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (bool, error) {
 	if len(req.Txs) == 0 {
 		return false, errors.New("block request has no transactions provided")
 	}
@@ -3972,7 +3778,7 @@ func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (
 }
 
 // Proposer payment should be the last tx in the block request
-func (api *BatonAPI) getProposerPayment(req *common.SubmitNewBlockRequest) (*types.Transaction, error) {
+func (api *BatonOldAPI) getProposerPayment(req *common.SubmitNewBlockRequest) (*types.Transaction, error) {
 	if len(req.Txs) == 0 {
 		return nil, errors.New("block request has no transactions provided")
 	}
