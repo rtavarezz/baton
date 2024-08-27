@@ -21,7 +21,6 @@ import (
 
 	"github.com/NYTimes/gziphandler"
 	"github.com/attestantio/go-eth2-client/api/v1/capella"
-	capella2 "github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/buger/jsonparser"
 	common2 "github.com/ethereum/go-ethereum/common"
@@ -163,11 +162,12 @@ type blockSimOptions struct {
 
 // Like the above but
 type blockSimOptions2 struct {
-	isHighPrio bool
-	fastTrack  bool
-	log        *logrus.Entry
-	builder    *blockBuilderCacheEntry
-	req        *common.BuilderBlockValidationRequest
+	isHighPrio         bool
+	fastTrack          bool
+	log                *logrus.Entry
+	builder            *blockBuilderCacheEntry
+	RegisteredGasLimit uint64
+	//req        *common.BuilderBlockValidationRequest
 }
 
 // Data needed to issue a block validation request.
@@ -790,34 +790,6 @@ func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 	return res, nil
 }
 
-// simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-func (api *BatonAPI) assembleBlock(ctx context.Context, opts blockAssemblyOptions) (*capella2.ExecutionPayload, error, error) {
-	t := time.Now()
-	res, requestErr, validationErr := api.blockAssembler.Send(ctx, opts.req)
-	log := opts.log.WithFields(logrus.Fields{
-		"durationMs": time.Since(t).Milliseconds(),
-		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
-	})
-	if validationErr != nil {
-		if api.ffIgnorableValidationErrors {
-			// Operators chooses to ignore certain validation errors
-			ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
-			if ignoreError {
-				log.WithError(validationErr).Warn("block assembly failed with ignorable error")
-				return nil, nil, nil
-			}
-		}
-		log.WithError(validationErr).Warn("block assembly failed")
-		return nil, validationErr, nil
-	}
-	if requestErr != nil {
-		log.WithError(requestErr).Warn("block assembly failed: request error")
-		return nil, requestErr, nil
-	}
-	log.Info("block assembly successful")
-	return res, nil, nil
-}
-
 // simulateTob sends a request for a TOB tx simulation to blockSimRateLimiter.
 func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) error {
 	t := time.Now()
@@ -896,7 +868,8 @@ func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (r
 
 func (api *BatonAPI) simulateBlockTxs(
 	ctx context.Context,
-	blockReq *common.SubmitNewBlockRequest) (requestErr, validationErr error) {
+	opts blockSimOptions2,
+) (requestErr, validationErr error) {
 	t := time.Now()
 	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
 	log := opts.log.WithFields(logrus.Fields{
@@ -1886,24 +1859,23 @@ func (api *BatonAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http
 	}
 }
 
-// IMPORTANT: Changing from BuilderSubmitBlockRequest to RoBTxsSubmitRequest
-func (api *BatonAPI) checkSubmissionFeeRecipient(w http.ResponseWriter, log *logrus.Entry, payload *common.RoBTxsSubmitRequest) (uint64, bool) {
+func (api *BatonAPI) getValidatorGasLimit(
+	w http.ResponseWriter,
+	log *logrus.Entry,
+	slot uint64,
+) (uint64, bool) {
 	api.proposerDutiesLock.RLock()
-	slotDuty := api.proposerDutiesMap[payload.Slot]
+	slotDuty := api.proposerDutiesMap[slot]
 	api.proposerDutiesLock.RUnlock()
+
 	if slotDuty == nil {
-		log.Warn("could not find slot duty")
-		api.RespondError(w, http.StatusBadRequest, "could not find slot duty")
+		logMsg := "could not find slot duty for slot " + strconv.FormatUint(slot, 10)
+		log.Error(logMsg)
+		api.Respond(w, http.StatusBadRequest, logMsg)
 		return 0, false
 		//note type conversion
-	} else if !strings.EqualFold(slotDuty.Entry.Message.FeeRecipient.String(), string(payload.ProposerPayment[:])) {
-		log.WithFields(logrus.Fields{
-			"expectedFeeRecipient": slotDuty.Entry.Message.FeeRecipient.String(),
-			"actualFeeRecipient":   payload.ProposerPayment,
-		}).Info("fee recipient does not match")
-		api.RespondError(w, http.StatusBadRequest, "fee recipient does not match")
-		return 0, false
 	}
+
 	return slotDuty.Entry.Message.GasLimit, true
 }
 
@@ -1952,33 +1924,6 @@ func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 
 	return true
 }
-
-/* DEPRECATED
-func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
-	// TODO: add deneb support.
-	if payload.Capella == nil {
-		log.Info("rejecting submission - non-capella payload for capella fork")
-		api.RespondError(w, http.StatusBadRequest, "non-capella payload")
-		return false
-	}
-
-	if payload.Slot() <= headSlot {
-		log.Info("submitNewBlock failed: submission for past slot")
-		api.RespondError(w, http.StatusBadRequest, "submission for past slot")
-		return false
-	}
-
-	// Timestamp check
-	expectedTimestamp := api.genesisInfo.Data.GenesisTime + (payload.Slot() * common.SecondsPerSlot)
-	if payload.Timestamp() != expectedTimestamp {
-		log.Warnf("incorrect timestamp. got %d, expected %d", payload.Timestamp(), expectedTimestamp)
-		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("incorrect timestamp. got %d, expected %d", payload.Timestamp(), expectedTimestamp))
-		return false
-	}
-
-	return true
-}
-*/
 
 func (api *BatonAPI) checkSubmissionSlotDetails2(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
 	// TODO: add deneb support.
@@ -2036,15 +1981,6 @@ func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry,
 
 	return builderEntry, true
 }
-
-// type bidFloorOpts struct {
-// 	w                    http.ResponseWriter
-// 	tx                   redis.Pipeliner
-// 	log                  *logrus.Entry
-// 	cancellationsEnabled bool
-// 	simResultC           chan *blockSimResult
-// 	payload              *common.BuilderSubmitBlockRequest
-// }
 
 // Checks the quality of the TOB txs, if it is the txs expected in a TOB
 func (api *BatonAPI) checkTobTxsStateInterference(txs []*types.Transaction, log *logrus.Entry) error {
@@ -2115,784 +2051,6 @@ func (api *BatonAPI) checkTobTxsStateInterference(txs []*types.Transaction, log 
 func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, common.TobGasReservations)
 }
-
-// @TODO: Javellin builder should send us a list of tx. If the tx list doesn't include proposer payment,
-//
-//	then reject the block.
-//
-// Steps:
-// 1.) The simulation should happen first for verfication of ToB txs.
-// 2.) create 1 function that handles block(both ToB and RoB reqs), if chainID of ToB is diff then it is ToB req,
-// otherwise it is RoB req. If ToB req, do logic for ToB and return var, and same for RoB.
-// Method should return var ToB and RoB.
-// 3.) redis store needs to be rollup domain aware.
-// So SEQ should add domain struct field that tells Anchor/Baton how many rollups are included in req
-
-// DEPRECATED
-/*
-// @TODO: Unit test the above.
-func (api *BatonAPI) handleSubmitNewTobTxs(w http.ResponseWriter, req *http.Request) {
-	headSlot := api.headSlot.Load()
-	receivedAt := time.Now().UTC()
-
-	log := api.log.WithFields(logrus.Fields{
-		"method":                "submitTobTxs",
-		"contentLength":         req.ContentLength,
-		"headSlot":              headSlot,
-		"timestampRequestStart": receivedAt.UnixMilli(),
-	})
-
-	defer func() {
-
-		log.WithFields(logrus.Fields{
-			"timestampRequestFin": time.Now().UTC().UnixMilli(),
-			"requestDurationMs":   time.Since(receivedAt).Milliseconds(),
-		}).Info("request finished")
-	}()
-
-	tobTxRequest := new(common.ToBTxsSubmitRequest)
-
-	var r io.Reader = req.Body
-	limitReader := io.LimitReader(r, 10*1024*1024) // 10 MB
-	requestBytes, err := io.ReadAll(limitReader)
-	if err != nil {
-		log.WithError(err).Warn("could not read payload")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	// Check for JSON encoding
-	contentType := req.Header.Get("Content-Type")
-	if contentType == "application/json" {
-		log = log.WithField("reqContentType", "json")
-		if err := json.Unmarshal(requestBytes, tobTxRequest); err != nil {
-			log.WithError(err).Warn("could not decode payload - JSON")
-			api.RespondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	} else {
-		log.Error("We do not support non-JSON requests yet!", contentType)
-		api.Respond(w, http.StatusBadRequest, "invalid content-type")
-		return
-	}
-
-	slot := tobTxRequest.Slot
-	parentHash := tobTxRequest.ParentHash
-	if len(tobTxRequest.ToBTxs) == 0 {
-		logMsg := "Empty TOB tx map in request"
-		log.Error(logMsg)
-		api.Respond(w, http.StatusBadRequest, logMsg)
-		return
-	}
-
-	for _, tx := range tobTxRequest.ToBTxs {
-		if len(tx.Transaction) == 0 {
-			logMsg := "Empty TOB tx request"
-			log.Error(logMsg)
-			api.Respond(w, http.StatusBadRequest, logMsg)
-			return
-		}
-
-		if len(tx.Transaction) == 1 {
-			api.Respond(w, http.StatusBadRequest, "We require a payment tx along with the TOB txs!")
-		}
-
-		if len(tx.Transaction) > common.MaxTobTxs+1 {
-			api.Respond(w, http.StatusBadRequest, fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(v.Transactions)))
-		}
-	}
-
-	if slot < headSlot {
-		log.Error("TOB tx request for past slot!")
-		api.Respond(w, http.StatusBadRequest, "Submitted TOB tx request for past slot!")
-		return
-	}
-
-	// We only allow bidding for TOB 1 slot prior
-	if slot-headSlot > 1 {
-		log.Error("Slot's TOB bid not yet started!!")
-		api.Respond(w, http.StatusBadRequest, "Slot's TOB bid not yet started!!")
-		return
-	}
-
-	api.proposerDutiesLock.RLock()
-	slotDuty, ok := api.proposerDutiesMap[slot]
-	api.proposerDutiesLock.RUnlock()
-	if !ok {
-		log.Error("could not find slot duty")
-		api.Respond(w, http.StatusBadRequest, "could not find slot duty")
-		return
-	}
-	// note: is this needed? no validator in this context because we have ProposerPayment in req
-	validatorFeeRecipient := slotDuty.Entry.Message.FeeRecipient
-
-	startTime := time.Now().UTC()
-	// simulate the TOB txs
-	// TODO: might need changing below with req
-	err = api.simulateTobTxs(context.Background(), tobSimOptions{
-		log: log,
-		req: &common.TobValidationRequest{
-			TobTxs:               tobTxRequest.ToBTxs,
-			ParentHash:           tobTxRequest.ParentHash,
-			ProposerFeeRecipient: validatorFeeRecipient.String(),
-			TobGasLimit:          uint64(common.TobGasReservations),
-		},
-	})
-	if err != nil {
-		log.WithError(err).Warn("could not simulate TOB txs")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	simulationDuration := time.Since(startTime).Microseconds()
-
-	execPayloads := tobTxRequest.ToBTxs
-	transactionBytes := make([][]byte, len(execPayloads))
-	for i, execPayload := range execPayloads {
-		copy(transactionBytes[i], execPayload.Transaction)
-	}
-
-	txs, err := common.DecodeTransactions(transactionBytes)
-	if err != nil {
-		log.WithError(err).Warn("could not decode transactions")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	startTime = time.Now().UTC()
-	err = api.checkTobTxsStateInterference(txs, log)
-	if err != nil {
-		log.WithError(err).Error("error validating the txs")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	tracerDuration := time.Since(startTime).Microseconds()
-
-	// TODO: Verify is the last tx the payment to chunk producer? Is it really synonymous with the entire chunk value?
-	lastTxBytes := tobTxRequest.ToBTxs[len(tobTxRequest.ToBTxs)-1].Transaction
-	lastTx, err := ConvertTxBytesToTransaction(lastTxBytes)
-	propPayment := tobTxRequest.ProposerPayment
-	if codec.Address(lastTx.To().Bytes()) != propPayment {
-		log.WithError(err).Error("error validating the lastTx recipient does not match proposer payment address")
-		api.RespondError(w, http.StatusBadRequest, "error validating the lastTx recipient does not match proposer payment address")
-		return
-	}
-	tx := api.redis.NewTxPipeline()
-
-	tobTxValue := lastTx.Value()
-	// store it in a redis cache. The ROB block will pick it up and assemble it along with its own txs
-	currentTobTxValue, err := api.redis.GetTobTxValue(context.Background(), tx, slot, parentHash)
-	if err != nil {
-		log.WithError(err).Warn("could not get current Tob Tx value")
-		api.RespondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	if currentTobTxValue.Cmp(tobTxValue) > 0 {
-		log.Error("TOB tx value is less than the current value!")
-		api.Respond(w, http.StatusBadRequest, "TOB tx value is less than the current value!")
-		return
-	}
-
-	// add the tob tx to the redis cache
-	err = api.redis.SetTobTx(context.Background(), tx, slot, parentHash, transactionBytes)
-	if err != nil {
-		log.WithError(err).Warn("could not set Tob Tx")
-		api.RespondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// set the tob tx value in the redis cache
-	err = api.redis.SetTobTxValue(context.Background(), tx, tobTxValue, slot, parentHash)
-	if err != nil {
-		log.WithError(err).Warn("could not set Tob Tx Value")
-		api.RespondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	defer func() {
-		totalDuration := time.Since(receivedAt).Microseconds()
-		txHashList := []string{}
-		for _, tx := range txs {
-			txHashList = append(txHashList, tx.Hash().String())
-		}
-		txHashes := strings.Join(txHashList, ",")
-
-		err := api.db.InsertToBSubmitProfile(slot, parentHash, txHashes, uint64(simulationDuration), uint64(tracerDuration), uint64(totalDuration))
-		if err != nil {
-			log.WithError(err).Error("failed to insert tob submit profile into db")
-		}
-	}()
-
-	api.Respond(w, http.StatusOK, "Tob Tx submitted successfully!")
-	return
-}
-*/
-
-/*
-func (api *BatonAPI) handleSubmitNewRoBBlock(w http.ResponseWriter, req *http.Request) {
-	var pf common.Profile
-	var prevTime, nextTime time.Time
-
-	headSlot := api.headSlot.Load()
-	receivedAt := time.Now().UTC()
-	prevTime = receivedAt
-
-	log := api.log.WithFields(logrus.Fields{
-		"method":                "submitNewBlock",
-		"contentLength":         req.ContentLength,
-		"headSlot":              headSlot,
-		"timestampRequestStart": receivedAt.UnixMilli(),
-	})
-
-	args := req.URL.Query()
-	rebuildCacheRobBlock := args.Get("rebuild-cached-rob-block") == "1"
-	slotStr := args.Get("slot")
-	parentHash := args.Get("parent-hash")
-
-	// Log at start and end of request
-	log.Info("request initiated")
-	defer func() {
-		log.WithFields(logrus.Fields{
-			"timestampRequestFin": time.Now().UTC().UnixMilli(),
-			"requestDurationMs":   time.Since(receivedAt).Milliseconds(),
-		}).Info("request finished")
-	}()
-
-	var err error
-	var r io.Reader = req.Body
-	isGzip := req.Header.Get("Content-Encoding") == "gzip"
-	log = log.WithField("reqIsGzip", isGzip)
-	if isGzip {
-		r, err = gzip.NewReader(req.Body)
-		if err != nil {
-			log.WithError(err).Warn("could not create gzip reader")
-			api.RespondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	limitReader := io.LimitReader(r, 10*1024*1024) // 10 MB
-	requestPayloadBytes, err := io.ReadAll(limitReader)
-	if err != nil {
-		log.WithError(err).Warn("could not read payload")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	payload := new(common.RoBTxsSubmitRequest)
-
-	// note: why do we need to rebuild cache?
-	// Is it because if the curr cache becomes hacked or has issues etc that it needs a new cache?
-	if rebuildCacheRobBlock {
-		if slotStr == "" {
-			log.WithError(err).Warn("slot required to re-build rob block")
-			api.RespondError(w, http.StatusBadRequest, "slot required to re-build rob block")
-			return
-		}
-		if parentHash == "" {
-			log.WithError(err).Warn("parent-hash required to re-build rob block")
-			api.RespondError(w, http.StatusBadRequest, "parent-hash required to re-build rob block")
-			return
-		}
-		slot, err := strconv.ParseUint(slotStr, 10, 64)
-		if err != nil {
-			log.WithError(err).Warn("could not parse slot")
-			api.RespondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-
-		payload, err = api.redis.GetHighestRob(slot, parentHash)
-		if err != nil {
-			log.WithError(err).Warn("could not get highest cached rob")
-			api.RespondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if payload == nil {
-			log.WithError(err).Warn("could not get highest cached rob")
-			api.RespondError(w, http.StatusBadRequest, "could not get highest cached rob")
-			return
-		}
-	} else {
-		// TODO: need SSZ encoding for ToB and RoB requests as well as ExecutionPayload
-		// Check for SSZ encoding
-		// contentType := req.Header.Get("Content-Type")
-		// if contentType == "application/octet-stream" {
-		// 	log = log.WithField("reqContentType", "ssz")
-		// 	payload = new(SubmitBlockRequest)
-		// 	if err = payload.Capella.UnmarshalSSZ(requestPayloadBytes); err != nil {
-		// 		log.WithError(err).Warn("could not decode payload - SSZ")
-
-		// 		// SSZ decoding failed. try JSON as fallback (some builders used octet-stream for json before)
-		// 		if err2 := json.Unmarshal(requestPayloadBytes, payload); err2 != nil {
-		// 			log.WithError(fmt.Errorf("%w / %w", err, err2)).Warn("could not decode payload - SSZ or JSON")
-		// 			api.RespondError(w, http.StatusBadRequest, err.Error())
-		// 			return
-		// 		}
-		// 		log = log.WithField("reqContentType", "json")
-		// 	} else {
-		// 		log.Debug("received ssz-encoded payload")
-		// 	}
-		// } else {
-		// 	log = log.WithField("reqContentType", "json")
-		// 	if err := json.Unmarshal(requestPayloadBytes, payload); err != nil {
-		// 		log.WithError(err).Warn("could not decode payload - JSON")
-		// 		api.RespondError(w, http.StatusBadRequest, err.Error())
-		// 		return
-		// 	}
-		// }
-	}
-
-	nextTime = time.Now().UTC()
-	pf.Decode = uint64(nextTime.Sub(prevTime).Microseconds())
-	prevTime = nextTime
-
-	isLargeRequest := len(requestPayloadBytes) > fastTrackPayloadSizeLimit
-	log = log.WithFields(logrus.Fields{
-		"timestampAfterDecoding": time.Now().UTC().UnixMilli(),
-		"slot":                   payload.Slot(),
-		"builderPubkey":          payload.BuilderPubkey().String(),
-		"blockHash":              payload.BlockHash(),
-		"proposerPubkey":         payload.ProposerPubkey(),
-		"parentHash":             payload.ParentHash(),
-		"value":                  payload.Value().String(),
-		"numTx":                  payload.NumTx(),
-		"payloadBytes":           len(requestPayloadBytes),
-		"isLargeRequest":         isLargeRequest,
-	})
-
-	// TODO: revisit and do our own verification for slots and payload
-
-	// if payload.Message() == nil || !payload.HasExecutionPayload() {
-	// 	log.Error("submitNewBlock failed: missing execution payload")
-	// 	api.RespondError(w, http.StatusBadRequest, "missing parts of the payload")
-	// 	return
-	// }
-
-	// ok := api.checkSubmissionSlotDetails(w, log, headSlot, payload)
-	// if !ok {
-	// 	log.WithError(err).Info("slot details check failed")
-	// 	api.RespondError(w, http.StatusBadRequest, "slot details check failed")
-	// 	return
-	// }
-
-	builderPubkey := payload.BuilderPubkey
-	builderEntry, ok := api.checkBuilderEntry(w, log, builderPubkey)
-	if !ok {
-		log.WithError(err).Info("builder entry check failed")
-		api.RespondError(w, http.StatusBadRequest, "builder entry check failed")
-		return
-	}
-
-	log = log.WithFields(logrus.Fields{
-		"builderIsHighPrio":     builderEntry.status.IsHighPrio,
-		"timestampAfterChecks1": time.Now().UTC().UnixMilli(),
-	})
-
-	gasLimit, ok := api.checkSubmissionFeeRecipient(w, log, payload)
-	if !ok {
-		log.WithError(err).Info("fee recipient check failed")
-		api.RespondError(w, http.StatusBadRequest, "fee recipient check failed")
-		return
-	}
-
-	// Don't accept blocks with 0 value
-	if payload.Value().Cmp(ZeroU256.BigInt()) == 0 || payload.NumTx() == 0 {
-		log.Info("submitNewBlock failed: block with 0 value or no txs")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	// TODO: Don't accept blocks that don't include payload.ProposerPayment field
-
-	// Sanity check the submission
-	err = SanityCheckBuilderBlockSubmission(payload)
-	if err != nil {
-		log.WithError(err).Info("block submission sanity checks failed")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	log = log.WithField("timestampBeforeAttributesCheck", time.Now().UTC().UnixMilli())
-
-	// TODO: Is this needed? How much of this is needed at all?
-	//	ok = api.checkSubmissionPayloadAttrs(w, log, payload)
-	//	if !ok {
-	//		log.WithError(err).Info("payload attributes check failed")
-	//		api.RespondError(w, http.StatusBadRequest, "payload attributes check failed")
-	//		return
-	//	}
-
-	// TODO: Figure out how to verify out own signature for our message type
-	// Verify the signature
-	log = log.WithField("timestampBeforeSignatureCheck", time.Now().UTC().UnixMilli())
-	signature := payload.Signature
-	// note: message is possibly needed for verification of signature
-	ok, err = boostTypes.VerifySignature(payload.Message(), api.opts.EthNetDetails.DomainBuilder, builderPubkey[:], signature[:])
-	log = log.WithField("timestampAfterSignatureCheck", time.Now().UTC().UnixMilli())
-	if err != nil {
-		log.WithError(err).Warn("failed verifying builder signature")
-		api.RespondError(w, http.StatusBadRequest, "failed verifying builder signature")
-		return
-	} else if !ok {
-		log.Warn("invalid builder signature")
-		api.RespondError(w, http.StatusBadRequest, "invalid signature")
-		return
-	}
-
-	// Create the redis pipeline tx
-	tx := api.redis.NewTxPipeline()
-
-	//Reject new submissions once the payload for this slot was delivered - TODO: store in memory as well
-	slotLastPayloadDelivered, err := api.redis.GetLastSlotDelivered(context.Background(), tx)
-	if err != nil && !errors.Is(err, redis.Nil) {
-		log.WithError(err).Error("failed to get delivered payload slot from redis")
-	} else if payload.Slot <= slotLastPayloadDelivered {
-		log.Info("rejecting submission because payload for this slot was already delivered")
-		api.RespondError(w, http.StatusBadRequest, "payload for this slot was already delivered")
-		return
-	}
-
-	// ---------------------------------
-	// THE BID WILL BE ASSEMBLED SHORTLY
-	// ---------------------------------
-
-	robBid := payload
-
-	// TODO: What about RoB transactions?
-	// Get the best TOB tx value set from Redis
-	// If so proceed with assembly.
-	// check if there is a TOB tx
-	tobTxs, err := api.redis.GetTobTx(context.Background(), tx, payload.Slot, payload.ParentHash)
-	if err != nil {
-		log.WithError(err).Error("failed to get tob txs from redis")
-		api.RespondError(w, http.StatusInternalServerError, "failed to get tob txs from redis")
-		return
-	}
-
-	// TODO: Below is incomplete. There are now multiple rollup domains which figure into the value below.
-	// if there are no TOB txs then the ROB block is the final block
-	totalBidValue := payload.Value()
-	tobTxValue := big.NewInt(0)
-	if len(tobTxs) > 0 {
-		tobTxValue, err = api.redis.GetTobTxValue(context.Background(), tx, payload.Slot, payload.ParentHash)
-		if err != nil {
-			log.WithError(err).Error("failed to get tob tx value from redis")
-			api.RespondError(w, http.StatusInternalServerError, "failed to get tob tx value from redis")
-			return
-		}
-
-		totalBidValue = new(big.Int).Add(payload.Value(), tobTxValue)
-	}
-
-	// Get the latest top bid value from Redis
-	bidIsTopBid := false
-	topBidValue, err := api.redis.GetTopBidValue(context.Background(), tx, payload.Slot, payload.ParentHash, payload.ProposerPubkey.String())
-	if err != nil {
-		log.WithError(err).Error("failed to get top bid value from redis")
-		api.RespondError(w, http.StatusBadRequest, "failed to get top bid value from redis")
-		return
-	} else {
-		bidIsTopBid = totalBidValue.Cmp(topBidValue) == 1
-		log = log.WithFields(logrus.Fields{
-			"topBidValue":    topBidValue.String(),
-			"newBidIsTopBid": bidIsTopBid,
-		})
-	}
-
-	var builderSubmission *common.RoBTxsSubmitRequest
-	var eligibleAt time.Time // will be set once the bid is ready
-	// note:
-	if len(tobTxs) > 0 {
-		// we have a TOB tx, now assemble the block. Block assembly has the same properties as simulation but returns the final
-		// execution payload. If there are no TOB txs, we send an empty list to the assembler
-		assemblyResultC := make(chan *blockAssemblyResult, 1)
-
-		// Deferred saving of the builder submission to database (whenever this function ends)
-		defer func() {
-			savePayloadToDatabase := !api.ffDisablePayloadDBStorage
-			var res *blockAssemblyResult
-			select {
-			case res = <-assemblyResultC:
-			case <-time.After(10 * time.Second):
-				log.Warn("timed out waiting for assembly result")
-				res = &blockAssemblyResult{
-					assembledPayload: nil,
-					requestErr:       nil,
-					validationErr:    nil,
-				}
-			}
-
-			// decode the txs
-			transactionBytes := make([][]byte, len(tobTxs))
-			for i, txHexBytes := range tobTxs {
-				transactionBytes[i] = txHexBytes[:]
-			}
-			txs, err := common.DecodeTransactions(transactionBytes)
-			if err != nil {
-				log.WithError(err).Warn("could not decode transactions")
-				return
-			}
-			for _, tx := range txs {
-				err := api.db.InsertIncludedTobTx(tx.Hash().String(), payload.Slot(), payload.ParentHash(), res.assembledPayload.BlockHash())
-				if err != nil {
-					log.WithError(err).Warn("could not insert included tob tx")
-					return
-				}
-			}
-
-			submissionEntry, err := api.db.SaveBuilderBlockSubmission(res.assembledPayload, res.requestErr, res.validationErr, receivedAt, eligibleAt, true, savePayloadToDatabase, pf, false)
-			if err != nil {
-				log.WithError(err).WithField("payload", payload).Error("saving builder block submission to database failed")
-				return
-			}
-			err = api.db.UpsertBlockBuilderEntryAfterSubmission(submissionEntry, false)
-			if err != nil {
-				log.WithError(err).Error("failed to upsert block-builder-entry")
-			}
-		}()
-		// note
-		tobTxsToSendToAssembler := bellatrix.ExecutionPayloadTransactions{
-			Transactions: []bellatrix2.Transaction{},
-		}
-
-		for _, tobTxByte := range tobTxs {
-			tobTxsToSendToAssembler.Transactions = append(tobTxsToSendToAssembler.Transactions, tobTxByte)
-		}
-
-		opts := blockAssemblyOptions{
-			log: log,
-			req: &common.BlockAssemblerRequest{
-				TobTxs:             tobTxsToSendToAssembler,
-				RobPayload:         *payload,
-				RegisteredGasLimit: gasLimit,
-			},
-		}
-
-		timeBeforeAssembly := time.Now().UTC()
-		prevTime := timeBeforeAssembly
-
-		log = log.WithFields(logrus.Fields{
-			"timestampBeforeAssembly": timeBeforeAssembly.UTC().UnixMilli(),
-		})
-
-		assembledPayload, requestErr, validationErr := api.assembleBlock(context.Background(), opts) // success/error logging happens inside
-		// note: this could be the response for anchor request
-		builderSubmission = &common.RoBTxsSubmitRequest{
-			Bellatrix: payload.Bellatrix,
-			Capella: &builderCapella.SubmitBlockRequest{
-				Message: &v1.BidTrace{
-					Slot:                 payload.Message().Slot,
-					ParentHash:           assembledPayload.ParentHash,
-					BlockHash:            assembledPayload.BlockHash,
-					BuilderPubkey:        payload.Message().BuilderPubkey,
-					ProposerPubkey:       payload.Message().ProposerPubkey,
-					ProposerFeeRecipient: assembledPayload.FeeRecipient,
-					GasLimit:             assembledPayload.GasLimit,
-					GasUsed:              assembledPayload.GasUsed,
-					Value:                uint256.NewInt(totalBidValue.Uint64()),
-				},
-				ExecutionPayload: assembledPayload,
-				// TODO - This signature will be invalid and we can't get the valid one since we need the builder private key
-				// we could use a set of keys from relayer to sign the message. This is a TODO for now because this signature
-				// is not being checked anywhere once the bid is stored in the db
-				Signature: payload.Signature(),
-			},
-		}
-		assemblyResultC <- &blockAssemblyResult{
-			assembledPayload: builderSubmission,
-			requestErr:       requestErr,
-			validationErr:    validationErr,
-		}
-		assemblyDurationMs := time.Since(timeBeforeAssembly).Milliseconds()
-		log = log.WithFields(logrus.Fields{
-			"timestampAfterAssembly": time.Now().UTC().UnixMilli(),
-			"assemblyDurationMs":     assemblyDurationMs,
-		})
-		if requestErr != nil { // Request error
-			if os.IsTimeout(requestErr) {
-				api.RespondError(w, http.StatusGatewayTimeout, "assembly request timeout")
-			} else {
-				api.RespondError(w, http.StatusBadRequest, requestErr.Error())
-			}
-			return
-		} else {
-			if validationErr != nil {
-				api.RespondError(w, http.StatusBadRequest, validationErr.Error())
-				return
-			}
-		}
-		nextTime := time.Now().UTC()
-		pf.Assembly = uint64(nextTime.Sub(prevTime).Microseconds())
-
-	} else {
-		simResultC := make(chan *blockSimResult, 1)
-
-		defer func() {
-			savePayloadToDatabase := !api.ffDisablePayloadDBStorage
-			var simResult *blockSimResult
-			select {
-			case simResult = <-simResultC:
-			case <-time.After(10 * time.Second):
-				log.Warn("timed out waiting for simulation result")
-				simResult = &blockSimResult{false, false, nil, nil}
-			}
-
-			submissionEntry, err := api.db.SaveBuilderBlockSubmission(payload, simResult.requestErr, simResult.validationErr, receivedAt, eligibleAt, simResult.wasSimulated, savePayloadToDatabase, pf, simResult.optimisticSubmission)
-			if err != nil {
-				log.WithError(err).WithField("payload", payload).Error("saving builder block submission to database failed")
-				return
-			}
-
-			err = api.db.UpsertBlockBuilderEntryAfterSubmission(submissionEntry, simResult.validationErr != nil)
-			if err != nil {
-				log.WithError(err).Error("failed to upsert block-builder-entry")
-			}
-		}()
-
-		// Construct simulation request
-		opts := blockSimOptions{
-			isHighPrio: builderEntry.status.IsHighPrio,
-			fastTrack:  builderEntry.status.IsHighPrio && bidIsTopBid && !isLargeRequest,
-			log:        log,
-			builder:    builderEntry,
-			req: &common.BuilderBlockValidationRequest{
-				BuilderSubmitBlockRequest: *payload,
-				RegisteredGasLimit:        gasLimit - uint64(common.TobGasReservations),
-			},
-		}
-
-		timeBeforeValidation := time.Now().UTC()
-		prevTime := timeBeforeValidation
-
-		log = log.WithFields(logrus.Fields{
-			"timestampBeforeValidation": timeBeforeValidation.UTC().UnixMilli(),
-		})
-
-		// Simulate block (synchronously).
-		requestErr, validationErr := api.simulateBlock(context.Background(), opts) // success/error logging happens inside
-		simResultC <- &blockSimResult{requestErr == nil, false, requestErr, validationErr}
-		validationDurationMs := time.Since(timeBeforeValidation).Milliseconds()
-		log = log.WithFields(logrus.Fields{
-			"timestampAfterValidation": time.Now().UTC().UnixMilli(),
-			"validationDurationMs":     validationDurationMs,
-		})
-		if requestErr != nil { // Request error
-			if os.IsTimeout(requestErr) {
-				api.RespondError(w, http.StatusGatewayTimeout, "validation request timeout")
-			} else {
-				api.RespondError(w, http.StatusBadRequest, requestErr.Error())
-			}
-			return
-		} else {
-			if validationErr != nil {
-				api.RespondError(w, http.StatusBadRequest, validationErr.Error())
-				return
-			}
-		}
-
-		nextTime = time.Now().UTC()
-		pf.Simulation = uint64(nextTime.Sub(prevTime).Microseconds())
-
-		builderSubmission = payload
-	}
-
-	// Prepare the response data
-	getHeaderResponse, err := common.BuildGetHeaderResponse(builderSubmission, api.blsSk, api.publicKey, api.opts.EthNetDetails.DomainBuilder)
-	if err != nil {
-		log.WithError(err).Error("could not sign builder bid")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	getPayloadResponse, err := common.BuildGetPayloadResponse(builderSubmission)
-	if err != nil {
-		log.WithError(err).Error("could not build getPayload response")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	// This will be the assembled payload
-	bidTrace := common.BidTraceV2{
-		BidTrace:    *builderSubmission.Message(),
-		BlockNumber: builderSubmission.BlockNumber(),
-		NumTx:       uint64(builderSubmission.NumTx()),
-	}
-
-	// cache the RoB block if it is of the highest value to rebuild with if a future high value TobTx comes in
-	defer func() {
-		robValue, err := api.redis.GetHighestRobValue(context.Background(), tx, payload.Slot(), payload.ParentHash())
-		if err != nil {
-			log.WithError(err).Error("failed to get highest rob value from redis")
-			return
-		}
-		if robBid.Value().Cmp(robValue) == 1 {
-			err := api.redis.SetHighestRob(payload.Slot(), payload.ParentHash(), robBid)
-			if err != nil {
-				log.WithError(err).Error("failed to set highest rob value in redis")
-				return
-			}
-			err = api.redis.SetHighestRobValue(context.Background(), tx, robBid.Value(), payload.Slot(), payload.ParentHash())
-			if err != nil {
-				log.WithError(err).Error("failed to set highest rob value in redis")
-				return
-			}
-		}
-	}()
-
-	//
-	// Save to Redis
-	//
-	updateBidResult, err := api.redis.SaveBidAndUpdateTopBid(context.Background(), tx, &bidTrace, builderSubmission, getPayloadResponse, getHeaderResponse, receivedAt, false, nil)
-	if err != nil {
-		log.WithError(err).Error("could not save bid and update top bids")
-		api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
-		return
-	}
-
-	// Add fields to logs
-	log = log.WithFields(logrus.Fields{
-		"timestampAfterBidUpdate":    time.Now().UTC().UnixMilli(),
-		"wasBidSavedInRedis":         updateBidResult.WasBidSaved,
-		"wasTopBidUpdated":           updateBidResult.WasTopBidUpdated,
-		"topBidValue":                updateBidResult.TopBidValue,
-		"prevTopBidValue":            updateBidResult.PrevTopBidValue,
-		"profileRedisSavePayloadUs":  updateBidResult.TimeSavePayload.Microseconds(),
-		"profileRedisUpdateTopBidUs": updateBidResult.TimeUpdateTopBid.Microseconds(),
-		"profileRedisUpdateFloorUs":  updateBidResult.TimeUpdateFloor.Microseconds(),
-	})
-
-	if updateBidResult.WasBidSaved {
-		// Bid is eligible to win the auction
-		eligibleAt = time.Now().UTC()
-		log = log.WithField("timestampEligibleAt", eligibleAt.UnixMilli())
-
-		// Save to memcache in the background
-		if api.memcached != nil {
-			go func() {
-				err = api.memcached.SaveExecutionPayload(payload.Slot(), payload.ProposerPubkey(), payload.BlockHash(), getPayloadResponse)
-				if err != nil {
-					log.WithError(err).Error("failed saving execution payload in memcached")
-				}
-			}()
-		}
-	}
-
-	nextTime = time.Now().UTC()
-	pf.RedisUpdate = uint64(nextTime.Sub(prevTime).Microseconds())
-	pf.Total = uint64(nextTime.Sub(receivedAt).Microseconds())
-
-	// All done, log with profiling information
-	log.WithFields(logrus.Fields{
-		"profileDecodeUs":    pf.Decode,
-		"profilePrechecksUs": pf.Prechecks,
-		"profileSimUs":       pf.Simulation,
-		"profileAssemblyUs":  pf.Assembly,
-		"profileRedisUs":     pf.RedisUpdate,
-		"profileTotalUs":     pf.Total,
-	}).Info("received block from builder")
-	w.WriteHeader(http.StatusOK)
-
-}
-*/
 
 type redisUpdateBidOpts struct {
 	w                    http.ResponseWriter
@@ -3013,7 +2171,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// ToB will have varying chain id in txs, RoB will have uniform
 	// Also verifies len(txs) >= 2
-	isToBReq, err := api.checkBlockRequestIsToB(blockReq)
+	isToB, err := api.checkBlockRequestIsToB(blockReq)
 	if err != nil {
 		log.WithError(err).Info(err.Error())
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -3021,6 +2179,49 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 	chainID := blockReq.Txs[0].Namespace
 
+	builderPubkey := blockReq.BuilderPubkey
+	builderEntry, ok := api.checkBuilderEntry(w, log, phase0.BLSPubKey(builderPubkey))
+	if !ok {
+		log.WithError(err).Info("builder entry check failed")
+		api.RespondError(w, http.StatusBadRequest, "builder entry check failed")
+		return
+	}
+
+	log = log.WithFields(logrus.Fields{
+		"builderIsHighPrio":     builderEntry.status.IsHighPrio,
+		"timestampAfterChecks1": time.Now().UTC().UnixMilli(),
+	})
+
+	// Note this also validates slot validity
+	gasLimit, ok := api.getValidatorGasLimit(w, log, slot)
+	if !ok {
+		log.WithError(err).Info("fee recipient check failed")
+		api.RespondError(w, http.StatusBadRequest, "fee recipient check failed")
+		return
+	}
+
+	var topBidValue *big.Int
+	tx := api.redis.NewTxPipeline()
+	bidIsTopBid := false
+
+	if isToB {
+		topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot, blockReq.ParentHash, blockReq.ProposerPubkey.String())
+	} else {
+		topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot, blockReq.ParentHash, blockReq.ProposerPubkey.String(), chainID)
+	}
+	if err != nil {
+		log.WithError(err).Error("failed to get top bid value from redis")
+		api.RespondError(w, http.StatusBadRequest, "failed to get top bid value from redis")
+		return
+	} else {
+		bidIsTopBid = blockReq.Value.Cmp(topBidValue) == 1
+		log = log.WithFields(logrus.Fields{
+			"topBidValue":    topBidValue.String(),
+			"newBidIsTopBid": bidIsTopBid,
+		})
+	}
+
+	var validErr error
 	log = log.WithFields(logrus.Fields{
 		"timestampAfterDecoding": time.Now().UTC().UnixMilli(),
 		"slot":                   blockReq.Slot,
@@ -3032,46 +2233,20 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		"proposerPayment":        blockReq.ProposerPayment,
 		"signature":              blockReq.Signature,
 		"isLargeRequest":         isLargeRequest,
-		"isToB":                  isToBReq,
+		"isToB":                  isToB,
 	})
-
-	// ND 8-27: I suspect the below code isn't needed. This was used to check the fee recipient before which came
-	// the validator but now the fee recipient is set from javelin.
-	/*
-		// last tx should be the proposer payment
-		// TODO: instead of calling func below, we extract it from builder's block by getting addr
-		// builder needs a from addr and we call seq action getBalance() to check if the builder has enough or not.
-		proposerTx, err := api.getProposerPayment(blockReq)
-		if err != nil {
-			log.WithError(err).Info(err.Error())
-			api.RespondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	*/
-
-	// Checks that we are processing this slot
-	api.proposerDutiesLock.RLock()
-	_, ok = api.proposerDutiesMap[slot]
-	api.proposerDutiesLock.RUnlock()
-	if !ok {
-		logMsg := "could not find slot duty for slot " + strconv.FormatUint(slot, 10)
-		log.Error(logMsg)
-		api.Respond(w, http.StatusBadRequest, logMsg)
-		return
-	}
-	var validErr error
 
 	// Build the header and payload for this block request.
 	getHeader, err := buildHeader(blockReq)
 	if err != nil {
-		log.WithError(validErr).Warn("failed to build header")
-		api.RespondError(w, http.StatusBadRequest, validErr.Error())
+		log.WithError(err).Warn("failed to build header")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	getPayload, err := buildPayload(blockReq)
 	if err != nil {
-		log.WithError(validErr).Warn("failed to build payload")
-		api.RespondError(w, http.StatusBadRequest, validErr.Error())
+		log.WithError(err).Warn("failed to build payload")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -3081,8 +2256,21 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	simResultC := make(chan *blockSimResult, 1)
 
+	// Construct simulation request
+	fastTrackValidation := builderEntry.status.IsHighPrio && bidIsTopBid && !isLargeRequest
+	opts := blockSimOptions2{
+		isHighPrio:         builderEntry.status.IsHighPrio,
+		fastTrack:          fastTrackValidation,
+		log:                log,
+		builder:            builderEntry,
+		RegisteredGasLimit: gasLimit,
+		//req: &common.BuilderBlockValidationRequest{
+		//	BuilderSubmitBlockRequest: *blockReq,
+		//},
+	}
+
 	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
-	reqErr, validErr = api.simulateBlockTxs(context.Background(), blockReq)
+	reqErr, validErr = api.simulateBlockTxs(context.Background(), opts)
 	simResultC <- &blockSimResult{reqErr == nil, false, reqErr, validErr}
 	if reqErr != nil {
 		log.WithError(err).Warn("could not simulate TOB txs")
@@ -3097,6 +2285,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	simulationDuration := time.Since(simStartTime).Microseconds()
 
 	// Once we process the sim, then we want to save the results to the redis database.
+	var eligibleAt time.Time // will be set once the bid is ready
 	defer func() {
 		savePayloadToDatabase := !api.ffDisablePayloadDBStorage
 		var simResult *blockSimResult
@@ -3117,14 +2306,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			savePayloadToDatabase,
 			pf,
 			simResult.optimisticSubmission,
-			isToBReq,
+			isToB,
 			chainID)
 		if err != nil {
 			log.WithError(err).WithField("payload", blockReq).Error("saving builder block submission to database failed")
 			return
 		}
 
-		err = api.db.UpsertBlockBuilderEntryAfterSubmission2(submissionEntry, isToBReq, chainID, simResult.validationErr != nil)
+		err = api.db.UpsertBlockBuilderEntryAfterSubmission2(submissionEntry, isToB, chainID, simResult.validationErr != nil)
 		if err != nil {
 			log.WithError(err).Error("failed to upsert block-builder-entry")
 		}
@@ -3132,9 +2321,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// Save the header and payloads for this block request to Redis.
 	// The auction is processed here where the best bid for the ToB or RoB namespace is saved to the database.
-	tx := api.redis.NewTxPipeline()
 	var updateBidResult datastore.SaveBidAndUpdateTopBidResponse
-	if isToBReq {
+	if isToB {
 		// ToB case
 		updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx, blockReq, getPayload, &getHeader, receivedAt, false, nil)
 		if err != nil {
@@ -3173,8 +2361,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}
 
-	
-
 	defer func() {
 		totalDuration := time.Since(receivedAt).Microseconds()
 		txHashList := []string{}
@@ -3183,7 +2369,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 		txHashes := strings.Join(txHashList, ",")
 
-		if isToBReq {
+		if isToB {
 			err := api.db.InsertToBSubmitProfile(slot, parentHash, txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
 			if err != nil {
 				log.WithError(err).Error("failed to insert tob submit profile into db")

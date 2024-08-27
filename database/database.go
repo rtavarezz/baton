@@ -62,7 +62,7 @@ type IDatabaseService interface {
 
 	InsertRoBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
 	GetRobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
-	SaveBuilderBlockSubmission2( payload *common.BuilderSubmitBlockRequest, requestError, validationError error, receivedAt, eligibleAt time.Time, wasSimulated, saveExecPayload bool, profile common.Profile, optimisticSubmission bool, isToB bool, chainID string) (entry *BuilderBlockSubmissionEntry, err error)
+	SaveBuilderBlockSubmission2(payload *common.AnchorPayload, requestError, validationError error, receivedAt, eligibleAt time.Time, wasSimulated, saveExecPayload bool, profile common.Profile, optimisticSubmission bool, isToB bool, chainID string) (entry *BuilderBlockSubmissionEntry, err error)
 	UpsertBlockBuilderEntryAfterSubmission2(lastSubmission *BuilderBlockSubmissionEntry, isToB bool, chainID string, isError bool) error
 }
 
@@ -110,10 +110,11 @@ func (s *DatabaseService) prepareNamedQueries() (err error) {
 
 	// Insert block builder submission
 	query = `INSERT INTO ` + vars.TableBuilderBlockSubmission + `
-	(received_at, eligible_at, execution_payload_id, was_simulated, sim_success, sim_error, sim_req_error, signature, slot, parent_hash, block_hash, builder_pubkey, proposer_pubkey, proposer_fee_recipient, gas_used, gas_limit, num_tx, value, epoch, block_number, decode_duration, prechecks_duration, simulation_duration, assembly_duration, redis_update_duration, total_duration, optimistic_submission) VALUES
-	(:received_at, :eligible_at, :execution_payload_id, :was_simulated, :sim_success, :sim_error, :sim_req_error, :signature, :slot, :parent_hash, :block_hash, :builder_pubkey, :proposer_pubkey, :proposer_fee_recipient, :gas_used, :gas_limit, :num_tx, :value, :epoch, :block_number, :decode_duration, :prechecks_duration, :simulation_duration, :assembly_duration, :redis_update_duration, :total_duration, :optimistic_submission)
+	(received_at, chain_id, is_tob, eligible_at, execution_payload_id, was_simulated, sim_success, sim_error, sim_req_error, signature, slot, parent_hash, block_hash, builder_pubkey, proposer_pubkey, proposer_fee_recipient, gas_used, gas_limit, num_tx, value, epoch, block_number, decode_duration, prechecks_duration, simulation_duration, assembly_duration, redis_update_duration, total_duration, optimistic_submission) VALUES
+	(:received_at, :chain_id, :is_tob, :eligible_at, :execution_payload_id, :was_simulated, :sim_success, :sim_error, :sim_req_error, :signature, :slot, :parent_hash, :block_hash, :builder_pubkey, :proposer_pubkey, :proposer_fee_recipient, :gas_used, :gas_limit, :num_tx, :value, :epoch, :block_number, :decode_duration, :prechecks_duration, :simulation_duration, :assembly_duration, :redis_update_duration, :total_duration, :optimistic_submission)
 	RETURNING id`
 	s.nstmtInsertBlockBuilderSubmission, err = s.DB.PrepareNamed(query)
+
 	return err
 }
 
@@ -259,7 +260,8 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 }
 
 func (s *DatabaseService) SaveBuilderBlockSubmission2(
-	payload *common.BuilderSubmitBlockRequest,
+	payload *common.AnchorPayload,
+	blockReq *common.SubmitNewBlockRequest,
 	requestError, validationError error,
 	receivedAt, eligibleAt time.Time,
 	wasSimulated, saveExecPayload bool,
@@ -268,7 +270,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission2(
 	isToB bool,
 	chainID string) (entry *BuilderBlockSubmissionEntry, err error) {
 	// Save execution_payload: insert, or if already exists update to be able to return the id ('on conflict do nothing' doesn't return an id)
-	execPayloadEntry, err := PayloadToExecPayloadEntry(payload)
+	execPayloadEntry, err := AnchorPayloadToExecPayloadEntry(payload, blockReq)
 	if err != nil {
 		return nil, err
 	}
@@ -292,8 +294,8 @@ func (s *DatabaseService) SaveBuilderBlockSubmission2(
 	}
 
 	blockSubmissionEntry := &BuilderBlockSubmissionEntry{
-		chainID: chainID,
-		isToB: isToB,
+		chainID:            chainID,
+		isToB:              isToB,
 		ReceivedAt:         NewNullTime(receivedAt),
 		EligibleAt:         NewNullTime(eligibleAt),
 		ExecutionPayloadID: NewNullInt64(execPayloadEntry.ID),
@@ -303,24 +305,24 @@ func (s *DatabaseService) SaveBuilderBlockSubmission2(
 		SimError:     simErrStr,
 		SimReqError:  requestErrStr,
 
-		Signature: payload.Signature().String(),
+		Signature: blockReq.Signature.String(),
 
-		Slot:       payload.Slot(),
-		BlockHash:  payload.BlockHash(),
-		ParentHash: payload.ParentHash(),
+		Slot:       blockReq.Slot,
+		BlockHash:  blockReq.BlockHash.String(),
+		ParentHash: blockReq.ParentHash,
 
-		BuilderPubkey:        payload.BuilderPubkey().String(),
-		ProposerPubkey:       payload.ProposerPubkey(),
-		ProposerFeeRecipient: payload.ProposerFeeRecipient(),
+		BuilderPubkey:        blockReq.BuilderPubkey.String(),
+		ProposerPubkey:       blockReq.ProposerPubkey.String(),
+		ProposerFeeRecipient: string(blockReq.ProposerPayment),
 
-		GasUsed:  payload.GasUsed(),
-		GasLimit: payload.GasLimit(),
+		GasUsed:  payload.GasUsed,
+		GasLimit: payload.GasLimit,
 
-		NumTx: uint64(payload.NumTx()),
-		Value: payload.Value().String(),
+		NumTx: uint64(len(payload.Transactions)),
+		Value: blockReq.Value.String(),
 
-		Epoch:       payload.Slot() / common.SlotsPerEpoch,
-		BlockNumber: payload.BlockNumber(),
+		Epoch:       payload.Slot / common.SlotsPerEpoch,
+		BlockNumber: payload.BlockNumber,
 
 		DecodeDuration:       profile.Decode,
 		PrechecksDuration:    profile.Prechecks,
@@ -579,8 +581,8 @@ func (s *DatabaseService) UpsertBlockBuilderEntryAfterSubmission2(lastSubmission
 		NumSubmissionsTotal:    1,
 		NumSubmissionsSimError: 0,
 		Collateral:             "0", // required to satisfy numeric type, will not override collateral
-		isToB: isToB,
-		ChainID: chainID,
+		isToB:                  isToB,
+		ChainID:                chainID,
 	}
 	if isError {
 		entry.NumSubmissionsSimError = 1

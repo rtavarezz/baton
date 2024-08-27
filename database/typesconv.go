@@ -12,7 +12,8 @@ import (
 )
 
 var ErrUnsupportedExecutionPayload = errors.New("unsupported execution payload version")
-// note: need to change 
+
+// note: need to change
 func PayloadToExecPayloadEntry(payload *common.BuilderSubmitBlockRequest) (*ExecutionPayloadEntry, error) {
 	var _payload []byte
 	var version string
@@ -38,6 +39,30 @@ func PayloadToExecPayloadEntry(payload *common.BuilderSubmitBlockRequest) (*Exec
 
 		Version: version,
 		Payload: string(_payload),
+	}, nil
+}
+
+func AnchorPayloadToExecPayloadEntry(
+	payload *common.AnchorPayload,
+	blockReq *common.SubmitNewBlockRequest,
+) (*ExecutionPayloadEntry, error) {
+	var _payload []byte
+	var version string
+	var err error
+
+	if payload != nil {
+		_payload, err = json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &ExecutionPayloadEntry{
+		Slot:           payload.Slot,
+		ProposerPubkey: blockReq.ProposerPubkey.String(),
+		BlockHash:      blockReq.BlockHash.String(),
+		Version:        version,
+		Payload:        string(_payload),
 	}, nil
 }
 

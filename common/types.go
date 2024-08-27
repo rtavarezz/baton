@@ -1,28 +1,28 @@
 package common
 
 import (
-  "encoding/json"
-  "errors"
-  "fmt"
-  "math/big"
-  "os"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math/big"
+	"os"
 
-  "github.com/AnomalyFi/hypersdk/codec"
-  actions "github.com/AnomalyFi/seq-sdk/types"
-  "github.com/attestantio/go-builder-client/api"
-  "github.com/attestantio/go-builder-client/api/capella"
-  apiv1 "github.com/attestantio/go-builder-client/api/v1"
-  "github.com/attestantio/go-builder-client/spec"
-  apiv1capella "github.com/attestantio/go-eth2-client/api/v1/capella"
-  consensusspec "github.com/attestantio/go-eth2-client/spec"
-  consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
-  "github.com/attestantio/go-eth2-client/spec/phase0"
-  "github.com/ava-labs/avalanchego/ids"
-  "github.com/ethereum/go-ethereum/common"
-  "github.com/ethereum/go-ethereum/common/hexutil"
-  "github.com/ethereum/go-ethereum/core/types"
-  ssz "github.com/ferranbt/fastssz"
-  boostTypes "github.com/flashbots/go-boost-utils/types"
+	"github.com/AnomalyFi/hypersdk/codec"
+	actions "github.com/AnomalyFi/seq-sdk/types"
+	"github.com/attestantio/go-builder-client/api"
+	"github.com/attestantio/go-builder-client/api/capella"
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-builder-client/spec"
+	apiv1capella "github.com/attestantio/go-eth2-client/api/v1/capella"
+	consensusspec "github.com/attestantio/go-eth2-client/spec"
+	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ava-labs/avalanchego/ids"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	ssz "github.com/ferranbt/fastssz"
+	boostTypes "github.com/flashbots/go-boost-utils/types"
 )
 
 var (
@@ -1412,4 +1412,7 @@ type AnchorPayload struct {
 	// Array of transaction objects, each object is a byte list (DATA) representing
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
 	Transactions []hexutil.Bytes `json:"seqtransactions"`
+
+	GasUsed  uint64 `json:"gasused" db:"gas_used"`
+	GasLimit uint64 `json:"gaslimit" db:"gas_limit"`
 }

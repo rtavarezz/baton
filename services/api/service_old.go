@@ -1,3 +1,4 @@
+/*
 package api
 
 import (
@@ -265,12 +266,9 @@ func (api *BatonOldAPI) getRouter() http.Handler {
 		// Handles both ToB and RoB submissions
 		r.HandleFunc(pathSubmitNewBlockRequest, api.handleSubmitNewBlockRequest).Methods(http.MethodPost)
 
-		// DEPRECATED
-		/*
 			r.HandleFunc(pathSubmitNewBlock, api.handleSubmitNewBlock).Methods(http.MethodPost)
 			r.HandleFunc(pathSubmitNewRoBBlock, api.handleSubmitNewRoBBlock).Methods(http.MethodPost)
 			r.HandleFunc(pathSubmitNewToBTxs, api.handleSubmitNewTobTxs).Methods(http.MethodPost)
-		*/
 		r.HandleFunc(pathGetTobGasReservations, api.handleGetTobGasReservations).Methods(http.MethodGet)
 	}
 
@@ -1814,7 +1812,6 @@ func (api *BatonOldAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *l
 
 	return true
 }
-*/
 
 func (api *BatonOldAPI) checkSubmissionSlotDetails2(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
 	// TODO: add deneb support.
@@ -3417,7 +3414,6 @@ func (api *BatonOldAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Re
 	}).Info("received block from builder")
 	w.WriteHeader(http.StatusOK)
 }
-*/
 
 // ---------------
 //
@@ -3799,3 +3795,4 @@ func (api *BatonOldAPI) getProposerPayment(req *common.SubmitNewBlockRequest) (*
 
 	return lastTx, nil
 }
+*/

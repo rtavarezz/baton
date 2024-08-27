@@ -19,7 +19,6 @@ import (
 	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/go-redis/redis/v9"
-
 )
 
 var (
@@ -1356,9 +1355,50 @@ func (r *RedisCache) _updateRoBTopBid(ctx context.Context, pipeliner redis.Pipel
 	return state, err
 }
 
+// DEPRECATED
+/*
 // GetTopBidValue gets the top bid value for a given slot+parent+proposer combination
 func (r *RedisCache) GetTopBidValue(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (topBidValue *big.Int, err error) {
+	keyTopBidValue := r.keyTopBidValue(slot, parentHash, proposerPubkey)
+	c := pipeliner.Get(ctx, keyTopBidValue)
+	_, err = pipeliner.Exec(ctx)
+	if errors.Is(err, redis.Nil) {
+		return big.NewInt(0), nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	topBidValueStr, err := c.Result()
+	if err != nil {
+		return nil, err
+	}
+	topBidValue = new(big.Int)
+	topBidValue.SetString(topBidValueStr, 10)
+	return topBidValue, nil
+}
+*/
+
+func (r *RedisCache) GetTopToBBidValue(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (topBidValue *big.Int, err error) {
 	keyTopBidValue := r.keyTopToBBidValue(slot, parentHash, proposerPubkey)
+	c := pipeliner.Get(ctx, keyTopBidValue)
+	_, err = pipeliner.Exec(ctx)
+	if errors.Is(err, redis.Nil) {
+		return big.NewInt(0), nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	topBidValueStr, err := c.Result()
+	if err != nil {
+		return nil, err
+	}
+	topBidValue = new(big.Int)
+	topBidValue.SetString(topBidValueStr, 10)
+	return topBidValue, nil
+}
+
+func (r *RedisCache) GetTopRoBBidValue(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string, chainID string) (topBidValue *big.Int, err error) {
+	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerPubkey, chainID)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
