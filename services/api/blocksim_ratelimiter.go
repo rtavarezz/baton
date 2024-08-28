@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"io"
 	"net/http"
 	"sync"
@@ -30,6 +31,7 @@ var (
 type IBlockSimRateLimiter interface {
 	Send(context context.Context, payload *common.BuilderBlockValidationRequest, isHighPrio, fastTrack bool) (error, error)
 	TobSim(context context.Context, tobValidationRequest *common.TobValidationRequest) (error, error)
+	SimBlockAndGetGasUsed(context context.Context, blockReq *common.BlockValidationRequest) (uint64, error, error)
 	CurrentCounter() int64
 }
 
@@ -79,6 +81,46 @@ func (b *BlockSimulationRateLimiter) TobSim(context context.Context, tobValidati
 	simReq = jsonrpc.NewJSONRPCRequest("1", "flashbots_validateTobSubmission", tobValidationRequest)
 	_, requestErr, validationErr = SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, nil)
 	return requestErr, validationErr
+}
+
+func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Context, request *common.BlockValidationRequest) (uint64, error, error) {
+	b.cv.L.Lock()
+	cnt := atomic.AddInt64(&b.counter, 1)
+	if maxConcurrentBlocks > 0 && cnt > maxConcurrentBlocks {
+		b.cv.Wait()
+	}
+	b.cv.L.Unlock()
+
+	defer func() {
+		b.cv.L.Lock()
+		atomic.AddInt64(&b.counter, -1)
+		b.cv.Signal()
+		b.cv.L.Unlock()
+	}()
+
+	if err := context.Err(); err != nil {
+		return 0, fmt.Errorf("%w, %w", ErrRequestClosed, err), nil
+	}
+
+	var simReq *jsonrpc.JSONRPCRequest
+	var gasUsed uint64
+
+	// Create and fire off JSON-RPC request
+	simReq = jsonrpc.NewJSONRPCRequest("1", "eth_sendCallBundle", request)
+	resp, requestErr, validationErr := SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, nil)
+
+	// read out gas used to simulate bundle
+	var callBundleResult common.FlashbotsCallBundleResult
+	if requestErr != nil && validationErr != nil {
+		err := json.Unmarshal(resp.Result, &callBundleResult)
+		if err != nil {
+			log.Error("simBlockAndGetGasUsed error unmarshaling call bundle json:", err)
+			return 0, fmt.Errorf("%w, %w", ErrJSONDecodeFailed, err), validationErr
+		}
+		gasUsed = uint64(callBundleResult.TotalGasUsed)
+	}
+
+	return gasUsed, requestErr, validationErr
 }
 
 func (b *BlockSimulationRateLimiter) Send(context context.Context, payload *common.BuilderBlockValidationRequest, isHighPrio, fastTrack bool) (requestErr, validationErr error) {

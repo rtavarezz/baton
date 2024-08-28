@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"io"
 	"math/big"
 	"net/http"
@@ -167,6 +168,7 @@ type blockSimOptions2 struct {
 	log                *logrus.Entry
 	builder            *blockBuilderCacheEntry
 	RegisteredGasLimit uint64
+	req                *common.SubmitNewBlockRequest
 	//req        *common.BuilderBlockValidationRequest
 }
 
@@ -186,17 +188,6 @@ type blockSimResult struct {
 	optimisticSubmission bool
 	requestErr           error
 	validationErr        error
-}
-
-type blockAssemblyOptions struct {
-	log *logrus.Entry
-	req *common.BlockAssemblerRequest
-}
-
-type blockAssemblyResult struct {
-	assembledPayload *common.BuilderSubmitBlockRequest
-	requestErr       error
-	validationErr    error
 }
 
 type tracerOptions struct {
@@ -255,6 +246,7 @@ type BatonAPI struct {
 	ffEnableCancellations        bool // whether to enable block builder cancellations
 	ffRegValContinueOnInvalidSig bool // whether to continue processing further validators if one fails
 	ffIgnorableValidationErrors  bool // whether to enable ignorable validation errors
+	ffMockSimulation             bool // simulations always pass, intended for testing internal server functionality
 
 	payloadAttributes       map[string]payloadAttributesHelper // key:parentBlockHash
 	payloadAttributesBySlot map[uint64]payloadAttributesHelper // key:slot
@@ -400,6 +392,11 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	if os.Getenv("ENABLE_IGNORABLE_VALIDATION_ERRORS") == "1" {
 		api.log.Warn("env: ENABLE_IGNORABLE_VALIDATION_ERRORS - some validation errors will be ignored")
 		api.ffIgnorableValidationErrors = true
+	}
+
+	if os.Getenv("ENABLE_MOCK_SIMULATION") == "1" {
+		api.log.Warn("env: ENABLE_MOCK_SIMULATION - tx simulations will always pass")
+		api.ffMockSimulation = true
 	}
 
 	return api, nil
@@ -839,10 +836,33 @@ func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) err
 // }
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
+func (api *BatonAPI) simulateBlock(ctx context.Context, req *common.SubmitNewBlockRequest) (gasUsed, requestErr, validationErr error) {
 	t := time.Now()
-	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
-	log := opts.log.WithFields(logrus.Fields{
+
+	/*
+	   type BlockValidationRequest struct {
+	     Txs              []hexutil.Bytes `json:"txs"`              // Signed eth transactions
+	     BlockNumber      string          `json:"blockNumber"`      // hex-encoded block number for which this request is valid on
+	     StateBlockNumber string          `json:"stateBlockNumber"` // hex-encoded number or block tag for which state to base this simulation on. Can use "latest"
+	     Timestamp        uint64          `json:"timestamp"`        // Optional number. the timestamp to use for this bundle simulation
+	   }*/
+
+	var txs []hexutil.Bytes
+	txs = make([]hexutil.Bytes, len(req.Txs))
+	for i, tx := range req.Txs {
+		txs[i] = tx.Transaction
+	}
+
+	blockReq := common.BlockValidationRequest{
+		Txs:              txs,
+		BlockNumber:      req.BlockNumber,
+		StateBlockNumber: "latest",
+		Timestamp:        uint64(time.Now().UnixMilli()),
+	}
+
+	//requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
+	gasUsed, requestErr, validationErr = api.blockSimRateLimiter.SimBlockAndGetGasUsed(ctx, &blockReq)
+	log := .log.WithFields(logrus.Fields{
 		"durationMs": time.Since(t).Milliseconds(),
 		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
 	})
@@ -870,6 +890,10 @@ func (api *BatonAPI) simulateBlockTxs(
 	ctx context.Context,
 	opts blockSimOptions2,
 ) (requestErr, validationErr error) {
+	if api.ffMockSimulation {
+		return nil, nil
+	}
+
 	t := time.Now()
 	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
 	log := opts.log.WithFields(logrus.Fields{

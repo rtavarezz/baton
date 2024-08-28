@@ -891,7 +891,6 @@ Header only layout:
 [336-340) = offset2   (  4 bytes)
 [340-344) = offset3   (  4 bytes)
 [344-944) = EPH       (600 bytes)
-*/
 type SubmitBlockRequestV2Optimistic struct {
   Message                *apiv1.BidTrace
   ExecutionPayloadHeader *consensuscapella.ExecutionPayloadHeader
@@ -1276,7 +1275,6 @@ func (t *ToBTxsSubmitRequest) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
-*/
 
 type BlockAssemblerRequest struct {
   TobTxs             ExecutionPayloadTransactions `json:"tob_txs"`

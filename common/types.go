@@ -1185,6 +1185,7 @@ type SubmitNewBlockRequest struct {
 	Txs             []*actions.SEQTransaction `json:"txs"`
 	Slot            uint64
 	ParentHash      string
+	BlockNumber     string
 	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
 	ProposerPayment codec.Address
 	Signature       boostTypes.Signature `json:"signature" ssz-size:"96"`
@@ -1364,6 +1365,13 @@ type TobValidationRequest struct {
 	TobGasLimit          uint64
 }
 
+type BlockValidationRequest struct {
+	Txs              []hexutil.Bytes `json:"txs"`              // Signed eth transactions
+	BlockNumber      string          `json:"blockNumber"`      // hex-encoded block number for which this request is valid on
+	StateBlockNumber string          `json:"stateBlockNumber"` // hex-encoded number or block tag for which state to base this simulation on. Can use "latest"
+	Timestamp        uint64          `json:"timestamp"`        // Optional number. the timestamp to use for this bundle simulation
+}
+
 type IntermediateTobValidationRequest struct {
 	TobTxs               []byte `json:"tob_txs"`
 	ParentHash           string `json:"parent_hash"`
@@ -1415,4 +1423,16 @@ type AnchorPayload struct {
 
 	GasUsed  uint64 `json:"gasused" db:"gas_used"`
 	GasLimit uint64 `json:"gaslimit" db:"gas_limit"`
+}
+
+// Used in simulating bundle and getting gas used
+type FlashbotsCallBundleResult struct {
+	BundleGasPrice    string          `json:"bundleGasPrice"`
+	BundleHash        string          `json:"bundleHash"`
+	CoinbaseDiff      string          `json:"coinbaseDiff"`
+	EthSentToCoinbase string          `json:"ethSentToCoinbase"`
+	GasFees           string          `json:"gasFees"`
+	Results           []hexutil.Bytes `json:"results"`
+	StateBlockNumber  int64           `json:"stateBlockNumber"`
+	TotalGasUsed      int64           `json:"totalGasUsed"`
 }
