@@ -106,7 +106,7 @@ func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Conte
 	var gasUsed uint64
 
 	// Create and fire off JSON-RPC request
-	simReq = jsonrpc.NewJSONRPCRequest("1", "eth_sendCallBundle", request)
+	simReq = jsonrpc.NewJSONRPCRequest("1", "eth_callBundle", request)
 	resp, requestErr, validationErr := SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, nil)
 
 	// read out gas used to simulate bundle

@@ -37,9 +37,22 @@ func (m *Memcached) SaveExecutionPayload(slot uint64, proposerPubKey, blockHash 
 	return m.client.Set(&memcache.Item{Key: key, Value: bytes, Expiration: defaultMemcachedExpirySeconds})
 }
 
-func (m *Memcached) SaveAnchorPayload(slot uint64, proposerPubKey, blockHash string, payload *common.AnchorPayload) error {
+func (m *Memcached) SaveToBAnchorPayload(slot uint64, proposerPubKey, blockHash string, payload *common.AnchorPayload) error {
 	// TODO: standardize key format with redis cache and re-use the same function(s)
-	key := fmt.Sprintf("anchor/%s:cache-get-anchor-payload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
+	key := fmt.Sprintf("anchor/tob/%s:cache-get-anchor-payload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
+
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	//nolint:exhaustruct // "Flags" variable unused and opaque server-side
+	return m.client.Set(&memcache.Item{Key: key, Value: bytes, Expiration: defaultMemcachedExpirySeconds})
+}
+
+func (m *Memcached) SaveRoBAnchorPayload(slot uint64, proposerPubKey, blockHash string, chainID string, payload *common.AnchorPayload) error {
+	// TODO: standardize key format with redis cache and re-use the same function(s)
+	key := fmt.Sprintf("anchor/rob/%s:cache-get-anchor-payload-response:%d_%s_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash, chainID)
 
 	bytes, err := json.Marshal(payload)
 	if err != nil {
@@ -52,9 +65,25 @@ func (m *Memcached) SaveAnchorPayload(slot uint64, proposerPubKey, blockHash str
 
 // GetExecutionPayload attempts to fetch execution engine payload from memcached using composite key of slot,
 // proposer public key, block hash, and cache prefix if specified.
-func (m *Memcached) GetExecutionPayload(slot uint64, proposerPubKey, blockHash string) (*common.VersionedExecutionPayload, error) {
+func (m *Memcached) GetToBExecutionPayload(slot uint64, proposerPubKey, blockHash string) (*common.VersionedExecutionPayload, error) {
 	// TODO: standardize key format with redis cache and re-use the same function(s)
-	key := fmt.Sprintf("anchor/%s:cache-getpayload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
+	key := fmt.Sprintf("anchor/tob/%s:cache-getpayload-response:%d_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash)
+	item, err := m.client.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	result := new(common.VersionedExecutionPayload)
+	if err = result.UnmarshalJSON(item.Value); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (m *Memcached) GetRoBExecutionPayload(slot uint64, proposerPubKey, blockHash string, chainID string) (*common.VersionedExecutionPayload, error) {
+	// TODO: standardize key format with redis cache and re-use the same function(s)
+	key := fmt.Sprintf("anchor/rob/%s:cache-get-anchor-payload-response:%d_%s_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash, chainID)
 	item, err := m.client.Get(key)
 	if err != nil {
 		return nil, err

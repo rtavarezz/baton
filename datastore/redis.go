@@ -898,7 +898,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	return state, err
 }
 
-func (r *RedisCache) SaveRoBBidAndUpdateRopBid(
+func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	ctx context.Context,
 	pipeliner redis.Pipeliner,
 	payload *common.SubmitNewBlockRequest,

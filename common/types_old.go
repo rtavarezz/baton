@@ -1,6 +1,6 @@
-/*
 package common
 
+/*
 import (
 "encoding/json"
 errors "errors"
@@ -1179,7 +1179,6 @@ type SequencerMsgRequest struct {
 	// address of rollup submitting tx(s)
 	FromAddress string
 }
-*/
 
 type SubmitNewBlockRequest struct {
   Txs             []*actions.SEQTransaction `json:"txs"`

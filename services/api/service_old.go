@@ -1,6 +1,6 @@
-/*
 package api
 
+/*
 import (
 	"bytes"
 	"context"
@@ -2945,7 +2945,7 @@ func (api *BatonOldAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *
 		}
 	} else {
 		//RoB case
-		updateBidResult, err = api.redis.SaveRoBBidAndUpdateRopBid(context.Background(), tx, blockReq, getPayload,
+		updateBidResult, err = api.redis.SaveRoBBidAndUpdateTopBid(context.Background(), tx, blockReq, getPayload,
 			&getHeader, chainID, receivedAt, false, nil)
 		if err != nil {
 			log.WithError(err).Error("could not save bid and update top bids for RoB")

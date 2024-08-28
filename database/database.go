@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -293,6 +294,11 @@ func (s *DatabaseService) SaveBuilderBlockSubmission2(
 		requestErrStr = requestError.Error()
 	}
 
+	blockNum, err := strconv.ParseUint(blockReq.BlockNumber, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
 	blockSubmissionEntry := &BuilderBlockSubmissionEntry{
 		chainID:            chainID,
 		isToB:              isToB,
@@ -313,7 +319,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission2(
 
 		BuilderPubkey:        blockReq.BuilderPubkey.String(),
 		ProposerPubkey:       blockReq.ProposerPubkey.String(),
-		ProposerFeeRecipient: string(blockReq.ProposerPayment),
+		ProposerFeeRecipient: string(blockReq.ProposerPayment[:]),
 
 		GasUsed:  payload.GasUsed,
 		GasLimit: payload.GasLimit,
@@ -322,7 +328,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission2(
 		Value: blockReq.Value.String(),
 
 		Epoch:       payload.Slot / common.SlotsPerEpoch,
-		BlockNumber: payload.BlockNumber,
+		BlockNumber: blockNum,
 
 		DecodeDuration:       profile.Decode,
 		PrechecksDuration:    profile.Prechecks,

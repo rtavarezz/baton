@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 
+	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
 	actions "github.com/AnomalyFi/seq-sdk/types"
 	"github.com/attestantio/go-builder-client/api"
@@ -1181,8 +1182,10 @@ type SequencerMsgRequest struct {
 }
 */
 
+// SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
+// Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
 type SubmitNewBlockRequest struct {
-	Txs             []*actions.SEQTransaction `json:"txs"`
+	Txs             []*chain.Transaction `json:"txs"`
 	Slot            uint64
 	ParentHash      string
 	BlockNumber     string
@@ -1196,8 +1199,20 @@ type SubmitNewBlockRequest struct {
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
-		Txs: make([]*actions.SEQTransaction, 0),
+		Txs: make([]*chain.Transaction, 0),
 	}
+}
+
+func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
+	if len(r.Txs) == 0 {
+		return "", errors.New("getFirstChainID: no transactions found")
+	}
+
+	actions := r.Txs[0].Actions
+	if len(actions) == 0 {
+		return "", errors.New("getFirstChainID: no actions in first tx")
+	}
+
 }
 
 func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
@@ -1419,6 +1434,7 @@ type AnchorPayload struct {
 	Header common.Hash `json:"blockHash"`
 	// Array of transaction objects, each object is a byte list (DATA) representing
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	// TODO: Change me to hypersdk tx
 	Transactions []hexutil.Bytes `json:"seqtransactions"`
 
 	GasUsed  uint64 `json:"gasused" db:"gas_used"`
