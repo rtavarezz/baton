@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strconv"
+
+	"github.com/AnomalyFi/hypersdk/chain"
 	actions "github.com/AnomalyFi/seq-sdk/types"
 	"github.com/ethereum/go-ethereum/log"
-	"strconv"
 
 	"github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -168,7 +170,7 @@ func buildPayload(s *common.SubmitNewBlockRequest) (*common.AnchorPayload, error
 		log.Error("failed to hash header")
 	}
 
-	seqTxs, err := marshalSeqTxs(s.Txs)
+	seqTxs, err := marshalTxs(s.Txs)
 	if err != nil {
 		log.Error("failed to marshal txs, err: " + err.Error())
 		return nil, err
@@ -183,7 +185,7 @@ func buildPayload(s *common.SubmitNewBlockRequest) (*common.AnchorPayload, error
 	return &payload, nil
 }
 
-func marshalSeqTxs(txs []*actions.SEQTransaction) ([]hexutil.Bytes, error) {
+func marshalTxs(txs []*chain.Transaction) ([]hexutil.Bytes, error) {
 	ret := make([]hexutil.Bytes, len(txs))
 	for i, _ := range txs {
 		seqTxBytes, err := json.Marshal(txs[i])

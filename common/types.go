@@ -344,27 +344,34 @@ func (b *BidTraceV2WithTimestampJSON) ToCSVRecord() []string {
 }
 
 type ExecutionPayload struct {
-	BlockHash common.Hash `json:"blockHash"`
 	// Array of transaction objects, each object is a byte list (DATA) representing
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
-	Transactions []*actions.SEQTransaction `json:"transactions"`
+	Transactions []hexutil.Bytes `json:"transactions"`
 }
 type AnchorGetHeaderResponse struct {
 	// note: Message should be the anchor req
 	Slot uint64 `json:"slot"`
 	// nodeID of chunk producing validator.
 	Producer ids.NodeID `json:"producer"`
-	// block builder address
-	PriorityFeeReceiverAddr codec.Address `json:"priorityfeereceiveraddr"`
 	// hash of the anchor chunks (tob + robs)
 	ChunkHash common.Hash            `json:"chunkhash"`
+	// Make signature based off ToBHash + RoBHashes then we use this signature for Baton/Anchor to check against
 	ToBHash   common.Hash            `json:"tobhash"`
 	RoBHashes map[string]common.Hash `json:"robhashes"`
 }
+
+type AnchorGetPayloadRequest struct {
+	Slot        uint64                      `json:"slot"`
+	// TODO: Figure out how to verify signature(ex: actual vs expected)
+	Signature boostTypes.Signature			`json:"signature"`
+	ProposerIndex uint64 					`json:"proposer_index"`
+}
+
 type AnchorGetPayloadResponse struct {
 	Slot        uint64                      `json:"slot"`
 	ToBPayload  ExecutionPayload            `json:"tobpayload"`
 	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
+
 }
 
 // note: likely not needed since we can define our own formats and dealing with SEQ.
@@ -773,100 +780,100 @@ func BoostBidToBidTrace(bidTrace *boostTypes.BidTrace) *apiv1.BidTrace {
 	}
 }
 
-type GetPayloadResponse struct {
-	Bellatrix *boostTypes.GetPayloadResponse
-	Capella   *api.VersionedExecutionPayload
-}
+// type GetPayloadResponse struct {
+// 	Bellatrix *boostTypes.GetPayloadResponse
+// 	Capella   *api.VersionedExecutionPayload
+// }
 
-func (p *GetPayloadResponse) UnmarshalJSON(data []byte) error {
-	capella := new(api.VersionedExecutionPayload)
-	err := json.Unmarshal(data, capella)
-	if err == nil && capella.Capella != nil {
-		p.Capella = capella
-		return nil
-	}
-	bellatrix := new(boostTypes.GetPayloadResponse)
-	err = json.Unmarshal(data, bellatrix)
-	if err != nil {
-		return err
-	}
-	p.Bellatrix = bellatrix
-	return nil
-}
+// func (p *GetPayloadResponse) UnmarshalJSON(data []byte) error {
+// 	capella := new(api.VersionedExecutionPayload)
+// 	err := json.Unmarshal(data, capella)
+// 	if err == nil && capella.Capella != nil {
+// 		p.Capella = capella
+// 		return nil
+// 	}
+// 	bellatrix := new(boostTypes.GetPayloadResponse)
+// 	err = json.Unmarshal(data, bellatrix)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	p.Bellatrix = bellatrix
+// 	return nil
+// }
 
-func (p *GetPayloadResponse) MarshalJSON() ([]byte, error) {
-	if p.Bellatrix != nil {
-		return json.Marshal(p.Bellatrix)
-	}
-	if p.Capella != nil {
-		return json.Marshal(p.Capella)
-	}
-	return nil, ErrEmptyPayload
-}
+// func (p *GetPayloadResponse) MarshalJSON() ([]byte, error) {
+// 	if p.Bellatrix != nil {
+// 		return json.Marshal(p.Bellatrix)
+// 	}
+// 	if p.Capella != nil {
+// 		return json.Marshal(p.Capella)
+// 	}
+// 	return nil, ErrEmptyPayload
+// }
+// noting for handleGetHeader func
+// type GetHeaderResponse struct {
+// 	Bellatrix *boostTypes.GetHeaderResponse
+// 	Capella   *spec.VersionedSignedBuilderBid
+// }
 
-type GetHeaderResponse struct {
-	Bellatrix *boostTypes.GetHeaderResponse
-	Capella   *spec.VersionedSignedBuilderBid
-}
+// func (p *GetHeaderResponse) UnmarshalJSON(data []byte) error {
+// 	capella := new(spec.VersionedSignedBuilderBid)
+// 	err := json.Unmarshal(data, capella)
+// 	if err == nil && capella.Capella != nil {
+// 		p.Capella = capella
+// 		return nil
+// 	}
+// 	bellatrix := new(boostTypes.GetHeaderResponse)
+// 	err = json.Unmarshal(data, bellatrix)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	p.Bellatrix = bellatrix
+// 	return nil
+// }
 
-func (p *GetHeaderResponse) UnmarshalJSON(data []byte) error {
-	capella := new(spec.VersionedSignedBuilderBid)
-	err := json.Unmarshal(data, capella)
-	if err == nil && capella.Capella != nil {
-		p.Capella = capella
-		return nil
-	}
-	bellatrix := new(boostTypes.GetHeaderResponse)
-	err = json.Unmarshal(data, bellatrix)
-	if err != nil {
-		return err
-	}
-	p.Bellatrix = bellatrix
-	return nil
-}
+// func (p *GetHeaderResponse) MarshalJSON() ([]byte, error) {
+// 	if p.Capella != nil {
+// 		return json.Marshal(p.Capella)
+// 	}
+// 	if p.Bellatrix != nil {
+// 		return json.Marshal(p.Bellatrix)
+// 	}
+// 	return nil, ErrEmptyPayload
+// }
 
-func (p *GetHeaderResponse) MarshalJSON() ([]byte, error) {
-	if p.Capella != nil {
-		return json.Marshal(p.Capella)
-	}
-	if p.Bellatrix != nil {
-		return json.Marshal(p.Bellatrix)
-	}
-	return nil, ErrEmptyPayload
-}
+// func (p *GetHeaderResponse) Value() *big.Int {
+// 	if p.Capella != nil {
+// 		return p.Capella.Capella.Message.Value.ToBig()
+// 	}
+// 	if p.Bellatrix != nil {
+// 		return p.Bellatrix.Data.Message.Value.BigInt()
+// 	}
+// 	return nil
+// }
 
-func (p *GetHeaderResponse) Value() *big.Int {
-	if p.Capella != nil {
-		return p.Capella.Capella.Message.Value.ToBig()
-	}
-	if p.Bellatrix != nil {
-		return p.Bellatrix.Data.Message.Value.BigInt()
-	}
-	return nil
-}
+// func (p *GetHeaderResponse) BlockHash() phase0.Hash32 {
+// 	if p.Capella != nil {
+// 		return p.Capella.Capella.Message.Header.BlockHash
+// 	}
+// 	if p.Bellatrix != nil {
+// 		return phase0.Hash32(p.Bellatrix.Data.Message.Header.BlockHash)
+// 	}
+// 	return phase0.Hash32{}
+// }
 
-func (p *GetHeaderResponse) BlockHash() phase0.Hash32 {
-	if p.Capella != nil {
-		return p.Capella.Capella.Message.Header.BlockHash
-	}
-	if p.Bellatrix != nil {
-		return phase0.Hash32(p.Bellatrix.Data.Message.Header.BlockHash)
-	}
-	return phase0.Hash32{}
-}
-
-func (p *GetHeaderResponse) Empty() bool {
-	if p == nil {
-		return true
-	}
-	if p.Capella != nil {
-		return p.Capella.Capella == nil || p.Capella.Capella.Message == nil
-	}
-	if p.Bellatrix != nil {
-		return p.Bellatrix.Data == nil || p.Bellatrix.Data.Message == nil
-	}
-	return true
-}
+// func (p *GetHeaderResponse) Empty() bool {
+// 	if p == nil {
+// 		return true
+// 	}
+// 	if p.Capella != nil {
+// 		return p.Capella.Capella == nil || p.Capella.Capella.Message == nil
+// 	}
+// 	if p.Bellatrix != nil {
+// 		return p.Bellatrix.Data == nil || p.Bellatrix.Data.Message == nil
+// 	}
+// 	return true
+// }
 
 func (b *BuilderSubmitBlockRequest) Withdrawals() []*consensuscapella.Withdrawal {
 	if b.Capella != nil {

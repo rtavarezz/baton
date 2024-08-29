@@ -4,11 +4,11 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"io"
 	"math/big"
 	"net/http"
@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/AnomalyFi/nodekit-seq/actions"
 	"github.com/NYTimes/gziphandler"
@@ -263,6 +265,8 @@ type BatonAPI struct {
 	blockBuildersCache map[string]*blockBuilderCacheEntry
 	// stores DeFi contract addresses rquired for state interference checks
 	defiAddresses map[string]common2.Address
+	// stores RoB chain IDs
+	robChainIDs map[string] struct {}
 }
 
 func FillUpDefiAddresses(opts BatonAPIOpts) map[string]common2.Address {
@@ -358,6 +362,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 
 		validatorRegC: make(chan boostTypes.SignedValidatorRegistration, 450_000),
 		defiAddresses: FillUpDefiAddresses(opts),
+		robChainIDs: make(map[string]struct{}),
 	}
 
 	if os.Getenv("FORCE_GET_HEADER_204") == "1" {
@@ -1538,38 +1543,71 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	bid, err := api.redis.GetBestBid(slot, parentHashHex, proposerPubkeyHex)
+	var resp common.AnchorGetHeaderResponse
+	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 	if err != nil {
-		log.WithError(err).Error("could not get bid")
+		log.WithError(err).Error("could not get bid for ToB")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	if bid.Empty() {
+	// think of more cases for hash if possible
+	if (bid.Big().Cmp(big.NewInt(0))) == 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	resp.ToBHash = *bid
+	combined := resp.ToBHash.Bytes()
+	for chainID , _ := range api.robChainIDs {
+		bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
+		if err != nil {
+			log.WithError(err).Error("could not get bid for RoB: " + chainID)
+			api.RespondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		// think of more cases for hash if possible
+		if (bid.Big().Cmp(big.NewInt(0))) == 0 {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		resp.RoBHashes[chainID] = *bid
+		combined = append(combined, bid.Bytes()...)
+	}
+    // Hash the concatenated result to get a third hash
+    chunkHashBytes := sha256.Sum256(combined)
+
+    // Convert the result to a common.Hash
+    resp.ChunkHash = common2.BytesToHash(chunkHashBytes[:]) 
+	resp.Slot = slot
+
+	// TODO: needs a case for if no RoB and ToB then figure out logic for this
+
+	// if bid.Empty() {
+	// 	w.WriteHeader(http.StatusNoContent)
+	// 	return
+	// }
 
 	// Error on bid without value
-	if bid.Value().Cmp(big.NewInt(0)) == 0 {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
+	// if bid.Value().Cmp(big.NewInt(0)) == 0 {
+	// 	w.WriteHeader(http.StatusNoContent)
+	// 	return
+	// }
 
-	log.WithFields(logrus.Fields{
-		"value":     bid.Value().String(),
-		"blockHash": bid.BlockHash().String(),
-	}).Info("bid delivered")
-	api.RespondOK(w, bid)
+	// log.WithFields(logrus.Fields{
+	// 	"value":     bid.Value().String(),
+	// 	"blockHash": bid.BlockHash().String(),
+	// }).Info("bid delivered")
+	api.RespondOK(w, resp)
 }
 
 func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
+	// note: multiple payload calls are unlikely
 	api.getPayloadCallsInFlight.Add(1)
 	defer api.getPayloadCallsInFlight.Done()
 
 	ua := req.UserAgent()
 	headSlot := api.headSlot.Load()
 	receivedAt := time.Now().UTC()
+	// TODO: update fields
 	log := api.log.WithFields(logrus.Fields{
 		"method":                "getPayload",
 		"ua":                    ua,
@@ -1605,38 +1643,35 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	}
 
 	// Decode payload
-	payload := new(common.SignedBlindedBeaconBlock)
-	// TODO: add deneb support.
-	payload.Capella = new(capella.SignedBlindedBeaconBlock)
-	if err := json.NewDecoder(bytes.NewReader(body)).Decode(payload.Capella); err != nil {
-		log.WithError(err).Warn("failed to decode capella getPayload request")
-		api.RespondError(w, http.StatusBadRequest, "failed to decode capella payload")
+	payload := new(common.AnchorGetPayloadRequest)
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(payload); err != nil {
+		log.WithError(err).Warn("failed to decode getPayload request")
+		api.RespondError(w, http.StatusBadRequest, "failed to decode anchor payload request")
 		return
 	}
 
 	// Take time after the decoding, and add to logging
 	decodeTime := time.Now().UTC()
-	slotStartTimestamp := api.genesisInfo.Data.GenesisTime + (payload.Slot() * common.SecondsPerSlot)
+	slotStartTimestamp := api.genesisInfo.Data.GenesisTime + (payload.Slot * common.SecondsPerSlot)
 	msIntoSlot := decodeTime.UnixMilli() - int64((slotStartTimestamp * 1000))
 	log = log.WithFields(logrus.Fields{
-		"slot":                 payload.Slot(),
-		"slotEpochPos":         (payload.Slot() % common.SlotsPerEpoch) + 1,
-		"blockHash":            payload.BlockHash(),
+		"slot":                 payload.Slot,
+		"slotEpochPos":         (payload.Slot % common.SlotsPerEpoch) + 1,
 		"slotStartSec":         slotStartTimestamp,
 		"msIntoSlot":           msIntoSlot,
 		"timestampAfterDecode": decodeTime.UnixMilli(),
-		"proposerIndex":        payload.ProposerIndex(),
+		"proposerIndex":        payload.ProposerIndex,
 	})
 
 	// Ensure the proposer index is expected
 	api.proposerDutiesLock.RLock()
-	slotDuty := api.proposerDutiesMap[payload.Slot()]
+	slotDuty := api.proposerDutiesMap[payload.Slot]
 	api.proposerDutiesLock.RUnlock()
 	if slotDuty == nil {
 		log.Warn("could not find slot duty")
 	} else {
 		log = log.WithField("feeRecipient", slotDuty.Entry.Message.FeeRecipient)
-		if slotDuty.ValidatorIndex != payload.ProposerIndex() {
+		if slotDuty.ValidatorIndex != payload.ProposerIndex {
 			log.WithField("expectedProposerIndex", slotDuty.ValidatorIndex).Warn("not the expected proposer index")
 			api.RespondError(w, http.StatusBadRequest, "not the expected proposer index")
 			return
@@ -1644,9 +1679,9 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	}
 
 	// Get the proposer pubkey based on the validator index from the payload
-	proposerPubkey, found := api.datastore.GetKnownValidatorPubkeyByIndex(payload.ProposerIndex())
+	proposerPubkey, found := api.datastore.GetKnownValidatorPubkeyByIndex(payload.ProposerIndex)
 	if !found {
-		log.Errorf("could not find proposer pubkey for index %d", payload.ProposerIndex())
+		log.Errorf("could not find proposer pubkey for index %d", payload.ProposerIndex)
 		api.RespondError(w, http.StatusBadRequest, "could not match proposer index to pubkey")
 		return
 	}
@@ -1662,9 +1697,11 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	// Validate proposer signature (first attempt verifying the Capella signature)
-	// TODO: add deneb support.
-	ok, err := boostTypes.VerifySignature(payload.Message(), api.opts.EthNetDetails.DomainBeaconProposerCapella, pk[:], payload.Signature())
+	// Validate proposer signature
+	// TODO: figure out how to use AnchorPayloadRequest to verify signature.
+	// SEQ needs to keep it in byte form when signing(signatures).
+	// 1.) define SEQ signatures
+	ok, err := boostTypes.VerifySignature(payload.Message(), api.opts.EthNetDetails.DomainBeaconProposerCapella, pk[:], payload.Signature)
 	if !ok || err != nil {
 		if api.ffLogInvalidSignaturePayload {
 			txt, _ := json.Marshal(payload) //nolint:errchkjson
@@ -1679,12 +1716,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithField("timestampAfterSignatureVerify", time.Now().UTC().UnixMilli())
 	log.Info("getPayload request received")
 
-	var getPayloadResp *common.VersionedExecutionPayload
+	var getPayloadResp *common.AnchorGetPayloadResponse
 	var msNeededForPublishing uint64
 
 	// Save information about delivered payload
+	//TODO: figure out Anchor Payload Response logic below
 	defer func() {
-		bidTrace, err := api.redis.GetBidTrace(payload.Slot(), proposerPubkey.String(), payload.BlockHash())
+		bidTrace, err := api.redis.GetBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash())
 		if err != nil {
 			log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 			return
@@ -2327,6 +2365,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}()
 
 	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
+	// TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped seperatley and then we simulate the txs in those groups)
 	gasUsed, reqErr, validErr := api.simulateBlock(context.Background(), blockReq, log)
 
 	if gasUsed != 0 && gasUsed > gasLimit {
@@ -2394,6 +2433,9 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 					log.WithError(err).Error("failed saving execution payload in memcached")
 				}
 			}()
+		}
+		if (!isToB) {
+			api.robChainIDs[chainID] = struct{}{}
 		}
 	}
 

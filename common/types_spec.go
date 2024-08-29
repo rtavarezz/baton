@@ -40,8 +40,8 @@ func BuildGetHeaderResponse(payload *BuilderSubmitBlockRequest, sk *bls.SecretKe
 		return nil, ErrMissingSecretKey
 	}
 
-	if payload.Bellatrix != nil {
-		signedBuilderBid, err := BuilderSubmitBlockRequestToSignedBuilderBid(payload.Bellatrix, sk, pubkey, domain)
+	if payload.AnchorSignature != nil {
+		signedBuilderBid, err := BuilderSubmitBlockRequestToSignedBuilderBid(payload.AnchorMessage, sk, pubkey, domain)
 		if err != nil {
 			return nil, err
 		}

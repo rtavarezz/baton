@@ -436,9 +436,19 @@ func (r *RedisCache) GetRelayConfig(field string) (string, error) {
 	return res, err
 }
 
-func (r *RedisCache) GetBestBid(slot uint64, parentHash, proposerPubkey string) (*common.GetHeaderResponse, error) {
-	key := r.keyCacheGetHeaderResponse(slot, parentHash, proposerPubkey)
-	resp := new(common.GetHeaderResponse)
+func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey string) (*eth.Hash, error) {
+	key := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
+	resp := new(eth.Hash)
+	err := r.GetObj(key, resp)
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	return resp, err
+}
+
+func (r *RedisCache) GetBestRoBBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*eth.Hash, error) {
+	key := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
+	resp := new(eth.Hash)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
 		return nil, nil
