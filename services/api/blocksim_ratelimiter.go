@@ -29,8 +29,7 @@ var (
 )
 
 type IBlockSimRateLimiter interface {
-	Send(context context.Context, payload *common.BuilderBlockValidationRequest, isHighPrio, fastTrack bool) (error, error)
-	TobSim(context context.Context, tobValidationRequest *common.TobValidationRequest) (error, error)
+	//Send(context context.Context, payload *common.BuilderBlockValidationRequest, isHighPrio, fastTrack bool) (error, error)
 	SimBlockAndGetGasUsed(context context.Context, blockReq *common.BlockValidationRequest) (uint64, error, error)
 	CurrentCounter() int64
 }
@@ -51,36 +50,6 @@ func NewBlockSimulationRateLimiter(blockSimURL string) *BlockSimulationRateLimit
 			Timeout: simRequestTimeout,
 		},
 	}
-}
-
-func (b *BlockSimulationRateLimiter) TobSim(context context.Context, tobValidationRequest *common.TobValidationRequest) (requestErr, validationErr error) {
-	b.cv.L.Lock()
-	cnt := atomic.AddInt64(&b.counter, 1)
-	if maxConcurrentBlocks > 0 && cnt > maxConcurrentBlocks {
-		b.cv.Wait()
-	}
-	b.cv.L.Unlock()
-
-	defer func() {
-		b.cv.L.Lock()
-		atomic.AddInt64(&b.counter, -1)
-		b.cv.Signal()
-		b.cv.L.Unlock()
-	}()
-
-	if err := context.Err(); err != nil {
-		return fmt.Errorf("%w, %w", ErrRequestClosed, err), nil
-	}
-
-	var simReq *jsonrpc.JSONRPCRequest
-
-	// Create and fire off JSON-RPC request
-	// TODO: do we need to sim the tob validator request again here since builder already does?
-	// or keep it for double verification from both builder and relayer
-	// lastly, where is this flashbots_validateTobSubmission since I couldn't find it in the library
-	simReq = jsonrpc.NewJSONRPCRequest("1", "flashbots_validateTobSubmission", tobValidationRequest)
-	_, requestErr, validationErr = SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, nil)
-	return requestErr, validationErr
 }
 
 func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Context, request *common.BlockValidationRequest) (uint64, error, error) {
@@ -123,6 +92,7 @@ func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Conte
 	return gasUsed, requestErr, validationErr
 }
 
+/*
 func (b *BlockSimulationRateLimiter) Send(context context.Context, payload *common.BuilderBlockValidationRequest, isHighPrio, fastTrack bool) (requestErr, validationErr error) {
 	b.cv.L.Lock()
 	cnt := atomic.AddInt64(&b.counter, 1)
@@ -164,6 +134,7 @@ func (b *BlockSimulationRateLimiter) Send(context context.Context, payload *comm
 	_, requestErr, validationErr = SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, headers)
 	return requestErr, validationErr
 }
+*/
 
 // CurrentCounter returns the number of waiting and active requests
 func (b *BlockSimulationRateLimiter) CurrentCounter() int64 {

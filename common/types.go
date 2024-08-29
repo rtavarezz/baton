@@ -7,22 +7,13 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
-	actions "github.com/AnomalyFi/seq-sdk/types"
-	"github.com/attestantio/go-builder-client/api"
-	"github.com/attestantio/go-builder-client/api/capella"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/attestantio/go-builder-client/spec"
-	apiv1capella "github.com/attestantio/go-eth2-client/api/v1/capella"
-	consensusspec "github.com/attestantio/go-eth2-client/spec"
-	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	ssz "github.com/ferranbt/fastssz"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 )
 
@@ -348,419 +339,42 @@ type ExecutionPayload struct {
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
 	Transactions []hexutil.Bytes `json:"transactions"`
 }
+
+type AnchorHeader struct {
+	Header    *common.Hash `json:"header"`
+	BlockHash string       `json:"block_hash"`
+}
+
 type AnchorGetHeaderResponse struct {
 	// note: Message should be the anchor req
 	Slot uint64 `json:"slot"`
 	// nodeID of chunk producing validator.
 	Producer ids.NodeID `json:"producer"`
 	// hash of the anchor chunks (tob + robs)
-	ChunkHash common.Hash            `json:"chunkhash"`
+	ChunkHash common.Hash `json:"chunkhash"`
 	// Make signature based off ToBHash + RoBHashes then we use this signature for Baton/Anchor to check against
-	ToBHash   common.Hash            `json:"tobhash"`
-	RoBHashes map[string]common.Hash `json:"robhashes"`
+	ToBHash   *AnchorHeader            `json:"tobhash"`
+	RoBHashes map[string]*AnchorHeader `json:"robhashes"`
 }
 
 type AnchorGetPayloadRequest struct {
-	Slot        uint64                      `json:"slot"`
+	Slot uint64 `json:"slot"`
 	// TODO: Figure out how to verify signature(ex: actual vs expected)
-	Signature boostTypes.Signature			`json:"signature"`
-	ProposerIndex uint64 					`json:"proposer_index"`
+	Signature     boostTypes.Signature `json:"signature"`
+	ProposerIndex uint64               `json:"proposer_index"`
+	BlockHash     string               `json:"block_hash"`
 }
 
 type AnchorGetPayloadResponse struct {
 	Slot        uint64                      `json:"slot"`
 	ToBPayload  ExecutionPayload            `json:"tobpayload"`
 	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
-
 }
 
-// note: likely not needed since we can define our own formats and dealing with SEQ.
-type SignedBlindedBeaconBlock struct {
-	Bellatrix *boostTypes.SignedBlindedBeaconBlock
-	Capella   *apiv1capella.SignedBlindedBeaconBlock
-}
-
-func (s *SignedBlindedBeaconBlock) MarshalJSON() ([]byte, error) {
-	if s.Capella != nil {
-		return json.Marshal(s.Capella)
-	}
-	if s.Bellatrix != nil {
-		return json.Marshal(s.Bellatrix)
-	}
-	return nil, ErrEmptyPayload
-}
-
-func (s *SignedBlindedBeaconBlock) Slot() uint64 {
-	if s.Capella != nil {
-		return uint64(s.Capella.Message.Slot)
-	}
-	if s.Bellatrix != nil {
-		return s.Bellatrix.Message.Slot
-	}
-	return 0
-}
-
-func (s *SignedBlindedBeaconBlock) BlockHash() string {
-	if s.Capella != nil {
-		return s.Capella.Message.Body.ExecutionPayloadHeader.BlockHash.String()
-	}
-	if s.Bellatrix != nil {
-		return s.Bellatrix.Message.Body.ExecutionPayloadHeader.BlockHash.String()
-	}
-	return ""
-}
-
-func (s *SignedBlindedBeaconBlock) BlockNumber() uint64 {
-	if s.Capella != nil {
-		return s.Capella.Message.Body.ExecutionPayloadHeader.BlockNumber
-	}
-	if s.Bellatrix != nil {
-		return s.Bellatrix.Message.Body.ExecutionPayloadHeader.BlockNumber
-	}
-	return 0
-}
-
-func (s *SignedBlindedBeaconBlock) ProposerIndex() uint64 {
-	if s.Capella != nil {
-		return uint64(s.Capella.Message.ProposerIndex)
-	}
-	if s.Bellatrix != nil {
-		return s.Bellatrix.Message.ProposerIndex
-	}
-	return 0
-}
-
-func (s *SignedBlindedBeaconBlock) Signature() []byte {
-	if s.Capella != nil {
-		return s.Capella.Signature[:]
-	}
-	if s.Bellatrix != nil {
-		return s.Bellatrix.Signature[:]
-	}
-	return nil
-}
-
-//nolint:nolintlint,ireturn
-func (s *SignedBlindedBeaconBlock) Message() boostTypes.HashTreeRoot {
-	if s.Capella != nil {
-		return s.Capella.Message
-	}
-	if s.Bellatrix != nil {
-		return s.Bellatrix.Message
-	}
-	return nil
-}
-
-type SignedBeaconBlock struct {
-	Bellatrix *boostTypes.SignedBeaconBlock
-	Capella   *consensuscapella.SignedBeaconBlock
-}
-
-func (s *SignedBeaconBlock) MarshalJSON() ([]byte, error) {
-	if s.Capella != nil {
-		return json.Marshal(s.Capella)
-	}
-	if s.Bellatrix != nil {
-		return json.Marshal(s.Bellatrix)
-	}
-	return nil, ErrEmptyPayload
-}
-
-func (s *SignedBeaconBlock) Slot() uint64 {
-	if s.Capella != nil {
-		return uint64(s.Capella.Message.Slot)
-	}
-	if s.Bellatrix != nil {
-		return s.Bellatrix.Message.Slot
-	}
-	return 0
-}
-
-func (s *SignedBeaconBlock) BlockHash() string {
-	if s.Capella != nil {
-		return s.Capella.Message.Body.ExecutionPayload.BlockHash.String()
-	}
-	if s.Bellatrix != nil {
-		return s.Bellatrix.Message.Body.ExecutionPayload.BlockHash.String()
-	}
-	return ""
-}
-
-type VersionedExecutionPayload struct {
-	Bellatrix *boostTypes.GetPayloadResponse
-	Capella   *api.VersionedExecutionPayload
-}
-
-func (e *VersionedExecutionPayload) MarshalJSON() ([]byte, error) {
-	if e.Capella != nil {
-		return json.Marshal(e.Capella)
-	}
-	if e.Bellatrix != nil {
-		return json.Marshal(e.Bellatrix)
-	}
-
-	return nil, ErrEmptyPayload
-}
-
-func (e *VersionedExecutionPayload) UnmarshalJSON(data []byte) error {
-	capella := new(api.VersionedExecutionPayload)
-	err := json.Unmarshal(data, capella)
-	if err == nil && capella.Capella != nil {
-		e.Capella = capella
-		return nil
-	}
-	bellatrix := new(boostTypes.GetPayloadResponse)
-	err = json.Unmarshal(data, bellatrix)
-	if err != nil {
-		return err
-	}
-	e.Bellatrix = bellatrix
-	return nil
-}
-
-func (e *VersionedExecutionPayload) NumTx() int {
-	if e.Capella != nil {
-		return len(e.Capella.Capella.Transactions)
-	}
-	if e.Bellatrix != nil {
-		return len(e.Bellatrix.Data.Transactions)
-	}
-	return 0
-}
-
-// note: maybe used for db?
 type BuilderSubmitBlockRequest struct {
 	AnchorSignature  boostTypes.Signature   `json:"signature" ssz-size:"96"`
 	AnchorMessage    *SubmitNewBlockRequest `json:"message"`
 	ExecutionPayload *ExecutionPayload      `json:"execution_payload"`
-}
-
-func (b *BuilderSubmitBlockRequest) MarshalJSON() ([]byte, error) {
-	if b.Capella != nil {
-		return json.Marshal(b.Capella)
-	}
-	if b.Bellatrix != nil {
-		return json.Marshal(b.Bellatrix)
-	}
-	return nil, ErrEmptyPayload
-}
-
-func (b *BuilderSubmitBlockRequest) UnmarshalJSON(data []byte) error {
-	capella := new(capella.SubmitBlockRequest)
-	err := json.Unmarshal(data, capella)
-	if err == nil {
-		b.Capella = capella
-		return nil
-	}
-	bellatrix := new(boostTypes.BuilderSubmitBlockRequest)
-	err = json.Unmarshal(data, bellatrix)
-	if err != nil {
-		return err
-	}
-	b.Bellatrix = bellatrix
-	return nil
-}
-
-func (b *BuilderSubmitBlockRequest) HasExecutionPayload() bool {
-	if b.Capella != nil {
-		return b.Capella.ExecutionPayload != nil
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.ExecutionPayload != nil
-	}
-	return false
-}
-
-func (b *BuilderSubmitBlockRequest) ExecutionPayloadResponse() (*GetPayloadResponse, error) {
-	if b.Bellatrix != nil {
-		return &GetPayloadResponse{ //nolint:exhaustruct
-			Bellatrix: &boostTypes.GetPayloadResponse{
-				Version: boostTypes.VersionString(consensusspec.DataVersionBellatrix.String()),
-				Data:    b.Bellatrix.ExecutionPayload,
-			},
-		}, nil
-	}
-
-	if b.Capella != nil {
-		return &GetPayloadResponse{ //nolint:exhaustruct
-			Capella: &api.VersionedExecutionPayload{ //nolint:exhaustruct
-				Version: consensusspec.DataVersionCapella,
-				Capella: b.Capella.ExecutionPayload,
-			},
-		}, nil
-	}
-
-	return nil, ErrEmptyPayload
-}
-
-func (b *BuilderSubmitBlockRequest) Slot() uint64 {
-	if b.Capella != nil {
-		return b.Capella.Message.Slot
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.Message.Slot
-	}
-	return 0
-}
-
-func (b *BuilderSubmitBlockRequest) BlockHash() string {
-	if b.Capella != nil {
-		return b.Capella.Message.BlockHash.String()
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.Message.BlockHash.String()
-	}
-	return ""
-}
-
-func (b *BuilderSubmitBlockRequest) ExecutionPayloadBlockHash() string {
-	if b.Capella != nil {
-		return b.Capella.ExecutionPayload.BlockHash.String()
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.ExecutionPayload.BlockHash.String()
-	}
-	return ""
-}
-
-func (b *BuilderSubmitBlockRequest) BuilderPubkey() phase0.BLSPubKey {
-	if b.Capella != nil {
-		return b.Capella.Message.BuilderPubkey
-	}
-	if b.Bellatrix != nil {
-		return phase0.BLSPubKey(b.Bellatrix.Message.BuilderPubkey)
-	}
-	return phase0.BLSPubKey{}
-}
-
-func (b *BuilderSubmitBlockRequest) ProposerFeeRecipient() string {
-	if b.Capella != nil {
-		return b.Capella.Message.ProposerFeeRecipient.String()
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.Message.ProposerFeeRecipient.String()
-	}
-	return ""
-}
-
-func (b *BuilderSubmitBlockRequest) Timestamp() uint64 {
-	if b.Capella != nil {
-		return b.Capella.ExecutionPayload.Timestamp
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.ExecutionPayload.Timestamp
-	}
-	return 0
-}
-
-func (b *BuilderSubmitBlockRequest) ProposerPubkey() string {
-	if b.Capella != nil {
-		return b.Capella.Message.ProposerPubkey.String()
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.Message.ProposerPubkey.String()
-	}
-	return ""
-}
-
-func (b *BuilderSubmitBlockRequest) ParentHash() string {
-	if b.Capella != nil {
-		return b.Capella.Message.ParentHash.String()
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.Message.ParentHash.String()
-	}
-	return ""
-}
-
-func (b *BuilderSubmitBlockRequest) ExecutionPayloadParentHash() string {
-	if b.Capella != nil {
-		return b.Capella.ExecutionPayload.ParentHash.String()
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.ExecutionPayload.ParentHash.String()
-	}
-	return ""
-}
-
-func (b *BuilderSubmitBlockRequest) Value() *big.Int {
-	if b.Capella != nil {
-		return b.Capella.Message.Value.ToBig()
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.Message.Value.BigInt()
-	}
-	return nil
-}
-
-func (b *BuilderSubmitBlockRequest) NumTx() int {
-	if b.Capella != nil {
-		return len(b.Capella.ExecutionPayload.Transactions)
-	}
-	if b.Bellatrix != nil {
-		return len(b.Bellatrix.ExecutionPayload.Transactions)
-	}
-	return 0
-}
-
-func (b *BuilderSubmitBlockRequest) BlockNumber() uint64 {
-	if b.Capella != nil {
-		return b.Capella.ExecutionPayload.BlockNumber
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.ExecutionPayload.BlockNumber
-	}
-	return 0
-}
-
-func (b *BuilderSubmitBlockRequest) GasUsed() uint64 {
-	if b.Capella != nil {
-		return b.Capella.ExecutionPayload.GasUsed
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.ExecutionPayload.GasUsed
-	}
-	return 0
-}
-
-func (b *BuilderSubmitBlockRequest) GasLimit() uint64 {
-	if b.Capella != nil {
-		return b.Capella.ExecutionPayload.GasLimit
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.ExecutionPayload.GasLimit
-	}
-	return 0
-}
-
-func (b *BuilderSubmitBlockRequest) Signature() phase0.BLSSignature {
-	if b.Capella != nil {
-		return b.Capella.Signature
-	}
-	if b.Bellatrix != nil {
-		return phase0.BLSSignature(b.Bellatrix.Signature)
-	}
-	return phase0.BLSSignature{}
-}
-
-func (b *BuilderSubmitBlockRequest) Random() string {
-	if b.Capella != nil {
-		return fmt.Sprintf("%#x", b.Capella.ExecutionPayload.PrevRandao)
-	}
-	if b.Bellatrix != nil {
-		return b.Bellatrix.ExecutionPayload.Random.String()
-	}
-	return ""
-}
-
-func (b *BuilderSubmitBlockRequest) Message() *apiv1.BidTrace {
-	if b.Capella != nil {
-		return b.Capella.Message
-	}
-	if b.Bellatrix != nil {
-		return BoostBidToBidTrace(b.Bellatrix.Message)
-	}
-	return nil
 }
 
 func BoostBidToBidTrace(bidTrace *boostTypes.BidTrace) *apiv1.BidTrace {
@@ -875,280 +489,6 @@ func BoostBidToBidTrace(bidTrace *boostTypes.BidTrace) *apiv1.BidTrace {
 // 	return true
 // }
 
-func (b *BuilderSubmitBlockRequest) Withdrawals() []*consensuscapella.Withdrawal {
-	if b.Capella != nil {
-		return b.Capella.ExecutionPayload.Withdrawals
-	}
-	return nil
-}
-
-/*
-SubmitBlockRequestV2Optimistic is the v2 request from the builder to submit
-a block. The message must be SSZ encoded. The first three fields are at most
-944 bytes, which fit into a single 1500 MTU ethernet packet. The
-`UnmarshalSSZHeaderOnly` function just parses the first three fields,
-which is sufficient data to set the bid of the builder. The `Transactions`
-and `Withdrawals` fields are required to construct the full SignedBeaconBlock
-and are parsed asynchronously.
-
-Header only layout:
-[000-236) = Message   (236 bytes)
-[236-240) = offset1   (  4 bytes)
-[240-336) = Signature ( 96 bytes)
-[336-340) = offset2   (  4 bytes)
-[340-344) = offset3   (  4 bytes)
-[344-944) = EPH       (600 bytes)
-*/
-type SubmitBlockRequestV2Optimistic struct {
-	Message                *apiv1.BidTrace
-	ExecutionPayloadHeader *consensuscapella.ExecutionPayloadHeader
-	Signature              phase0.BLSSignature              `ssz-size:"96"`
-	Transactions           []consensusbellatrix.Transaction `ssz-max:"1048576,1073741824" ssz-size:"?,?"`
-	Withdrawals            []*consensuscapella.Withdrawal   `ssz-max:"16"`
-}
-
-// MarshalSSZ ssz marshals the SubmitBlockRequestV2Optimistic object
-func (s *SubmitBlockRequestV2Optimistic) MarshalSSZ() ([]byte, error) {
-	return ssz.MarshalSSZ(s)
-}
-
-// UnmarshalSSZ ssz unmarshals the SubmitBlockRequestV2Optimistic object
-func (s *SubmitBlockRequestV2Optimistic) UnmarshalSSZ(buf []byte) error {
-	var err error
-	size := uint64(len(buf))
-	if size < 344 {
-		return ssz.ErrSize
-	}
-
-	tail := buf
-	var o1, o3, o4 uint64
-
-	// Field (0) 'Message'
-	if s.Message == nil {
-		s.Message = new(apiv1.BidTrace)
-	}
-	if err = s.Message.UnmarshalSSZ(buf[0:236]); err != nil {
-		return err
-	}
-
-	// Offset (1) 'ExecutionPayloadHeader'
-	if o1 = ssz.ReadOffset(buf[236:240]); o1 > size {
-		return ssz.ErrOffset
-	}
-
-	if o1 < 344 {
-		return ssz.ErrInvalidVariableOffset
-	}
-
-	// Field (2) 'Signature'
-	copy(s.Signature[:], buf[240:336])
-
-	// Offset (3) 'Transactions'
-	if o3 = ssz.ReadOffset(buf[336:340]); o3 > size || o1 > o3 {
-		return ssz.ErrOffset
-	}
-
-	// Offset (4) 'Withdrawals'
-	if o4 = ssz.ReadOffset(buf[340:344]); o4 > size || o3 > o4 {
-		return ssz.ErrOffset
-	}
-
-	// Field (1) 'ExecutionPayloadHeader'
-	{
-		buf = tail[o1:o3]
-		if s.ExecutionPayloadHeader == nil {
-			s.ExecutionPayloadHeader = new(consensuscapella.ExecutionPayloadHeader)
-		}
-		if err = s.ExecutionPayloadHeader.UnmarshalSSZ(buf); err != nil {
-			return err
-		}
-	}
-
-	// Field (3) 'Transactions'
-	{
-		buf = tail[o3:o4]
-		num, err := ssz.DecodeDynamicLength(buf, 1073741824)
-		if err != nil {
-			return err
-		}
-		s.Transactions = make([]consensusbellatrix.Transaction, num)
-		err = ssz.UnmarshalDynamic(buf, num, func(indx int, buf []byte) (err error) {
-			if len(buf) > 1073741824 {
-				return ssz.ErrBytesLength
-			}
-			if cap(s.Transactions[indx]) == 0 {
-				s.Transactions[indx] = consensusbellatrix.Transaction(make([]byte, 0, len(buf)))
-			}
-			s.Transactions[indx] = append(s.Transactions[indx], buf...)
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	// Field (4) 'Withdrawals'
-	{
-		buf = tail[o4:]
-		num, err := ssz.DivideInt2(len(buf), 44, 16)
-		if err != nil {
-			return err
-		}
-		s.Withdrawals = make([]*consensuscapella.Withdrawal, num)
-		for ii := 0; ii < num; ii++ {
-			if s.Withdrawals[ii] == nil {
-				s.Withdrawals[ii] = new(consensuscapella.Withdrawal)
-			}
-			if err = s.Withdrawals[ii].UnmarshalSSZ(buf[ii*44 : (ii+1)*44]); err != nil {
-				return err
-			}
-		}
-	}
-	return err
-}
-
-// UnmarshalSSZHeaderOnly ssz unmarshals the first 3 fields of the SubmitBlockRequestV2Optimistic object
-func (s *SubmitBlockRequestV2Optimistic) UnmarshalSSZHeaderOnly(buf []byte) error {
-	var err error
-	size := uint64(len(buf))
-	if size < 344 {
-		return ssz.ErrSize
-	}
-
-	tail := buf
-	var o1, o3 uint64
-
-	// Field (0) 'Message'
-	if s.Message == nil {
-		s.Message = new(apiv1.BidTrace)
-	}
-	if err = s.Message.UnmarshalSSZ(buf[0:236]); err != nil {
-		return err
-	}
-
-	// Offset (1) 'ExecutionPayloadHeader'
-	if o1 = ssz.ReadOffset(buf[236:240]); o1 > size {
-		return ssz.ErrOffset
-	}
-
-	if o1 < 344 {
-		return ssz.ErrInvalidVariableOffset
-	}
-
-	// Field (2) 'Signature'
-	copy(s.Signature[:], buf[240:336])
-
-	// Offset (3) 'Transactions'
-	if o3 = ssz.ReadOffset(buf[336:340]); o3 > size || o1 > o3 {
-		return ssz.ErrOffset
-	}
-
-	// Field (1) 'ExecutionPayloadHeader'
-	{
-		buf = tail[o1:o3]
-		if s.ExecutionPayloadHeader == nil {
-			s.ExecutionPayloadHeader = new(consensuscapella.ExecutionPayloadHeader)
-		}
-		if err = s.ExecutionPayloadHeader.UnmarshalSSZ(buf); err != nil {
-			return err
-		}
-	}
-	return err
-}
-
-// MarshalSSZTo ssz marshals the SubmitBlockRequestV2Optimistic object to a target array
-func (s *SubmitBlockRequestV2Optimistic) MarshalSSZTo(buf []byte) (dst []byte, err error) {
-	dst = buf
-	offset := int(344)
-
-	// Field (0) 'Message'
-	if s.Message == nil {
-		s.Message = new(apiv1.BidTrace)
-	}
-	if dst, err = s.Message.MarshalSSZTo(dst); err != nil {
-		return
-	}
-
-	// Offset (1) 'ExecutionPayloadHeader'
-	dst = ssz.WriteOffset(dst, offset)
-	if s.ExecutionPayloadHeader == nil {
-		s.ExecutionPayloadHeader = new(consensuscapella.ExecutionPayloadHeader)
-	}
-	offset += s.ExecutionPayloadHeader.SizeSSZ()
-
-	// Field (2) 'Signature'
-	dst = append(dst, s.Signature[:]...)
-
-	// Offset (3) 'Transactions'
-	dst = ssz.WriteOffset(dst, offset)
-	for ii := 0; ii < len(s.Transactions); ii++ {
-		offset += 4
-		offset += len(s.Transactions[ii])
-	}
-
-	// Offset (4) 'Withdrawals'
-	dst = ssz.WriteOffset(dst, offset)
-
-	// Field (1) 'ExecutionPayloadHeader'
-	if dst, err = s.ExecutionPayloadHeader.MarshalSSZTo(dst); err != nil {
-		return
-	}
-
-	// Field (3) 'Transactions'
-	if size := len(s.Transactions); size > 1073741824 {
-		err = ssz.ErrListTooBigFn("SubmitBlockRequestV2Optimistic.Transactions", size, 1073741824)
-		return
-	}
-	{
-		offset = 4 * len(s.Transactions)
-		for ii := 0; ii < len(s.Transactions); ii++ {
-			dst = ssz.WriteOffset(dst, offset)
-			offset += len(s.Transactions[ii])
-		}
-	}
-	for ii := 0; ii < len(s.Transactions); ii++ {
-		if size := len(s.Transactions[ii]); size > 1073741824 {
-			err = ssz.ErrBytesLengthFn("SubmitBlockRequestV2Optimistic.Transactions[ii]", size, 1073741824)
-			return
-		}
-		dst = append(dst, s.Transactions[ii]...)
-	}
-
-	// Field (4) 'Withdrawals'
-	if size := len(s.Withdrawals); size > 16 {
-		err = ssz.ErrListTooBigFn("SubmitBlockRequestV2Optimistic.Withdrawals", size, 16)
-		return
-	}
-	for ii := 0; ii < len(s.Withdrawals); ii++ {
-		if dst, err = s.Withdrawals[ii].MarshalSSZTo(dst); err != nil {
-			return
-		}
-	}
-	return dst, nil
-}
-
-// SizeSSZ returns the ssz encoded size in bytes for the SubmitBlockRequestV2Optimistic object
-func (s *SubmitBlockRequestV2Optimistic) SizeSSZ() (size int) {
-	size = 344
-
-	// Field (1) 'ExecutionPayloadHeader'
-	if s.ExecutionPayloadHeader == nil {
-		s.ExecutionPayloadHeader = new(consensuscapella.ExecutionPayloadHeader)
-	}
-	size += s.ExecutionPayloadHeader.SizeSSZ()
-
-	// Field (3) 'Transactions'
-	for ii := 0; ii < len(s.Transactions); ii++ {
-		size += 4
-		size += len(s.Transactions[ii])
-	}
-
-	// Field (4) 'Withdrawals'
-	size += len(s.Withdrawals) * 44
-
-	return
-}
-
 func encodeTransactions(txs []*types.Transaction) [][]byte {
 	var enc = make([][]byte, len(txs))
 	for i, tx := range txs {
@@ -1192,23 +532,61 @@ type SequencerMsgRequest struct {
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
 type SubmitNewBlockRequest struct {
-	Txs             []*chain.Transaction `json:"txs"`
-	Slot            uint64
-	ParentHash      string
-	BlockNumber     string
-	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
+	// @TODO: Last tx should be the proposer tx.
+	// @TODO: Check last tx proposer address matches the proposer payment below. Last tx should use transfer action.
+	// @TODO: Use hypersdk method to marshal and unmarshal.
+	// See https://github.com/AnomalyFi/hypersdk/blob/main/chain/transaction.go#L377
+	// See parser in https://github.com/AnomalyFi/anchor/blob/seq-util/seq/seq.go#L33
+
+	Txs []byte `json:"txs"`
+	//Txs             []*chain.Transaction `json:"txs"`
+
+	Slot       uint64 `json:"slot"`
+	ParentHash string `json:"parent_hash"`
+
+	// TODO: Switch to the below because block number is L2-roll-up specific.
+	// HashMap[String, String], This contains a mapping of chainIds alongside the corresponding hex encoded block number which this bundle will be valid on.
+	// Corresponds to rollup blocks. When we simulate, we will simulate on this block.
+	BlockNumber string `json:"blocknumber"`
+
+	BlockHash common.Hash `json:"block_hash" ssz-size:"32"`
+
+	// TODO: Verify this matches the proposer's address.
 	ProposerPayment codec.Address
-	Signature       boostTypes.Signature `json:"signature" ssz-size:"96"`
-	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
-	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-	Value           *big.Int
+
+	// Builder signing off on their payload.
+	// TODO: Verify using here. https://github.com/flashbots/mev-boost-relay/blob/main/services/api/service.go#L2055
+	Signature boostTypes.Signature `json:"signature" ssz-size:"96"`
+
+	BuilderPubkey  boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
 }
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
-		Txs: make([]*chain.Transaction, 0),
+		Txs:             make([]byte, 0),
+		Slot:            0,
+		ParentHash:      "",
+		BlockNumber:     "",
+		BlockHash:       common.Hash{},
+		ProposerPayment: codec.Address{},
+		Signature:       boostTypes.Signature{},
+		BuilderPubkey:   boostTypes.PublicKey{},
+		ProposerPubkey:  boostTypes.PublicKey{},
 	}
 }
+
+/*
+func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
+  scli := srpc.NewJSONRPCClient(uri, networkID, chainID)
+  parser    chain.Parser
+	actionRegistry, authRegistry := parser.Registry()
+  parser, err := scli.Parser(context.TODO())
+  if err != nil {
+    return nil, err
+  }
+}
+*/
 
 func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
 	if len(r.Txs) == 0 {
@@ -1228,127 +606,6 @@ func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
 
 func (r *SubmitNewBlockRequest) ToJSON() ([]byte, error) {
 	return json.Marshal(r)
-}
-
-/* DEPRECATED
-type ToBTxsSubmitRequest struct {
-	ToBTxs          []*actions.SEQTransaction `json:"txs"`
-	Slot            uint64
-	ParentHash      string
-	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
-	ProposerPayment codec.Address
-	Signature       boostTypes.Signature `json:"signature" ssz-size:"96"`
-	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
-	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-}
-
-func NewToBTxsSubmitRequest() ToBTxsSubmitRequest {
-	return ToBTxsSubmitRequest{
-		ToBTxs: make([]*actions.SEQTransaction, 0),
-	}
-}
-
-type RoBTxsSubmitRequest struct {
-	RoBTxs          []*actions.SEQTransaction `json:"txs"`
-	Slot            uint64
-	ParentHash      string
-	BlockHash       common.Hash `json:"block_hash" ssz-size:"32"`
-	ProposerPayment codec.Address
-	Signature       boostTypes.Signature `json:"signature" ssz-size:"96"`
-	BuilderPubkey   boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
-	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-}
-*/
-
-/* DEPRECATED
-type IntermediateTobTxsSubmitRequest struct {
-	TobTxs     []byte `json:"tobTxs"`
-	Slot       uint64 `json:"slot"`
-	ParentHash string `json:"parentHash"`
-}
-
-// TODO: REVISIT LATER
-func (t *ToBTxsSubmitRequest) MarshalJSON() ([]byte, error) {
-	txBytes, err := json.Marshal(t.ToBTxs)
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(IntermediateTobTxsSubmitRequest{
-		TobTxs:     txBytes,
-		Slot:       t.Slot,
-		ParentHash: t.ParentHash,
-	})
-}
-
-// TODO: REVISIT LATER
-func (t *ToBTxsSubmitRequest) UnmarshalJSON(data []byte) error {
-	var intermediateJson IntermediateTobTxsSubmitRequest
-	err := json.Unmarshal(data, &intermediateJson)
-	if err != nil {
-		return err
-	}
-
-	err = t.ToBTxs.UnmarshalSSZ(intermediateJson.TobTxs)
-	if err != nil {
-		return err
-	}
-	t.Slot = intermediateJson.Slot
-	t.ParentHash = intermediateJson.ParentHash
-
-	return nil
-}
-*/
-
-type BlockAssemblerRequest struct {
-	TobTxs             ExecutionPayloadTransactions `json:"tob_txs"`
-	RobPayload         BuilderSubmitBlockRequest    `json:"rob_payload"`
-	RegisteredGasLimit uint64                       `json:"registered_gas_limit,string"`
-}
-
-type IntermediateBlockAssemblerRequest struct {
-	TobTxs             []byte `json:"tob_txs"`
-	RobPayload         []byte `json:"rob_payload"`
-	RegisteredGasLimit uint64 `json:"registered_gas_limit,string"`
-}
-
-func (r *BlockAssemblerRequest) MarshalJSON() ([]byte, error) {
-	sszedTobTxs, err := r.TobTxs.MarshalSSZ()
-	if err != nil {
-		return nil, err
-	}
-	encodedRobPayload, err := r.RobPayload.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	intermediateStruct := IntermediateBlockAssemblerRequest{
-		TobTxs:             sszedTobTxs,
-		RobPayload:         encodedRobPayload,
-		RegisteredGasLimit: r.RegisteredGasLimit,
-	}
-
-	return json.Marshal(intermediateStruct)
-}
-
-func (b *BlockAssemblerRequest) UnmarshalJSON(data []byte) error {
-	var intermediateJson IntermediateBlockAssemblerRequest
-	err := json.Unmarshal(data, &intermediateJson)
-	if err != nil {
-		return err
-	}
-	err = b.TobTxs.UnmarshalSSZ(intermediateJson.TobTxs)
-	if err != nil {
-		return err
-	}
-	b.RegisteredGasLimit = intermediateJson.RegisteredGasLimit
-	blockRequest := new(BuilderSubmitBlockRequest)
-	err = json.Unmarshal(intermediateJson.RobPayload, &blockRequest)
-	if err != nil {
-		return err
-	}
-	b.RobPayload = *blockRequest
-
-	return nil
 }
 
 // callLog is the result of LOG opCode
@@ -1380,59 +637,11 @@ type CallTraceResponse struct {
 
 type NetworkTobTxChecker func(CallTrace) (bool, error)
 
-type TobValidationRequest struct {
-	TobTxs               []*actions.SEQTransaction
-	ParentHash           string
-	ProposerFeeRecipient string
-	TobGasLimit          uint64
-}
-
 type BlockValidationRequest struct {
 	Txs              []hexutil.Bytes `json:"txs"`              // Signed eth transactions
 	BlockNumber      string          `json:"blockNumber"`      // hex-encoded block number for which this request is valid on
 	StateBlockNumber string          `json:"stateBlockNumber"` // hex-encoded number or block tag for which state to base this simulation on. Can use "latest"
 	Timestamp        uint64          `json:"timestamp"`        // Optional number. the timestamp to use for this bundle simulation
-}
-
-type IntermediateTobValidationRequest struct {
-	TobTxs               []byte `json:"tob_txs"`
-	ParentHash           string `json:"parent_hash"`
-	ProposerFeeRecipient string `json:"proposer_fee_recipient"`
-	TobGasLimit          uint64 `json:"tob_gas_limit,string"`
-}
-
-func (t *TobValidationRequest) MarshalJson() ([]byte, error) {
-	sszedTobTxs, err := t.TobTxs.MarshalSSZ()
-	if err != nil {
-		return nil, err
-	}
-
-	intermediateStruct := IntermediateTobValidationRequest{
-		TobTxs:               sszedTobTxs,
-		ParentHash:           t.ParentHash,
-		ProposerFeeRecipient: t.ProposerFeeRecipient,
-		TobGasLimit:          t.TobGasLimit,
-	}
-
-	return json.Marshal(intermediateStruct)
-}
-
-func (t *TobValidationRequest) UnmarshalJson(data []byte) error {
-	var intermediateJson IntermediateTobValidationRequest
-	err := json.Unmarshal(data, &intermediateJson)
-	if err != nil {
-		return err
-	}
-
-	err = t.ToBTxs.UnmarshalSSZ(intermediateJson.TobTxs)
-	if err != nil {
-		return err
-	}
-	t.ParentHash = intermediateJson.ParentHash
-	t.ProposerFeeRecipient = intermediateJson.ProposerFeeRecipient
-	t.TobGasLimit = intermediateJson.TobGasLimit
-
-	return nil
 }
 
 // TODO: REMOVE ME LATER. USE VERSION FROM WITHIN ANCHOR
@@ -1458,4 +667,16 @@ type FlashbotsCallBundleResult struct {
 	Results           []hexutil.Bytes `json:"results"`
 	StateBlockNumber  int64           `json:"stateBlockNumber"`
 	TotalGasUsed      int64           `json:"totalGasUsed"`
+}
+
+type BidTrace2 struct {
+	Slot                 uint64
+	ParentHash           common.Hash          `ssz-size:"32"`
+	BlockHash            common.Hash          `ssz-size:"32"`
+	BuilderPubkey        boostTypes.PublicKey `ssz-size:"48"`
+	ProposerPubkey       boostTypes.PublicKey `ssz-size:"48"`
+	ProposerFeeRecipient codec.Address
+	GasLimit             uint64
+	GasUsed              uint64
+	Value                *big.Int `ssz-size:"32"`
 }

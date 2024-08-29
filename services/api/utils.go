@@ -1,23 +1,22 @@
 package api
 
 import (
-	"crypto/sha256"
-	"encoding/json"
-	"errors"
-	"strconv"
+  "crypto/sha256"
+  "encoding/json"
+  "errors"
+  "strconv"
 
-	"github.com/AnomalyFi/hypersdk/chain"
-	actions "github.com/AnomalyFi/seq-sdk/types"
-	"github.com/ethereum/go-ethereum/log"
+  "github.com/AnomalyFi/hypersdk/chain"
+  "github.com/ethereum/go-ethereum/log"
 
-	"github.com/attestantio/go-eth2-client/spec/capella"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
-	utilcapella "github.com/attestantio/go-eth2-client/util/capella"
-	eth "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
-	"github.com/flashbots/mev-boost-relay/common"
+  "github.com/attestantio/go-eth2-client/spec/capella"
+  "github.com/attestantio/go-eth2-client/spec/phase0"
+  utilcapella "github.com/attestantio/go-eth2-client/util/capella"
+  eth "github.com/ethereum/go-ethereum/common"
+  "github.com/ethereum/go-ethereum/common/hexutil"
+  "github.com/ethereum/go-ethereum/core/types"
+  boostTypes "github.com/flashbots/go-boost-utils/types"
+  "github.com/flashbots/mev-boost-relay/common"
 )
 
 var (
@@ -149,10 +148,15 @@ func hashHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
 	return hash, nil
 }
 
-func buildHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
+func buildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
 	header, err := hashHeader(s)
 	if err != nil {
 		log.Error("failed to hash header")
+	}
+
+	anchorHeader := common.AnchorHeader{
+		Header:    &header,
+		BlockHash: s.BlockHash,
 	}
 	return header, nil
 }
