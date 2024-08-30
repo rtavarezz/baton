@@ -1542,6 +1542,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// @TODO: double check if helper funcs or funcs in general need to return AnchorHeader instead of common.Hash
 	var resp common.AnchorGetHeaderResponse
 	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 	if err != nil {
@@ -1551,13 +1552,17 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// think of more cases for hash if possible
-	if (bid.Big().Cmp(big.NewInt(0))) == 0 {
+	if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if len(bid.BlockHash) != 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
 	resp.ToBHash = bid
-	combined := resp.ToBHash.Bytes()
+	combined := resp.ToBHash.Header.Bytes()
 
 	for chainID, _ := range api.robChainIDs {
 		bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
@@ -1567,13 +1572,13 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		// think of more cases for hash if possible
-		if (bid.Big().Cmp(big.NewInt(0))) == 0 {
+		if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
 			log.Error("handleGetHeader: rob chunk had zero value")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		resp.RoBHashes[chainID] = bid
-		combined = append(combined, bid.Bytes()...)
+		combined = append(combined, bid.Header.Bytes()...)
 	}
 
 	// Hash the concatenated result to get a third hash
@@ -1697,7 +1702,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	// SEQ needs to keep it in byte form when signing(signatures).
 	// 1.) define SEQ signatures
 	/*
-		ok, err := boostTypes.VerifySignature(payload.Message(), api.opts.EthNetDetails.DomainBeaconProposerCapella, pk[:], payload.Signature)
+		ok, err := utils.VerifySignature(payload.Message(), api.opts.EthNetDetails.DomainBeaconProposerCapella, pk[:], payload.Signature)
 		if !ok || err != nil {
 			if api.ffLogInvalidSignaturePayload {
 				txt, _ := json.Marshal(payload) //nolint:errchkjson
@@ -1754,31 +1759,33 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		//api.optimisticBlocksWG.Wait()
 
 		// TODO: What's this builder demotion thing for?
+		// note: finds winning block, makes sure that block is sound and complete if so then success,
+		// otherwise, block demotion case occurs. I feel like this is an important case to keep.
+		// Check if there is a demotion for the winning block.
 		/*
-			// Check if there is a demotion for the winning block.
-			_, err = api.db.GetBuilderDemotion(bidTrace)
-			// If demotion not found, we are done!
-			if errors.Is(err, sql.ErrNoRows) {
-				log.Info("no demotion in getPayload, successful block proposal")
-				return
-			}
-			if err != nil {
-				log.WithError(err).Error("failed to read demotion table in getPayload")
-				return
-			}
-			// Demotion found, update the demotion table with refund data.
-			builderPubkey := bidTrace.BuilderPubkey.String()
-			log = log.WithFields(logrus.Fields{
-				"builderPubkey": builderPubkey,
-				"slot":          bidTrace.Slot,
-				"blockHash":     bidTrace.BlockHash,
-			})
-			log.Warn("demotion found in getPayload, inserting refund justification")
-		*/
+		_, err = api.db.GetBuilderDemotion(bidTrace)
+		// If demotion not found, we are done!
+		if errors.Is(err, sql.ErrNoRows) {
+			log.Info("no demotion in getPayload, successful block proposal")
+			return
+		}
+		if err != nil {
+			log.WithError(err).Error("failed to read demotion table in getPayload")
+			return
+		}
+		// Demotion found, update the demotion table with refund data.
+		builderPubkey := bidTrace.BuilderPubkey.String()
+		log = log.WithFields(logrus.Fields{
+			"builderPubkey": builderPubkey,
+			"slot":          bidTrace.Slot,
+			"blockHash":     bidTrace.BlockHash,
+		})
+		log.Warn("demotion found in getPayload, inserting refund justification")
 
 		// TODO: What is this signed beacon block for?
 		// Prepare refund data.
-		//signedBeaconBlock := common.SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp)
+		signedBeaconBlock := common.SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp)
+		*/
 
 		// Get registration entry from the DB.
 		registrationEntry, err := api.db.GetValidatorRegistration(proposerPubkey.String())
@@ -1791,7 +1798,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		}
 
 		// TODO: Is this needed?
-		/*
+		
 			var signedRegistration *boostTypes.SignedValidatorRegistration
 			if registrationEntry != nil {
 				signedRegistration, err = registrationEntry.ToSignedValidatorRegistration()
@@ -1799,7 +1806,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 					log.WithError(err).Error("error converting registration to signed registration")
 				}
 			}
-		*/
+		
 
 		// TODO: Is this needed?
 		/*
@@ -1819,13 +1826,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	// Get the response - from Redis, Memcache or DB
 	// note that recent mev-boost versions only send getPayload to relays that provided the bid
-	getPayloadResp, err = api.datastore.GetGetPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
+	getPayloadResp, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
 	if err != nil || getPayloadResp == nil {
 		log.WithError(err).Warn("failed getting execution payload (1/2)")
 		time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 		// Try again
-		getPayloadResp, err = api.datastore.GetGetPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
+		getPayloadResp, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
 		if err != nil || getPayloadResp == nil {
 			// Still not found! Error out now.
 			if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
@@ -1905,6 +1912,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	// @TODO: below prob not needed? 
 	// Publish the signed beacon block via beacon-node
 	timeBeforePublish := time.Now().UTC().UnixMilli()
 	log = log.WithField("timestampBeforePublishing", timeBeforePublish)
@@ -2220,7 +2228,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 
-	blockReq := new(common.SubmitNewBlockRequest)
+	blockReq := common.NewSubmitNewBlockRequest()
 	err = blockReq.FromJSON(payloadBytes)
 	if err != nil {
 		log.WithError(err).Warn("could not parse payload into SubmitNewBlockRequest")
@@ -2233,8 +2241,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	prevTime = nextTime
 
 	isLargeRequest := len(payloadBytes) > fastTrackPayloadSizeLimit
-	slot := blockReq.Slot
-	parentHash := blockReq.ParentHash
+	slot := blockReq.Slot()
+	parentHash := blockReq.ParentHash()
 
 	if slot < headSlot {
 		log.Error("TOB tx request for past slot!")
@@ -2249,15 +2257,15 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 
-	ok := api.checkSubmissionSlotDetails(w, log, headSlot, blockReq)
+	ok := api.checkSubmissionSlotDetails(w, log, headSlot, &blockReq)
 	if !ok {
 		log.WithError(err).Info("slot details check failed")
 		api.RespondError(w, http.StatusBadRequest, "slot details check failed")
 		return
 	}
 
-	if len(blockReq.Txs) > common.MaxTobTxs+1 {
-		msg := fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(blockReq.Txs))
+	if len(blockReq.Txs()) > common.MaxTobTxs+1 {
+		msg := fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(blockReq.Txs()))
 		log.WithError(err).Info(msg)
 		api.Respond(w, http.StatusBadRequest, msg)
 		return
@@ -2265,15 +2273,18 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// ToB will have varying chain id in txs, RoB will have uniform
 	// Also verifies len(txs) >= 2
-	isToB, err := api.checkBlockRequestIsToB(blockReq)
+	// TODO: Might need fixing
+	isToB, err := api.checkBlockRequestIsToB(&blockReq)
 	if err != nil {
 		log.WithError(err).Info(err.Error())
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	chainID, err := blockReq.FirstChainID()
+	// TODO: Fix me SOON
+	// chainID, err := blockReq.FirstChainID()
+	chainID := ""
 
-	builderPubkey := blockReq.BuilderPubkey
+	builderPubkey := blockReq.BuilderPubkey()
 	builderEntry, ok := api.checkBuilderEntry(w, log, phase0.BLSPubKey(builderPubkey))
 	if !ok {
 		log.WithError(err).Info("builder entry check failed")
@@ -2297,18 +2308,21 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	var topBidValue *big.Int
 	tx := api.redis.NewTxPipeline()
 	bidIsTopBid := false
-
+	// @TODO fill me in later
+	var value *big.Int
 	if isToB {
-		topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot, blockReq.ParentHash, blockReq.ProposerPubkey.String())
+		topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
 	} else {
-		topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot, blockReq.ParentHash, blockReq.ProposerPubkey.String(), chainID)
+		// TODO: resolved when chainID is fixed
+		topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey(), chainID)
 	}
 	if err != nil {
 		log.WithError(err).Error("failed to get top bid value from redis")
 		api.RespondError(w, http.StatusBadRequest, "failed to get top bid value from redis")
 		return
 	} else {
-		bidIsTopBid = blockReq.Value.Cmp(topBidValue) == 1
+		// TODO: value needs to be fixed
+		bidIsTopBid = value.Cmp(topBidValue) == 1
 		log = log.WithFields(logrus.Fields{
 			"topBidValue":    topBidValue.String(),
 			"newBidIsTopBid": bidIsTopBid,
@@ -2319,11 +2333,11 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	log = log.WithFields(logrus.Fields{
 		"timestampAfterDecoding": time.Now().UTC().UnixMilli(),
 		"slot":                   blockReq.Slot,
-		"numTx":                  len(blockReq.Txs),
+		"numTx":                  len(blockReq.Txs()),
 		"parentHash":             blockReq.ParentHash,
 		"blockHash":              blockReq.BlockHash,
-		"builderPubkey":          blockReq.BuilderPubkey.String(),
-		"proposerPubkey":         blockReq.ProposerPubkey.String(),
+		"builderPubkey":          blockReq.BuilderPubKey.String(),
+		"proposerPubkey":         blockReq.ProposerPubKey().String(),
 		"proposerPayment":        blockReq.ProposerPayment,
 		"signature":              blockReq.Signature,
 		"isLargeRequest":         isLargeRequest,
@@ -2331,13 +2345,13 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	})
 
 	// Build the header and payload for this block request.
-	getHeader, err := buildHeader(blockReq)
+	getHeader, err := buildHeader(&blockReq)
 	if err != nil {
 		log.WithError(err).Warn("failed to build header")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	getPayload, err := buildPayload(blockReq)
+	getPayload, err := buildPayload(&blockReq)
 	if err != nil {
 		log.WithError(err).Warn("failed to build payload")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -2387,9 +2401,9 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}()
 
 	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
-	// TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped seperatley and then we simulate the txs in those groups)
-	gasUsed, reqErr, validErr := api.simulateBlock(context.Background(), blockReq, log)
-
+	// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped seperatley and then we simulate the txs in those groups)
+	gasUsed, reqErr, validErr := api.simulateBlock(context.Background(), &blockReq, log)
+	// @TODO: figure out exact gas limit later
 	if gasUsed != 0 && gasUsed > gasLimit {
 		errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
 		validErr = errors.New(errMsg)
@@ -2414,7 +2428,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	var updateBidResult datastore.SaveBidAndUpdateTopBidResponse
 	if isToB {
 		// ToB case
-		updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx, blockReq, getPayload, &getHeader, receivedAt, false, nil)
+		updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx, &blockReq, getPayload, &getHeader, receivedAt, false, nil)
 		if err != nil {
 			log.WithError(err).Error("could not save bid and update top bids")
 			api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
@@ -2422,7 +2436,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	} else {
 		//RoB case
-		updateBidResult, err = api.redis.SaveRoBBidAndUpdateTopBid(context.Background(), tx, blockReq, getPayload,
+		updateBidResult, err = api.redis.SaveRoBBidAndUpdateTopBid(context.Background(), tx, &blockReq, getPayload,
 			&getHeader, chainID, receivedAt, false, nil)
 		if err != nil {
 			log.WithError(err).Error("could not save bid and update top bids for RoB")
@@ -2440,14 +2454,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		if api.memcached != nil {
 			go func() {
 				if isToB {
-					err = api.memcached.SaveToBAnchorPayload(blockReq.Slot,
-						blockReq.ProposerPubkey.String(),
-						blockReq.BlockHash.String(),
+					err = api.memcached.SaveToBAnchorPayload(blockReq.Slot(),
+						blockReq.ProposerPubKey().String(),
+						blockReq.BlockHash().String(),
 						getPayload)
 				} else {
-					err = api.memcached.SaveRoBAnchorPayload(blockReq.Slot,
-						blockReq.ProposerPubkey.String(),
-						blockReq.BlockHash.String(),
+					err = api.memcached.SaveRoBAnchorPayload(blockReq.Slot(),
+						blockReq.ProposerPubKey().String(),
+						blockReq.BlockHash().String(),
 						chainID,
 						getPayload)
 				}
@@ -2464,18 +2478,19 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	defer func() {
 		totalDuration := time.Since(receivedAt).Microseconds()
 		txHashList := []string{}
-		for _, tx := range blockReq.Txs {
+		// TODO: figure logic out or if this is needed
+		for _, tx := range blockReq.Txs() {
 			txHashList = append(txHashList, string(tx.Bytes()))
 		}
 		txHashes := strings.Join(txHashList, ",")
 
 		if isToB {
-			err := api.db.InsertToBSubmitProfile(slot, parentHash, txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
+			err := api.db.InsertToBSubmitProfile(blockReq.Slot(), blockReq.ParentHash(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
 			if err != nil {
 				log.WithError(err).Error("failed to insert tob submit profile into db")
 			}
 		} else {
-			err := api.db.InsertRoBSubmitProfile(slot, parentHash, txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
+			err := api.db.InsertRoBSubmitProfile(blockReq.Slot(), blockReq.ParentHash(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
 			if err != nil {
 				log.WithError(err).Error("failed to insert tob submit profile into db")
 			}

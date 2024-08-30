@@ -443,9 +443,9 @@ func (r *RedisCache) GetRelayConfig(field string) (string, error) {
 	return res, err
 }
 
-func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey string) (*eth.Hash, error) {
+func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
-	resp := new(eth.Hash)
+	resp := new(common.AnchorHeader)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
 		return nil, nil
@@ -453,9 +453,9 @@ func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey strin
 	return resp, err
 }
 
-func (r *RedisCache) GetBestRoBBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*eth.Hash, error) {
+func (r *RedisCache) GetBestRoBBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	resp := new(eth.Hash)
+	resp := new(common.AnchorHeader)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
 		return nil, nil
@@ -1442,8 +1442,16 @@ func (r *RedisCache) GetTopBidValue(ctx context.Context, pipeliner redis.Pipelin
 }
 */
 
-func (r *RedisCache) GetTopToBBidValue(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (topBidValue *big.Int, err error) {
-	keyTopBidValue := r.keyTopToBBidValue(slot, parentHash, proposerPubkey)
+func (r *RedisCache) GetTopToBBidValue(
+	ctx context.Context, 
+	pipeliner redis.Pipeliner,
+	slot uint64, 
+	parentHash eth.Hash, 
+	proposerPubkey boostTypes.PublicKey,
+) (topBidValue *big.Int, err error) {
+	parentString := parentHash.String()
+	proposerString := proposerPubkey.String()
+	keyTopBidValue := r.keyTopToBBidValue(slot, parentString, proposerString)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
@@ -1461,8 +1469,17 @@ func (r *RedisCache) GetTopToBBidValue(ctx context.Context, pipeliner redis.Pipe
 	return topBidValue, nil
 }
 
-func (r *RedisCache) GetTopRoBBidValue(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string, chainID string) (topBidValue *big.Int, err error) {
-	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerPubkey, chainID)
+func (r *RedisCache) GetTopRoBBidValue(
+	ctx context.Context, 
+	pipeliner redis.Pipeliner, 
+	slot uint64, 
+	parentHash eth.Hash, 
+	proposerPubkey boostTypes.PublicKey, 
+	chainID string,
+) (topBidValue *big.Int, err error) {
+	parentString := parentHash.String()
+	proposerString := proposerPubkey.String()
+	keyTopBidValue := r.keyTopRoBBidValue(slot, parentString, proposerString, chainID)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {

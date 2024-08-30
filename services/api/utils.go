@@ -161,13 +161,7 @@ func buildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
 	return header, nil
 }
 
-//	type AnchorPayload struct {
-//		Slot      uint64      `json:"slot"`
-//		Header common.Hash `json:"blockHash"`
-//		// Array of transaction objects, each object is a byte list (DATA) representing
-//		// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
-//		Transactions []*SEQTransaction `json:"transactions"`
-//	}
+// @TODO: probably don't need as hypersdk/seq has unmarshalling/marshalling funcs already ex: chain.Unmarshal(tx)
 func buildPayload(s *common.SubmitNewBlockRequest) (*common.AnchorPayload, error) {
 	hash, err := buildHeader(s)
 	if err != nil {
@@ -201,4 +195,9 @@ func marshalTxs(txs []*chain.Transaction) ([]hexutil.Bytes, error) {
 		ret[i] = seqTxBytes
 	}
 	return ret, nil
+}
+
+
+func VerifySignature() error {
+	return nil
 }

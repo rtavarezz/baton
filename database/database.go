@@ -12,6 +12,7 @@ import (
 
 	"github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
+	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/mev-boost-relay/database/migrations"
 	"github.com/flashbots/mev-boost-relay/database/vars"
 	"github.com/jmoiron/sqlx"
@@ -60,10 +61,10 @@ type IDatabaseService interface {
 	InsertIncludedTobTx(txHash string, slot uint64, parentHash string, blockHash string) error
 	GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(slot uint64, parentHash string, blockHash string) ([]*IncludedTobTxEntry, error)
 
-	InsertToBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
+	InsertToBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
 	GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
 
-	InsertRoBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
+	InsertRoBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
 	GetRobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
 	SaveBuilderBlockSubmission2(payload *common.AnchorPayload, requestError, validationError error, receivedAt, eligibleAt time.Time, wasSimulated, saveExecPayload bool, profile common.Profile, optimisticSubmission bool, isToB bool, chainID string) (entry *BuilderBlockSubmissionEntry, err error)
 	UpsertBlockBuilderEntryAfterSubmission2(lastSubmission *BuilderBlockSubmissionEntry, isToB bool, chainID string, isError bool) error
@@ -774,14 +775,15 @@ func (s *DatabaseService) GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash
 
 func (s *DatabaseService) InsertToBSubmitProfile(
 	slot uint64,
-	parentHash string,
+	parentHash eth.Hash,
 	txHashes string,
 	simulationDuration uint64,
 	tracerDuration uint64,
 	totalDuration uint64) error {
+	parentString := parentHash.String()
 	entry := ToBSubmitProfileEntry{
 		Slot:       slot,
-		ParentHash: parentHash,
+		ParentHash: parentString,
 		TxHashes:   txHashes,
 
 		SimulationDurationUs: simulationDuration,
@@ -798,14 +800,15 @@ func (s *DatabaseService) InsertToBSubmitProfile(
 
 func (s *DatabaseService) InsertRoBSubmitProfile(
 	slot uint64,
-	parentHash string,
+	parentHash eth.Hash,
 	txHashes string,
 	simulationDuration uint64,
 	tracerDuration uint64,
 	totalDuration uint64) error {
+	parentString := parentHash.String()
 	entry := RoBSubmitProfileEntry{
 		Slot:       slot,
-		ParentHash: parentHash,
+		ParentHash: parentString,
 		TxHashes:   txHashes,
 
 		SimulationDurationUs: simulationDuration,

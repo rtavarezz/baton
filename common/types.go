@@ -351,6 +351,10 @@ type AnchorGetHeaderResponse struct {
 	Producer ids.NodeID `json:"producer"`
 	// hash of the anchor chunks (tob + robs)
 	ChunkHash common.Hash `json:"chunkhash"`
+}
+
+// @TODO: Figure out how to verify the signatures in util.VerifySignature
+type HeaderInfo struct {
 	// Make signature based off ToBHash + RoBHashes then we use this signature for Baton/Anchor to check against
 	ToBHash   *AnchorHeader            `json:"tobhash"`
 	RoBHashes map[string]*AnchorHeader `json:"robhashes"`
@@ -362,6 +366,7 @@ type AnchorGetPayloadRequest struct {
 	Signature     boostTypes.Signature `json:"signature"`
 	ProposerIndex uint64               `json:"proposer_index"`
 	BlockHash     string               `json:"block_hash"`
+
 }
 
 type AnchorGetPayloadResponse struct {
@@ -533,63 +538,70 @@ type SequencerMsgRequest struct {
 type BatonBlock struct {
 	Txs            []byte               `json:"txs"`
 	Slot           uint64               `json:"slot"`
-	ParentHash     string               `json:"parent_hash"`
+	ParentHash     common.Hash          `json:"parent_hash"`
 	BlockNumber    map[string]string    `json:"blocknumber"`
 	BlockHash      common.Hash          `json:"block_hash" ssz-size:"32"`
 	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
+	ProposerPayment codec.Address		`json:"proposer_payment" ssz-size:"48"`
 }
 
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
 type SubmitNewBlockRequest struct {
-	chunk         BatonBlock
+	Chunk         BatonBlock
 	Signature     boostTypes.Signature `json:"signature" ssz-size:"96"`
-	BuilderPubkey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+	BuilderPubKey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 }
 
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
-type SubmitNewBlockRequest struct {
-	// @TODO: Last tx should be the proposer tx.
-	// @TODO: Check last tx proposer address matches the proposer payment below. Last tx should use transfer action.
-	// @TODO: Use hypersdk method to marshal and unmarshal.
-	// See https://github.com/AnomalyFi/hypersdk/blob/main/chain/transaction.go#L377
-	// See parser in https://github.com/AnomalyFi/anchor/blob/seq-util/seq/seq.go#L33
+// type SubmitNewBlockRequest struct {
+// 	// @TODO: Last tx should be the proposer tx.
+// 	// @TODO: Check last tx proposer address matches the proposer payment below. Last tx should use transfer action.
+// 	// @TODO: Use hypersdk method to marshal and unmarshal.
+// 	// See https://github.com/AnomalyFi/hypersdk/blob/main/chain/transaction.go#L377
+// 	// See parser in https://github.com/AnomalyFi/anchor/blob/seq-util/seq/seq.go#L33
 
-	Txs []byte `json:"txs"`
-	//Txs             []*chain.Transaction `json:"txs"`
+// 	Txs []byte `json:"txs"`
+// 	//Txs             []*chain.Transaction `json:"txs"`
 
-	Slot       uint64 `json:"slot"`
-	ParentHash string `json:"parent_hash"`
+// 	Slot       uint64 `json:"slot"`
+// 	ParentHash string `json:"parent_hash"`
 
-	// TODO: Switch to the below because block number is L2-roll-up specific.
-	// HashMap[String, String], This contains a mapping of chainIds alongside the corresponding hex encoded block number which this bundle will be valid on.
-	// Corresponds to rollup blocks. When we simulate, we will simulate on this block.
-	BlockNumber string `json:"blocknumber"`
+// 	// TODO: Switch to the below because block number is L2-roll-up specific.
+// 	// HashMap[String, String], This contains a mapping of chainIds alongside the corresponding hex encoded block number which this bundle will be valid on.
+// 	// Corresponds to rollup blocks. When we simulate, we will simulate on this block.
+// 	BlockNumber string `json:"blocknumber"`
 
-	BlockHash common.Hash `json:"block_hash" ssz-size:"32"`
+// 	BlockHash common.Hash `json:"block_hash" ssz-size:"32"`
 
-	// TODO: Verify this matches the proposer's address.
-	ProposerPayment codec.Address
+// 	// TODO: Verify this matches the proposer's address.
+// 	ProposerPayment codec.Address
 
-	// Builder signing off on their payload.
-	// TODO: Verify using here. https://github.com/flashbots/mev-boost-relay/blob/main/services/api/service.go#L2055
-	Signature boostTypes.Signature `json:"signature" ssz-size:"96"`
+// 	// Builder signing off on their payload.
+// 	// TODO: Verify using here. https://github.com/flashbots/mev-boost-relay/blob/main/services/api/service.go#L2055
+// 	Signature boostTypes.Signature `json:"signature" ssz-size:"96"`
 
-	BuilderPubkey  boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
-	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-}
+// 	BuilderPubkey  boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+// 	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
+// }
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
-		Txs:             make([]byte, 0),
-		Slot:            0,
-		ParentHash:      "",
-		BlockNumber:     "",
-		BlockHash:       common.Hash{},
-		ProposerPayment: codec.Address{},
+		Chunk: 			 NewBatonBlockRequest(),
 		Signature:       boostTypes.Signature{},
 		BuilderPubkey:   boostTypes.PublicKey{},
+	}
+}
+
+func NewBatonBlockRequest() BatonBlock {
+	return BatonBlock{
+		Txs:             make([]byte, 0),
+		Slot:            0,
+		ParentHash:      common.Hash{},
+		BlockNumber:     make(map[string]string),
+		BlockHash:       common.Hash{},
+		ProposerPayment: codec.Address{},
 		ProposerPubkey:  boostTypes.PublicKey{},
 	}
 }
@@ -606,17 +618,18 @@ func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
 }
 */
 
-func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
-	if len(r.Txs) == 0 {
-		return "", errors.New("getFirstChainID: no transactions found")
-	}
+// @TODO: fix me SOON
+// func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
+// 	if len(r.Chunk.Txs) == 0 {
+// 		return "", errors.New("getFirstChainID: no transactions found")
+// 	}
 
-	actions := r.Txs[0].Actions
-	if len(actions) == 0 {
-		return "", errors.New("getFirstChainID: no actions in first tx")
-	}
+// 	actions := r.Chunk.Txs[0].Actions
+// 	if len(actions) == 0 {
+// 		return "", errors.New("getFirstChainID: no actions in first tx")
+// 	}
 
-}
+// }
 
 func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
 	return json.Unmarshal(data, r)
@@ -624,6 +637,45 @@ func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
 
 func (r *SubmitNewBlockRequest) ToJSON() ([]byte, error) {
 	return json.Marshal(r)
+}
+
+func (r *SubmitNewBlockRequest) Slot() uint64 {
+	return r.Chunk.Slot
+}
+
+func (r *SubmitNewBlockRequest) BlockHash() common.Hash {
+	return r.Chunk.BlockHash
+}
+
+func (r *SubmitNewBlockRequest) BlockNumber() *map[string]string {
+	return &r.Chunk.BlockNumber
+}
+
+func (r *SubmitNewBlockRequest) ProposerPubKey() boostTypes.PublicKey {
+	return r.Chunk.ProposerPubkey
+} 
+
+func (r *SubmitNewBlockRequest) ProposerPayment() codec.Address {
+	return r.Chunk.ProposerPayment
+} 
+
+func (r *SubmitNewBlockRequest) ParentHash() common.Hash {
+	return r.Chunk.ParentHash
+} 
+
+func (r *SubmitNewBlockRequest) Txs() []byte {
+	return r.Chunk.Txs
+} 
+
+// Chunk         BatonBlock
+// 	Signature     boostTypes.Signature `json:"signature" ssz-size:"96"`
+// 	BuilderPubkey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+func (r *SubmitNewBlockRequest) BuilderPubkey() boostTypes.PublicKey {
+	return r.BuilderPubKey
+} 
+
+func (r *SubmitNewBlockRequest) Sig() boostTypes.Signature {
+	return r.Signature
 }
 
 // callLog is the result of LOG opCode

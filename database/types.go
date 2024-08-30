@@ -65,7 +65,6 @@ func (reg ValidatorRegistrationEntry) ToSignedValidatorRegistration() (*types.Si
 	if err != nil {
 		return nil, err
 	}
-
 	feeRec, err := types.HexToAddress(reg.FeeRecipient)
 	if err != nil {
 		return nil, err
