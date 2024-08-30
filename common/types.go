@@ -205,6 +205,22 @@ type BidTraceV2 struct {
 	NumTx       uint64 `json:"num_tx,string" db:"num_tx"`
 }
 
+type BidTraceV3 struct {
+	Slot            uint64
+	IsTob           bool
+	ChainID         string
+	ParentHash      string
+	BlockHash       string
+	BuilderPubkey   string
+	ProposerPubkey  string
+	ProposerPayment string
+	GasLimit        uint64
+	GasUsed         uint64
+	Value           uint64
+	BlockNumber     string
+	NumTx           uint64
+}
+
 type BidTraceV2JSON struct {
 	Slot                 uint64 `json:"slot,string"`
 	ParentHash           string `json:"parent_hash"`
@@ -366,7 +382,6 @@ type AnchorGetPayloadRequest struct {
 	Signature     boostTypes.Signature `json:"signature"`
 	ProposerIndex uint64               `json:"proposer_index"`
 	BlockHash     string               `json:"block_hash"`
-
 }
 
 type AnchorGetPayloadResponse struct {
@@ -536,13 +551,13 @@ type SequencerMsgRequest struct {
 */
 
 type BatonBlock struct {
-	Txs            []byte               `json:"txs"`
-	Slot           uint64               `json:"slot"`
-	ParentHash     common.Hash          `json:"parent_hash"`
-	BlockNumber    map[string]string    `json:"blocknumber"`
-	BlockHash      common.Hash          `json:"block_hash" ssz-size:"32"`
-	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-	ProposerPayment codec.Address		`json:"proposer_payment" ssz-size:"48"`
+	Txs             []byte               `json:"txs"`
+	Slot            uint64               `json:"slot"`
+	ParentHash      common.Hash          `json:"parent_hash"`
+	BlockNumber     map[string]string    `json:"blocknumber"`
+	BlockHash       common.Hash          `json:"block_hash" ssz-size:"32"`
+	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
+	ProposerPayment codec.Address        `json:"proposer_payment" ssz-size:"48"`
 }
 
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
@@ -588,9 +603,9 @@ type SubmitNewBlockRequest struct {
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
-		Chunk: 			 NewBatonBlockRequest(),
-		Signature:       boostTypes.Signature{},
-		BuilderPubkey:   boostTypes.PublicKey{},
+		Chunk:         NewBatonBlockRequest(),
+		Signature:     boostTypes.Signature{},
+		BuilderPubkey: boostTypes.PublicKey{},
 	}
 }
 
@@ -604,6 +619,60 @@ func NewBatonBlockRequest() BatonBlock {
 		ProposerPayment: codec.Address{},
 		ProposerPubkey:  boostTypes.PublicKey{},
 	}
+}
+
+func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+func (r *SubmitNewBlockRequest) ToJSON() ([]byte, error) {
+	return json.Marshal(r)
+}
+
+func (r *SubmitNewBlockRequest) Slot() uint64 {
+	return r.Chunk.Slot
+}
+
+func (r *SubmitNewBlockRequest) BlockHash() common.Hash {
+	return r.Chunk.BlockHash
+}
+
+func (r *SubmitNewBlockRequest) BlockNumber() *map[string]string {
+	return &r.Chunk.BlockNumber
+}
+
+func (r *SubmitNewBlockRequest) ProposerPubKey() boostTypes.PublicKey {
+	return r.Chunk.ProposerPubkey
+}
+
+func (r *SubmitNewBlockRequest) ProposerPayment() codec.Address {
+	return r.Chunk.ProposerPayment
+}
+
+func (r *SubmitNewBlockRequest) ProposerPaymentAsStr() string {
+	return string(r.Chunk.ProposerPayment[:])
+}
+
+func (r *SubmitNewBlockRequest) ParentHash() common.Hash {
+	return r.Chunk.ParentHash
+}
+
+func (r *SubmitNewBlockRequest) Txs() []byte {
+	return r.Chunk.Txs
+}
+
+// TODO: Fill this in later
+// The value should come from the proposer tx.
+func (r *SubmitNewBlockRequest) Value() *big.Int {
+	return big.NewInt(0)
+}
+
+func (r *SubmitNewBlockRequest) BuilderPubkey() boostTypes.PublicKey {
+	return r.BuilderPubKey
+}
+
+func (r *SubmitNewBlockRequest) Sig() boostTypes.Signature {
+	return r.Signature
 }
 
 /*
@@ -630,53 +699,6 @@ func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
 // 	}
 
 // }
-
-func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
-	return json.Unmarshal(data, r)
-}
-
-func (r *SubmitNewBlockRequest) ToJSON() ([]byte, error) {
-	return json.Marshal(r)
-}
-
-func (r *SubmitNewBlockRequest) Slot() uint64 {
-	return r.Chunk.Slot
-}
-
-func (r *SubmitNewBlockRequest) BlockHash() common.Hash {
-	return r.Chunk.BlockHash
-}
-
-func (r *SubmitNewBlockRequest) BlockNumber() *map[string]string {
-	return &r.Chunk.BlockNumber
-}
-
-func (r *SubmitNewBlockRequest) ProposerPubKey() boostTypes.PublicKey {
-	return r.Chunk.ProposerPubkey
-} 
-
-func (r *SubmitNewBlockRequest) ProposerPayment() codec.Address {
-	return r.Chunk.ProposerPayment
-} 
-
-func (r *SubmitNewBlockRequest) ParentHash() common.Hash {
-	return r.Chunk.ParentHash
-} 
-
-func (r *SubmitNewBlockRequest) Txs() []byte {
-	return r.Chunk.Txs
-} 
-
-// Chunk         BatonBlock
-// 	Signature     boostTypes.Signature `json:"signature" ssz-size:"96"`
-// 	BuilderPubkey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
-func (r *SubmitNewBlockRequest) BuilderPubkey() boostTypes.PublicKey {
-	return r.BuilderPubKey
-} 
-
-func (r *SubmitNewBlockRequest) Sig() boostTypes.Signature {
-	return r.Signature
-}
 
 // callLog is the result of LOG opCode
 type CallLog struct {

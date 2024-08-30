@@ -174,12 +174,6 @@ type blockSimOptions2 struct {
 	//req        *common.BuilderBlockValidationRequest
 }
 
-// Data needed to issue a block validation request.
-type tobSimOptions struct {
-	log *logrus.Entry
-	req *common.TobValidationRequest
-}
-
 type blockBuilderCacheEntry struct {
 	status     common.BuilderStatus
 	collateral *big.Int
@@ -792,55 +786,8 @@ func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 	return res, nil
 }
 
-// simulateTob sends a request for a TOB tx simulation to blockSimRateLimiter.
-func (api *BatonAPI) simulateTobTxs(ctx context.Context, opts tobSimOptions) error {
-	t := time.Now()
-	requestErr, validationErr := api.blockSimRateLimiter.TobSim(ctx, opts.req)
-	log := opts.log.WithFields(logrus.Fields{
-		"durationMs": time.Since(t).Milliseconds(),
-		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
-	})
-	if validationErr != nil {
-		log.WithError(validationErr).Warn("tob validation failed")
-		return validationErr
-	}
-	if requestErr != nil {
-		log.WithError(requestErr).Warn("tob validation failed: request error")
-		return requestErr
-	}
-	log.Info("tob validation successful")
-	return nil
-}
-
-// // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-// func (api *BatonAPI) simulateBlock(ctx context.Context, opts blockSimOptions) (requestErr, validationErr error) {
-// 	t := time.Now()
-// 	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
-// 	log := opts.log.WithFields(logrus.Fields{
-// 		"durationMs": time.Since(t).Milliseconds(),
-// 		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
-// 	})
-// 	if validationErr != nil {
-// 		if api.ffIgnorableValidationErrors {
-// 			// Operators chooses to ignore certain validation errors
-// 			ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
-// 			if ignoreError {
-// 				log.WithError(validationErr).Warn("block validation failed with ignorable error")
-// 				return nil, nil
-// 			}
-// 		}
-// 		log.WithError(validationErr).Warn("block validation failed")
-// 		return nil, validationErr
-// 	}
-// 	if requestErr != nil {
-// 		log.WithError(requestErr).Warn("block validation failed: request error")
-// 		return requestErr, nil
-// 	}
-// 	log.Info("block validation successful")
-// 	return nil, nil
-// }
-
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
+// @TODO: Fix me to work with new submit block msg format
 func (api *BatonAPI) simulateBlock(
 	ctx context.Context,
 	req *common.SubmitNewBlockRequest,
@@ -850,7 +797,7 @@ func (api *BatonAPI) simulateBlock(
 
 	var txs []hexutil.Bytes
 	txs = make([]hexutil.Bytes, 0)
-	for _, tx := range req.Txs {
+	for _, tx := range req.Txs() {
 		for _, action := range tx.Actions {
 			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
 				txs = append(txs, seqMsg.Data)
@@ -861,6 +808,7 @@ func (api *BatonAPI) simulateBlock(
 		}
 	}
 
+	// @TODO: Fix me to work with new submit block msg format
 	blockReq := common.BlockValidationRequest{
 		Txs:              txs,
 		BlockNumber:      req.BlockNumber,
@@ -929,68 +877,8 @@ func (api *BatonAPI) simulateBlockTxs(
 }
 */
 
-func (api *BatonAPI) demoteBuilder(pubkey string, req *common.BuilderSubmitBlockRequest, simError error) {
-	builderEntry, ok := api.blockBuildersCache[pubkey]
-	if !ok {
-		api.log.Warnf("builder %v not in the builder cache", pubkey)
-		builderEntry = &blockBuilderCacheEntry{} //nolint:exhaustruct
-	}
-	newStatus := common.BuilderStatus{
-		IsHighPrio:    builderEntry.status.IsHighPrio,
-		IsBlacklisted: builderEntry.status.IsBlacklisted,
-		IsOptimistic:  false,
-	}
-	api.log.Infof("demoted builder, new status: %v", newStatus)
-	if err := api.db.SetBlockBuilderIDStatusIsOptimistic(pubkey, false); err != nil {
-		api.log.Error(fmt.Errorf("error setting builder: %v status: %w", pubkey, err))
-	}
-	// Write to demotions table.
-	api.log.WithFields(logrus.Fields{"builder_pubkey": pubkey}).Info("demoting builder")
-	if err := api.db.InsertBuilderDemotion(req, simError); err != nil {
-		api.log.WithError(err).WithFields(logrus.Fields{
-			"errorWritingDemotionToDB": true,
-			"bidTrace":                 req.Message,
-			"simError":                 simError,
-		}).Error("failed to save demotion to database")
-	}
-}
-
-// processOptimisticBlock is called on a new goroutine when a optimistic block
-// needs to be simulated.
-func (api *BatonAPI) processOptimisticBlock(opts blockSimOptions, simResultC chan *blockSimResult) {
-	api.optimisticBlocksInFlight.Add(1)
-	defer func() { api.optimisticBlocksInFlight.Sub(1) }()
-	api.optimisticBlocksWG.Add(1)
-	defer api.optimisticBlocksWG.Done()
-
-	ctx := context.Background()
-	builderPubkey := opts.req.BuilderPubkey().String()
-	opts.log.WithFields(logrus.Fields{
-		"builderPubkey": builderPubkey,
-		// NOTE: this value is just an estimate because many goroutines could be
-		// updating api.optimisticBlocksInFlight concurrently. Since we just use
-		// it for logging, it is not atomic to avoid the performance impact.
-		"optBlocksInFlight": api.optimisticBlocksInFlight,
-	}).Infof("simulating optimistic block with hash: %v", opts.req.BuilderSubmitBlockRequest.BlockHash())
-	reqErr, simErr := api.simulateBlock(ctx, opts)
-	simResultC <- &blockSimResult{reqErr == nil, true, reqErr, simErr}
-	if reqErr != nil || simErr != nil {
-		// Mark builder as non-optimistic.
-		opts.builder.status.IsOptimistic = false
-		api.log.WithError(simErr).Warn("block simulation failed in processOptimisticBlock, demoting builder")
-
-		var demotionErr error
-		if reqErr != nil {
-			demotionErr = reqErr
-		} else {
-			demotionErr = simErr
-		}
-
-		// Demote the builder.
-		api.demoteBuilder(builderPubkey, &opts.req.BuilderSubmitBlockRequest, demotionErr)
-	}
-}
-
+// TODO: Verify if this is needed. I suspect not since it is part of the Eth 2.0 consensus layer.
+/*
 func (api *BatonAPI) processPayloadAttributes(payloadAttributes beaconclient.PayloadAttributesEvent) {
 	apiHeadSlot := api.headSlot.Load()
 	payloadAttrSlot := payloadAttributes.Data.ProposalSlot
@@ -1055,6 +943,7 @@ func (api *BatonAPI) processPayloadAttributes(payloadAttributes beaconclient.Pay
 		"timestamp": payloadAttributes.Data.PayloadAttributes.Timestamp,
 	}).Info("updated payload attributes")
 }
+*/
 
 func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	prevHeadSlot := api.headSlot.Load()
@@ -1725,13 +1614,11 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	//TODO: figure out Anchor Payload Response logic below
 	defer func() {
 		// TODO: Fix the below
-		/*
-			bidTrace, err := api.redis.GetBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash)
-			if err != nil {
-				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
-				return
-			}
-		*/
+		bidTrace, err := api.redis.GetBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash)
+		if err != nil {
+			log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
+			return
+		}
 
 		// TODO: Review below delivered payload
 		/*
@@ -1762,64 +1649,54 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		// note: finds winning block, makes sure that block is sound and complete if so then success,
 		// otherwise, block demotion case occurs. I feel like this is an important case to keep.
 		// Check if there is a demotion for the winning block.
-		/*
-		_, err = api.db.GetBuilderDemotion(bidTrace)
-		// If demotion not found, we are done!
-		if errors.Is(err, sql.ErrNoRows) {
-			log.Info("no demotion in getPayload, successful block proposal")
-			return
-		}
-		if err != nil {
-			log.WithError(err).Error("failed to read demotion table in getPayload")
-			return
-		}
-		// Demotion found, update the demotion table with refund data.
-		builderPubkey := bidTrace.BuilderPubkey.String()
-		log = log.WithFields(logrus.Fields{
-			"builderPubkey": builderPubkey,
-			"slot":          bidTrace.Slot,
-			"blockHash":     bidTrace.BlockHash,
-		})
-		log.Warn("demotion found in getPayload, inserting refund justification")
+		//	_, err = api.db.GetBuilderDemotion(bidTrace)
+		//	// If demotion not found, we are done!
+		//	if errors.Is(err, sql.ErrNoRows) {
+		//		log.Info("no demotion in getPayload, successful block proposal")
+		//		return
+		//	}
+		//	if err != nil {
+		//		log.WithError(err).Error("failed to read demotion table in getPayload")
+		//		return
+		//	}
+		//	// Demotion found, update the demotion table with refund data.
+		//	builderPubkey := bidTrace.BuilderPubkey.String()
+		//	log = log.WithFields(logrus.Fields{
+		//		"builderPubkey": builderPubkey,
+		//		"slot":          bidTrace.Slot,
+		//		"blockHash":     bidTrace.BlockHash,
+		//	})
+		//	log.Warn("demotion found in getPayload, inserting refund justification")
 
 		// TODO: What is this signed beacon block for?
 		// Prepare refund data.
-		signedBeaconBlock := common.SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp)
-		*/
+		//	signedBeaconBlock := common.SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp)
 
-		// Get registration entry from the DB.
-		registrationEntry, err := api.db.GetValidatorRegistration(proposerPubkey.String())
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				log.WithError(err).Error("no registration found for validator " + proposerPubkey.String())
-			} else {
-				log.WithError(err).Error("error reading validator registration")
-			}
-		}
-
-		// TODO: Is this needed?
-		
-			var signedRegistration *boostTypes.SignedValidatorRegistration
-			if registrationEntry != nil {
-				signedRegistration, err = registrationEntry.ToSignedValidatorRegistration()
-				if err != nil {
-					log.WithError(err).Error("error converting registration to signed registration")
-				}
-			}
-		
-
-		// TODO: Is this needed?
-		/*
-			err = api.db.UpdateBuilderDemotion(bidTrace, signedBeaconBlock, signedRegistration)
-			if err != nil {
-				log.WithFields(logrus.Fields{
-					"errorWritingRefundToDB": true,
-					"bidTrace":               bidTrace,
-					"signedBeaconBlock":      signedBeaconBlock,
-					"signedRegistration":     signedRegistration,
-				}).WithError(err).Error("unable to update builder demotion with refund justification")
-			}
-		*/
+		// TODO: Add the below when builder demotion is needed
+		//  registrationEntry, err := api.db.GetValidatorRegistration(proposerPubkey.String())
+		//  if err != nil {
+		//  if errors.Is(err, sql.ErrNoRows) {
+		//  		log.WithError(err).Error("no registration found for validator " + proposerPubkey.String())
+		//  	} else {
+		//  		log.WithError(err).Error("error reading validator registration")
+		//  	}
+		//  }
+		//  var signedRegistration *boostTypes.SignedValidatorRegistration
+		//  if registrationEntry != nil {
+		//	  signedRegistration, err = registrationEntry.ToSignedValidatorRegistration()
+		//	  if err != nil {
+		//		  log.WithError(err).Error("error converting registration to signed registration")
+		//	  }
+		//  }
+		//	err = api.db.UpdateBuilderDemotion(bidTrace, signedBeaconBlock, signedRegistration)
+		//	if err != nil {
+		//		log.WithFields(logrus.Fields{
+		//			"errorWritingRefundToDB": true,
+		//			"bidTrace":               bidTrace,
+		//			"signedBeaconBlock":      signedBeaconBlock,
+		//			"signedRegistration":     signedRegistration,
+		//		}).WithError(err).Error("unable to update builder demotion with refund justification")
+		//	}
 	}()
 
 	// @TODO: Continue fixing the below
@@ -1835,20 +1712,23 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		getPayloadResp, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
 		if err != nil || getPayloadResp == nil {
 			// Still not found! Error out now.
-			if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
-				// Couldn't find the execution payload, maybe it never was submitted to our relay! Check that now
-				_, err := api.db.GetBlockSubmissionEntry(payload.Slot, proposerPubkey.String(), payload.BlockHash)
-				if errors.Is(err, sql.ErrNoRows) {
-					log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this relay")
-					api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this relay")
-				} else if err != nil {
-					log.WithError(err).Error("failed getting execution payload (2/2) - payload not found, and error on checking bids")
-				} else {
-					log.Error("failed getting execution payload (2/2) - payload not found, but found bid in database")
+			// TODO: Is the below still needed?
+			/*
+				if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
+					// Couldn't find the execution payload, maybe it never was submitted to our relay! Check that now
+					_, err := api.db.GetBlockSubmissionEntry(payload.Slot, proposerPubkey.String(), payload.BlockHash)
+					if errors.Is(err, sql.ErrNoRows) {
+						log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this relay")
+						api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this relay")
+					} else if err != nil {
+						log.WithError(err).Error("failed getting execution payload (2/2) - payload not found, and error on checking bids")
+					} else {
+						log.Error("failed getting execution payload (2/2) - payload not found, but found bid in database")
+					}
+				} else { // some other error
+					log.WithError(err).Error("failed getting execution payload (2/2) - error")
 				}
-			} else { // some other error
-				log.WithError(err).Error("failed getting execution payload (2/2) - error")
-			}
+			*/
 			api.RespondError(w, http.StatusBadRequest, "no execution payload for this request")
 			return
 		}
@@ -1912,7 +1792,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	// @TODO: below prob not needed? 
+	// @TODO: below prob not needed?
 	// Publish the signed beacon block via beacon-node
 	timeBeforePublish := time.Now().UTC().UnixMilli()
 	log = log.WithField("timestampBeforePublishing", timeBeforePublish)
@@ -2423,12 +2303,37 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	simulationDuration := time.Since(simStartTime).Microseconds()
 
+	blockNumberJson, err := json.Marshal(blockReq.BlockNumber())
+	if err != nil {
+		log.WithError(err).Warn("couldn't marshal block number")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	blockNumberJsonStr := string(blockNumberJson[:])
+
+	trace := common.BidTraceV3{
+		Slot:            slot,
+		IsTob:           isToB,
+		ChainID:         chainID,
+		ParentHash:      blockReq.ParentHash().String(),
+		BlockHash:       blockReq.BlockHash().String(),
+		BuilderPubkey:   blockReq.BuilderPubkey().String(),
+		ProposerPubkey:  blockReq.ProposerPubKey().String(),
+		ProposerPayment: blockReq.ProposerPaymentAsStr(),
+		GasLimit:        gasLimit,
+		GasUsed:         gasUsed,
+		Value:           value.Uint64(),
+		BlockNumber:     blockNumberJsonStr,
+		NumTx:           uint64(len(blockReq.Txs())),
+	}
+
 	// Save the header and payloads for this block request to Redis.
 	// The auction is processed here where the best bid for the ToB or RoB namespace is saved to the database.
 	var updateBidResult datastore.SaveBidAndUpdateTopBidResponse
 	if isToB {
 		// ToB case
-		updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx, &blockReq, getPayload, &getHeader, receivedAt, false, nil)
+		updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx, &blockReq,
+			getPayload, &getHeader, receivedAt, false, nil, &trace)
 		if err != nil {
 			log.WithError(err).Error("could not save bid and update top bids")
 			api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")
@@ -2436,8 +2341,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	} else {
 		//RoB case
-		updateBidResult, err = api.redis.SaveRoBBidAndUpdateTopBid(context.Background(), tx, &blockReq, getPayload,
-			&getHeader, chainID, receivedAt, false, nil)
+		updateBidResult, err = api.redis.SaveRoBBidAndUpdateTopBid(context.Background(), tx, &blockReq,
+			getPayload, &getHeader, chainID, receivedAt, false, nil, &trace)
 		if err != nil {
 			log.WithError(err).Error("could not save bid and update top bids for RoB")
 			api.RespondError(w, http.StatusInternalServerError, "failed saving and updating bid")

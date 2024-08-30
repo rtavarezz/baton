@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
-	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/mev-boost-relay/database/migrations"
 	"github.com/flashbots/mev-boost-relay/database/vars"
 	"github.com/jmoiron/sqlx"
@@ -33,6 +33,10 @@ type IDatabaseService interface {
 	GetBuilderSubmissionsBySlots(slotFrom, slotTo uint64) (entries []*BuilderBlockSubmissionEntry, err error)
 	GetExecutionPayloadEntryByID(executionPayloadID int64) (entry *ExecutionPayloadEntry, err error)
 	GetExecutionPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error)
+
+	GetToBAnchorPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error)
+	GetRoBAnchorPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string, chainID string) (entry *ExecutionPayloadEntry, err error)
+
 	GetToBExecutionPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error)
 	GetRoBExecutionPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error)
 	GetExecutionPayloads(idFirst, idLast uint64) (entries []*ExecutionPayloadEntry, err error)
@@ -372,7 +376,26 @@ func (s *DatabaseService) GetExecutionPayloadEntryBySlotPkHash(slot uint64, prop
 	return entry, err
 }
 
-func (s *DatabaseService) SaveDeliveredPayload(bidTrace *common.BidTraceV2, signedBlindedBeaconBlock *common.SignedBlindedBeaconBlock, signedAt time.Time, publishMs uint64) error {
+// TODO: Verify this appropriately pulls out the payload from the database
+func (s *DatabaseService) GetToBAnchorPayloadEntryBySlotPkHash(
+	slot uint64,
+	proposerPubkey,
+	blockHash string,
+) (entry *ExecutionPayloadEntry, err error) {
+	query := `SELECT id, inserted_at, slot, proposer_pubkey, block_hash, version, payload
+	FROM ` + vars.TableExecutionPayload + `
+	WHERE slot=$1 AND proposer_pubkey=$2 AND block_hash=$3`
+	entry = &ExecutionPayloadEntry{}
+	err = s.DB.Get(entry, query, slot, proposerPubkey, blockHash)
+	return entry, err
+}
+
+func (s *DatabaseService) SaveDeliveredPayload(
+	bidTrace *common.BidTraceV2,
+	signedBlindedBeaconBlock *common.SignedBlindedBeaconBlock,
+	signedAt time.Time,
+	publishMs uint64,
+) error {
 	_signedBlindedBeaconBlock, err := json.Marshal(signedBlindedBeaconBlock)
 	if err != nil {
 		return err
@@ -409,6 +432,51 @@ func (s *DatabaseService) SaveDeliveredPayload(bidTrace *common.BidTraceV2, sign
 	_, err = s.DB.NamedExec(query, deliveredPayloadEntry)
 	return err
 }
+
+/*
+func (s *DatabaseService) SaveDeliveredPayload(
+  bidTrace *common.BidTraceV2,
+  signedBlindedBeaconBlock *common.SignedBlindedBeaconBlock,
+  signedAt time.Time,
+  publishMs uint64,
+) error {
+	_signedBlindedBeaconBlock, err := json.Marshal(signedBlindedBeaconBlock)
+	if err != nil {
+		return err
+	}
+
+	deliveredPayloadEntry := DeliveredPayloadEntry{
+		SignedAt:                 NewNullTime(signedAt),
+		SignedBlindedBeaconBlock: NewNullString(string(_signedBlindedBeaconBlock)),
+
+		Slot:  bidTrace.Slot,
+		Epoch: bidTrace.Slot / common.SlotsPerEpoch,
+
+		BuilderPubkey:        bidTrace.BuilderPubkey.String(),
+		ProposerPubkey:       bidTrace.ProposerPubkey.String(),
+		ProposerFeeRecipient: bidTrace.ProposerFeeRecipient.String(),
+
+		ParentHash:  bidTrace.ParentHash.String(),
+		BlockHash:   bidTrace.BlockHash.String(),
+		BlockNumber: bidTrace.BlockNumber,
+
+		GasUsed:  bidTrace.GasUsed,
+		GasLimit: bidTrace.GasLimit,
+
+		NumTx: bidTrace.NumTx,
+		Value: bidTrace.Value.ToBig().String(),
+
+		PublishMs: publishMs,
+	}
+
+	query := `INSERT INTO ` + vars.TableDeliveredPayload + `
+		(signed_at, signed_blinded_beacon_block, slot, epoch, builder_pubkey, proposer_pubkey, proposer_fee_recipient, parent_hash, block_hash, block_number, gas_used, gas_limit, num_tx, value, publish_ms) VALUES
+		(:signed_at, :signed_blinded_beacon_block, :slot, :epoch, :builder_pubkey, :proposer_pubkey, :proposer_fee_recipient, :parent_hash, :block_hash, :block_number, :gas_used, :gas_limit, :num_tx, :value, :publish_ms)
+		ON CONFLICT DO NOTHING`
+	_, err = s.DB.NamedExec(query, deliveredPayloadEntry)
+	return err
+}
+*/
 
 func (s *DatabaseService) GetRecentDeliveredPayloads(queryArgs GetPayloadsFilters) ([]*DeliveredPayloadEntry, error) {
 	arg := map[string]interface{}{
@@ -669,6 +737,8 @@ func (s *DatabaseService) DeleteExecutionPayloads(idFirst, idLast uint64) error 
 	return err
 }
 
+// TODO: Implement demotion later when needed
+/*
 func (s *DatabaseService) InsertBuilderDemotion(submitBlockRequest *common.BuilderSubmitBlockRequest, simError error) error {
 	_submitBlockRequest, err := json.Marshal(submitBlockRequest)
 	if err != nil {
@@ -697,7 +767,10 @@ func (s *DatabaseService) InsertBuilderDemotion(submitBlockRequest *common.Build
 	_, err = s.DB.NamedExec(query, builderDemotionEntry)
 	return err
 }
+*/
 
+// TODO: Implement demotion later when needed
+/*
 func (s *DatabaseService) UpdateBuilderDemotion(trace *common.BidTraceV2, signedBlock *common.SignedBeaconBlock, signedRegistration *types.SignedValidatorRegistration) error {
 	_signedBeaconBlock, err := json.Marshal(signedBlock)
 	if err != nil {
@@ -715,7 +788,10 @@ func (s *DatabaseService) UpdateBuilderDemotion(trace *common.BidTraceV2, signed
 	_, err = s.DB.Exec(query, sbb, svr, trace.Slot, trace.BuilderPubkey.String(), trace.BlockHash.String())
 	return err
 }
+*/
 
+// TODO: Implement demotion later when needed
+/*
 func (s *DatabaseService) GetBuilderDemotion(trace *common.BidTraceV2) (*BuilderDemotionEntry, error) {
 	query := `SELECT submit_block_request, signed_beacon_block, signed_validator_registration, epoch, slot, builder_pubkey, proposer_pubkey, value, fee_recipient, block_hash, sim_error FROM ` + vars.TableBuilderDemotions + `
 	WHERE slot=$1 AND builder_pubkey=$2 AND block_hash=$3`
@@ -726,6 +802,7 @@ func (s *DatabaseService) GetBuilderDemotion(trace *common.BidTraceV2) (*Builder
 	}
 	return entry, nil
 }
+*/
 
 func (s *DatabaseService) GetTooLateGetPayload(slot uint64) (entries []*TooLateGetPayloadEntry, err error) {
 	query := `SELECT id, inserted_at, slot, slot_start_timestamp, request_timestamp, decode_timestamp, proposer_pubkey, block_hash, ms_into_slot FROM ` + vars.TableTooLateGetPayload + ` WHERE slot = $1`

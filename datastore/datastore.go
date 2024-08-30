@@ -191,7 +191,7 @@ func (ds *Datastore) SaveValidatorRegistration(entry types.SignedValidatorRegist
 
 // @TODO: Fix the below
 
-// GetGetPayloadResponse returns the getPayload response from memory or Redis or Database
+// GetGetToBPayloadResponse returns the getPayload response from memory or Redis or Database
 func (ds *Datastore) GetGetToBPayloadResponse(
   log *logrus.Entry,
   slot uint64,
@@ -215,7 +215,7 @@ func (ds *Datastore) GetGetToBPayloadResponse(
 
 	// 2. try to get from Memcached
 	if ds.memcached != nil {
-		resp, err = ds.memcached.GetToBExecutionPayload(slot, _proposerPubkey, _blockHash)
+		resp, err = ds.memcached.GetToBAnchorPayload(slot, _proposerPubkey, _blockHash)
 		if errors.Is(err, memcache.ErrCacheMiss) {
 			log.WithError(err).Warn("execution payload not found in memcached")
 		} else if err != nil {
@@ -227,7 +227,7 @@ func (ds *Datastore) GetGetToBPayloadResponse(
 	}
 
 	// 3. try to get from database (should not happen, it's just a backup)
-	executionPayloadEntry, err := ds.db.GetExecutionPayloadEntryBySlotPkHash(slot, proposerPubkey, blockHash)
+	executionPayloadEntry, err := ds.db.GetToBAnchorPayloadEntryBySlotPkHash(slot, proposerPubkey, blockHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		log.WithError(err).Warn("execution payload not found in database")
 		return nil, ErrExecutionPayloadNotFound
@@ -238,7 +238,7 @@ func (ds *Datastore) GetGetToBPayloadResponse(
 
 	// Got it from database, now deserialize execution payload and compile full response
 	log.Warn("getPayload response from database, primary storage failed")
-	return database.ExecutionPayloadEntryToExecutionPayload(executionPayloadEntry)
+	return database.AnchorPayloadEntryToExecutionPayload(executionPayloadEntry)
 }
 
 // GetGetPayloadResponse returns the getPayload response from memory or Redis or Database
