@@ -9,7 +9,6 @@ import (
 
 	"github.com/AnomalyFi/hypersdk/codec"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -377,6 +376,7 @@ type BuilderSubmitBlockRequest struct {
 	ExecutionPayload *ExecutionPayload      `json:"execution_payload"`
 }
 
+/*
 func BoostBidToBidTrace(bidTrace *boostTypes.BidTrace) *apiv1.BidTrace {
 	if bidTrace == nil {
 		return nil
@@ -393,6 +393,7 @@ func BoostBidToBidTrace(bidTrace *boostTypes.BidTrace) *apiv1.BidTrace {
 		GasUsed:              bidTrace.GasUsed,
 	}
 }
+*/
 
 // type GetPayloadResponse struct {
 // 	Bellatrix *boostTypes.GetPayloadResponse
@@ -528,6 +529,23 @@ type SequencerMsgRequest struct {
 	FromAddress string
 }
 */
+
+type BatonBlock struct {
+	Txs            []byte               `json:"txs"`
+	Slot           uint64               `json:"slot"`
+	ParentHash     string               `json:"parent_hash"`
+	BlockNumber    map[string]string    `json:"blocknumber"`
+	BlockHash      common.Hash          `json:"block_hash" ssz-size:"32"`
+	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
+}
+
+// SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
+// Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
+type SubmitNewBlockRequest struct {
+	chunk         BatonBlock
+	Signature     boostTypes.Signature `json:"signature" ssz-size:"96"`
+	BuilderPubkey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+}
 
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
