@@ -1607,7 +1607,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithField("timestampAfterSignatureVerify", time.Now().UTC().UnixMilli())
 	log.Info("getPayload request received")
 
-	var getPayloadResp *common.AnchorGetPayloadResponse
+	var getPayloadResp common.AnchorGetPayloadResponse
 	var msNeededForPublishing uint64
 
 	// Save information about delivered payload
@@ -1703,14 +1703,17 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	// Get the response - from Redis, Memcache or DB
 	// note that recent mev-boost versions only send getPayload to relays that provided the bid
-	getPayloadResp, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
-	if err != nil || getPayloadResp == nil {
+	var tobAnchorPayload *common.AnchorPayload
+	var payloadWasFound bool
+
+	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
+	if err != nil || tobAnchorPayload == nil {
 		log.WithError(err).Warn("failed getting execution payload (1/2)")
 		time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 		// Try again
-		getPayloadResp, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
-		if err != nil || getPayloadResp == nil {
+		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
+		if err != nil || tobAnchorPayload == nil {
 			// Still not found! Error out now.
 			// TODO: Is the below still needed?
 			/*
@@ -1729,9 +1732,57 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 					log.WithError(err).Error("failed getting execution payload (2/2) - error")
 				}
 			*/
-			api.RespondError(w, http.StatusBadRequest, "no execution payload for this request")
-			return
+
+			log.Info("no tob anchor execution payload for this request")
+			//api.RespondError(w, http.StatusBadRequest, "no tob anchor execution payload for this request")
+			//return
+		} else {
+			payloadWasFound = true
 		}
+	}
+
+	robPayloads := map[string]*common.AnchorPayload{}
+	for chainID, _ := range api.robChainIDs {
+		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash, chainID)
+		if err != nil || robAnchorPayload == nil {
+			log.WithError(err).Warn("failed getting execution payload (1/2)")
+			time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
+
+			// Try again
+			robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash, chainID)
+			if err != nil || robAnchorPayload == nil {
+				// Still not found! Error out now.
+				// TODO: Is the below still needed?
+				/*
+					if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
+						// Couldn't find the execution payload, maybe it never was submitted to our relay! Check that now
+						_, err := api.db.GetBlockSubmissionEntry(payload.Slot, proposerPubkey.String(), payload.BlockHash)
+						if errors.Is(err, sql.ErrNoRows) {
+							log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this relay")
+							api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this relay")
+						} else if err != nil {
+							log.WithError(err).Error("failed getting execution payload (2/2) - payload not found, and error on checking bids")
+						} else {
+							log.Error("failed getting execution payload (2/2) - payload not found, but found bid in database")
+						}
+					} else { // some other error
+						log.WithError(err).Error("failed getting execution payload (2/2) - error")
+					}
+				*/
+
+				log.Info("no tob anchor execution payload for this request")
+				//api.RespondError(w, http.StatusBadRequest, "no tob anchor execution payload for this request")
+				//return
+			} else {
+				payloadWasFound = true
+			}
+		}
+	}
+
+	if payloadWasFound == false {
+		log.Warn("no execution payloads were found for getPayload request")
+		api.RespondError(w, http.StatusBadRequest, "no execution payloads were found for getPayload request")
+		return
 	}
 
 	// Now we know this relay also has the payload
@@ -1784,32 +1835,55 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	// Check that ExecutionPayloadHeader fields (sent by the proposer) match our known ExecutionPayload
-	err = EqExecutionPayloadToHeader(payload, getPayloadResp)
-	if err != nil {
-		log.WithError(err).Warn("ExecutionPayloadHeader not matching known ExecutionPayload")
-		api.RespondError(w, http.StatusBadRequest, "invalid execution payload header")
-		return
-	}
+	// TODO: Verify not needed. Looks to be Eth 2.0 related.
+	/*
+		// Check that ExecutionPayloadHeader fields (sent by the proposer) match our known ExecutionPayload
+		err = EqExecutionPayloadToHeader(payload, getPayloadResp)
+		if err != nil {
+			log.WithError(err).Warn("ExecutionPayloadHeader not matching known ExecutionPayload")
+			api.RespondError(w, http.StatusBadRequest, "invalid execution payload header")
+			return
+		}
+	*/
 
 	// @TODO: below prob not needed?
-	// Publish the signed beacon block via beacon-node
-	timeBeforePublish := time.Now().UTC().UnixMilli()
-	log = log.WithField("timestampBeforePublishing", timeBeforePublish)
-	signedBeaconBlock := common.SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp)
-	code, err := api.beaconClient.PublishBlock(signedBeaconBlock) // errors are logged inside
-	if err != nil || code != http.StatusOK {
-		log.WithError(err).WithField("code", code).Error("failed to publish block")
-		api.RespondError(w, http.StatusBadRequest, "failed to publish block")
-		return
-	}
-	timeAfterPublish := time.Now().UTC().UnixMilli()
-	msNeededForPublishing = uint64(timeAfterPublish - timeBeforePublish)
-	log = log.WithField("timestampAfterPublishing", timeAfterPublish)
-	log.WithField("msNeededForPublishing", msNeededForPublishing).Info("block published through beacon node")
+	/*
+		// Publish the signed beacon block via beacon-node
+		timeBeforePublish := time.Now().UTC().UnixMilli()
+		log = log.WithField("timestampBeforePublishing", timeBeforePublish)
+		signedBeaconBlock := common.SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp)
+		code, err := api.beaconClient.PublishBlock(signedBeaconBlock) // errors are logged inside
+		if err != nil || code != http.StatusOK {
+			log.WithError(err).WithField("code", code).Error("failed to publish block")
+			api.RespondError(w, http.StatusBadRequest, "failed to publish block")
+			return
+		}
+		timeAfterPublish := time.Now().UTC().UnixMilli()
+		msNeededForPublishing = uint64(timeAfterPublish - timeBeforePublish)
+		log = log.WithField("timestampAfterPublishing", timeAfterPublish)
+		log.WithField("msNeededForPublishing", msNeededForPublishing).Info("block published through beacon node")
 
-	// give the beacon network some time to propagate the block
-	time.Sleep(time.Duration(getPayloadResponseDelayMs) * time.Millisecond)
+		// give the beacon network some time to propagate the block
+		time.Sleep(time.Duration(getPayloadResponseDelayMs) * time.Millisecond)
+	*/
+
+	// fill in rest of the payload response
+	getPayloadResp.Slot = payload.Slot
+	getPayloadResp.RoBPayloads = make(map[string]common.ExecutionPayload)
+
+	if tobAnchorPayload != nil {
+		tobExecPayload := common.ExecutionPayload{
+			Transactions: tobAnchorPayload.Transactions,
+		}
+		getPayloadResp.ToBPayload = &tobExecPayload
+	}
+
+	for chainID, anchorPayload := range robPayloads {
+		robChunkExecPayload := common.ExecutionPayload{
+			Transactions: anchorPayload.Transactions,
+		}
+		getPayloadResp.RoBPayloads[chainID] = robChunkExecPayload
+	}
 
 	// respond to the HTTP request
 	api.RespondOK(w, getPayloadResp)

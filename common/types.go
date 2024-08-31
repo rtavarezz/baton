@@ -386,7 +386,7 @@ type AnchorGetPayloadRequest struct {
 
 type AnchorGetPayloadResponse struct {
 	Slot        uint64                      `json:"slot"`
-	ToBPayload  ExecutionPayload            `json:"tobpayload"`
+	ToBPayload  *ExecutionPayload           `json:"tobpayload"`
 	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
 }
 

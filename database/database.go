@@ -195,6 +195,7 @@ func (s *DatabaseService) GetLatestValidatorRegistrations(timestampOnly bool) ([
 	return registrations, err
 }
 
+// @TODO: Following is called in SubmitNewBlock line. Needs fixing.
 func (s *DatabaseService) SaveBuilderBlockSubmission(
 	payload *common.BuilderSubmitBlockRequest,
 	requestError, validationError error,

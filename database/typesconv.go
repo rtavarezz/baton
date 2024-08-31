@@ -1,14 +1,10 @@
 package database
 
 import (
-	"encoding/json"
-	"errors"
+  "encoding/json"
+  "errors"
 
-	"github.com/attestantio/go-builder-client/api"
-	consensusspec "github.com/attestantio/go-eth2-client/spec"
-	"github.com/attestantio/go-eth2-client/spec/capella"
-	"github.com/flashbots/go-boost-utils/types"
-	"github.com/flashbots/mev-boost-relay/common"
+  "github.com/flashbots/mev-boost-relay/common"
 )
 
 var ErrUnsupportedExecutionPayload = errors.New("unsupported execution payload version")
@@ -59,8 +55,8 @@ func AnchorPayloadToExecPayloadEntry(
 
 	return &ExecutionPayloadEntry{
 		Slot:           payload.Slot,
-		ProposerPubkey: blockReq.ProposerPubkey.String(),
-		BlockHash:      blockReq.BlockHash.String(),
+		ProposerPubkey: blockReq.ProposerPubKey().String(),
+		BlockHash:      blockReq.BlockHash().String(),
 		Version:        version,
 		Payload:        string(_payload),
 	}, nil
@@ -108,6 +104,7 @@ func BuilderSubmissionEntryToBidTraceV2WithTimestampJSON(payload *BuilderBlockSu
 	}
 }
 
+/*
 func ExecutionPayloadEntryToExecutionPayload(executionPayloadEntry *ExecutionPayloadEntry) (payload *common.VersionedExecutionPayload, err error) {
 	payloadVersion := executionPayloadEntry.Version
 	if payloadVersion == common.ForkVersionStringDeneb {
@@ -142,4 +139,15 @@ func ExecutionPayloadEntryToExecutionPayload(executionPayloadEntry *ExecutionPay
 	} else {
 		return nil, ErrUnsupportedExecutionPayload
 	}
+}
+*/
+
+func ExecutionPayloadEntryToAnchorPayload(
+	executionPayloadEntry *ExecutionPayloadEntry,
+) (ret *common.AnchorPayload, err error) {
+	var payload common.AnchorPayload
+	if err = json.Unmarshal([]byte(executionPayloadEntry.Payload), &payload); err != nil {
+		return nil, errors.New("could not unmarshal execution payload to anchor payload")
+	}
+	return &payload, nil
 }
