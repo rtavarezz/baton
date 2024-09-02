@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 
+	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/ava-labs/avalanchego/ids"
@@ -360,6 +361,10 @@ type AnchorHeader struct {
 	BlockHash string       `json:"block_hash"`
 }
 
+type Header struct {
+	Info HeaderInfo
+	Resp AnchorGetHeaderResponse
+}
 type AnchorGetHeaderResponse struct {
 	// note: Message should be the anchor req
 	Slot uint64 `json:"slot"`
@@ -534,7 +539,7 @@ func DecodeTransactions(enc [][]byte) ([]*types.Transaction, error) {
 // note: don't have to use eth payloads, because we just need to abide by seq standards so seq/anchor/baton
 type ExecutionPayloadTransactions struct {
 	//the note above means that 'Transactions' needs to be []SEQTransaction from seq-sdk/types
-	Transactions [][]byte
+	Transactions []*chain.Transaction
 }
 
 /*
@@ -551,7 +556,7 @@ type SequencerMsgRequest struct {
 */
 
 type BatonBlock struct {
-	Txs             []byte               `json:"txs"`
+	Txs             []*chain.Transaction `json:"txs"`
 	Slot            uint64               `json:"slot"`
 	ParentHash      common.Hash          `json:"parent_hash"`
 	BlockNumber     map[string]string    `json:"blocknumber"`
@@ -570,36 +575,36 @@ type SubmitNewBlockRequest struct {
 
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
-// type SubmitNewBlockRequest struct {
-// 	// @TODO: Last tx should be the proposer tx.
-// 	// @TODO: Check last tx proposer address matches the proposer payment below. Last tx should use transfer action.
-// 	// @TODO: Use hypersdk method to marshal and unmarshal.
-// 	// See https://github.com/AnomalyFi/hypersdk/blob/main/chain/transaction.go#L377
-// 	// See parser in https://github.com/AnomalyFi/anchor/blob/seq-util/seq/seq.go#L33
+type SubmitNewBlockRequest struct {
+	// @TODO: Last tx should be the proposer tx.
+	// @TODO: Check last tx proposer address matches the proposer payment below. Last tx should use transfer action.
+	// @TODO: Use hypersdk method to marshal and unmarshal.
+	// See https://github.com/AnomalyFi/hypersdk/blob/main/chain/transaction.go#L377
+	// See parser in https://github.com/AnomalyFi/anchor/blob/seq-util/seq/seq.go#L33
 
-// 	Txs []byte `json:"txs"`
-// 	//Txs             []*chain.Transaction `json:"txs"`
+	// Txs []byte `json:"txs"`
+	Txs             []*chain.Transaction `json:"txs"`
 
-// 	Slot       uint64 `json:"slot"`
-// 	ParentHash string `json:"parent_hash"`
+	Slot       uint64 `json:"slot"`
+	ParentHash string `json:"parent_hash"`
 
-// 	// TODO: Switch to the below because block number is L2-roll-up specific.
-// 	// HashMap[String, String], This contains a mapping of chainIds alongside the corresponding hex encoded block number which this bundle will be valid on.
-// 	// Corresponds to rollup blocks. When we simulate, we will simulate on this block.
-// 	BlockNumber string `json:"blocknumber"`
+	// TODO: Switch to the below because block number is L2-roll-up specific.
+	// HashMap[String, String], This contains a mapping of chainIds alongside the corresponding hex encoded block number which this bundle will be valid on.
+	// Corresponds to rollup blocks. When we simulate, we will simulate on this block.
+	BlockNumber map[string]string `json:"blocknumber"`
 
-// 	BlockHash common.Hash `json:"block_hash" ssz-size:"32"`
+	BlockHash common.Hash `json:"block_hash" ssz-size:"32"`
 
-// 	// TODO: Verify this matches the proposer's address.
-// 	ProposerPayment codec.Address
+	// TODO: Verify this matches the proposer's address.
+	ProposerPayment codec.Address
 
-// 	// Builder signing off on their payload.
-// 	// TODO: Verify using here. https://github.com/flashbots/mev-boost-relay/blob/main/services/api/service.go#L2055
-// 	Signature boostTypes.Signature `json:"signature" ssz-size:"96"`
+	// Builder signing off on their payload.
+	// TODO: Verify using here. https://github.com/flashbots/mev-boost-relay/blob/main/services/api/service.go#L2055
+	Signature boostTypes.Signature `json:"signature" ssz-size:"96"`
 
-// 	BuilderPubkey  boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
-// 	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-// }
+	BuilderPubkey  boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
+}
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
@@ -675,7 +680,7 @@ func (r *SubmitNewBlockRequest) Sig() boostTypes.Signature {
 	return r.Signature
 }
 
-/*
+
 func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
   scli := srpc.NewJSONRPCClient(uri, networkID, chainID)
   parser    chain.Parser
@@ -685,20 +690,20 @@ func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
     return nil, err
   }
 }
-*/
 
-// @TODO: fix me SOON
-// func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
-// 	if len(r.Chunk.Txs) == 0 {
-// 		return "", errors.New("getFirstChainID: no transactions found")
-// 	}
 
-// 	actions := r.Chunk.Txs[0].Actions
-// 	if len(actions) == 0 {
-// 		return "", errors.New("getFirstChainID: no actions in first tx")
-// 	}
+//@TODO: fix me SOON
+func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
+	if len(r.Chunk.Txs) == 0 {
+		return "", errors.New("getFirstChainID: no transactions found")
+	}
 
-// }
+	actions := r.Chunk.Txs[0].Actions
+	if len(actions) == 0 {
+		return "", errors.New("getFirstChainID: no actions in first tx")
+	}
+
+}
 
 // callLog is the result of LOG opCode
 type CallLog struct {
@@ -743,7 +748,7 @@ type AnchorPayload struct {
 	// Array of transaction objects, each object is a byte list (DATA) representing
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
 	// TODO: Change me to hypersdk tx
-	Transactions []hexutil.Bytes `json:"seqtransactions"`
+	Transactions []hexutil.Bytes `json:"transactions"`
 
 	GasUsed  uint64 `json:"gasused" db:"gas_used"`
 	GasLimit uint64 `json:"gaslimit" db:"gas_limit"`

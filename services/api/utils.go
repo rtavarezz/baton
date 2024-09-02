@@ -1,22 +1,23 @@
 package api
 
 import (
-  "crypto/sha256"
-  "encoding/json"
-  "errors"
-  "strconv"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"strconv"
 
-  "github.com/AnomalyFi/hypersdk/chain"
-  "github.com/ethereum/go-ethereum/log"
+	"github.com/AnomalyFi/hypersdk/chain"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 
-  "github.com/attestantio/go-eth2-client/spec/capella"
-  "github.com/attestantio/go-eth2-client/spec/phase0"
-  utilcapella "github.com/attestantio/go-eth2-client/util/capella"
-  eth "github.com/ethereum/go-ethereum/common"
-  "github.com/ethereum/go-ethereum/common/hexutil"
-  "github.com/ethereum/go-ethereum/core/types"
-  boostTypes "github.com/flashbots/go-boost-utils/types"
-  "github.com/flashbots/mev-boost-relay/common"
+	"github.com/attestantio/go-eth2-client/spec/capella"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	utilcapella "github.com/attestantio/go-eth2-client/util/capella"
+	eth "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	boostTypes "github.com/flashbots/go-boost-utils/types"
+	"github.com/flashbots/mev-boost-relay/common"
 )
 
 var (
@@ -153,12 +154,10 @@ func buildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
 	if err != nil {
 		log.Error("failed to hash header")
 	}
-
-	anchorHeader := common.AnchorHeader{
-		Header:    &header,
-		BlockHash: s.BlockHash,
-	}
-	return header, nil
+	var anchorHeader common.AnchorHeader
+	anchorHeader.Header = &header
+	anchorHeader.BlockHash = s.BlockHash().String()
+	return anchorHeader, nil
 }
 
 // @TODO: probably don't need as hypersdk/seq has unmarshalling/marshalling funcs already ex: chain.Unmarshal(tx)
@@ -168,15 +167,15 @@ func buildPayload(s *common.SubmitNewBlockRequest) (*common.AnchorPayload, error
 		log.Error("failed to hash header")
 	}
 
-	seqTxs, err := marshalTxs(s.Txs)
+	seqTxs, err := marshalTxs(s.Chunk.Txs)
 	if err != nil {
 		log.Error("failed to marshal txs, err: " + err.Error())
 		return nil, err
 	}
 
 	payload := common.AnchorPayload{
-		Slot:         s.Slot,
-		Header:       hash,
+		Slot:         s.Chunk.Slot,
+		Header:       *hash.Header,
 		Transactions: seqTxs,
 	}
 
@@ -197,7 +196,56 @@ func marshalTxs(txs []*chain.Transaction) ([]hexutil.Bytes, error) {
 	return ret, nil
 }
 
+// helper funcs used for verifying signatures
+func HashSha(data []byte) []byte {
+	hash := sha256.Sum256(data)
+	return hash[:]
+}
 
-func VerifySignature() error {
+// computes the Merkle root of the given hashes
+func ComputeMerkleRoot(hashes [][]byte) []byte {
+	if len(hashes) == 0 {
+		return nil
+	}
+	for len(hashes) > 1 {
+		var newLevel [][]byte
+		// hashes in pairs
+		for i := 0; i < len(hashes); i += 2 {
+			if i+1 < len(hashes) {
+				combined := append(hashes[i], hashes[i+1]...)
+				newLevel = append(newLevel, HashSha(combined))
+			} else {
+				newLevel = append(newLevel, hashes[i])
+			}
+		}
+		hashes = newLevel
+	}
+	return hashes[0]
+}
+
+func VerifySignature(header *common.HeaderInfo, signature []byte, pubKey []byte) error {
+	if len(signature) != 65 {
+		return errors.New("invalid signature length")
+	}
+	if len(pubKey) != 64 {
+		return errors.New("invalid public key length")
+	}
+	// work to combine hashes
+	var hashes [][]byte
+	if header.ToBHash != nil && header.ToBHash.Header != nil {
+		hashes = append(hashes, HashSha(header.ToBHash.Header.Bytes()))
+	}
+	for _, robHash := range header.RoBHashes {
+		if robHash.Header != nil {
+			hashes = append(hashes, HashSha(robHash.Header.Bytes()))
+		}
+	}
+	// get root for list of hashes
+	merkleRoot := ComputeMerkleRoot(hashes)
+	// verify the signature with pubkey and merkleroot and signature
+	// TODO: may need fixing( added signature and pubkey to make logic easier but need to double check if this is okay or not)
+	if !crypto.VerifySignature(pubKey, merkleRoot, signature) {
+		return errors.New("signature verification failed")
+	}
 	return nil
 }

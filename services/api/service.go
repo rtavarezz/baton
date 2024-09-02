@@ -797,7 +797,7 @@ func (api *BatonAPI) simulateBlock(
 
 	var txs []hexutil.Bytes
 	txs = make([]hexutil.Bytes, 0)
-	for _, tx := range req.Txs() {
+	for _, tx := range req.Chunk.Txs {
 		for _, action := range tx.Actions {
 			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
 				txs = append(txs, seqMsg.Data)
@@ -807,11 +807,21 @@ func (api *BatonAPI) simulateBlock(
 			}
 		}
 	}
-
+	blockNumber := req.BlockNumber()
+    if blockNumber == nil {
+        log.Error("simulateBlock: BlockNumber is nil")
+        return 0, errors.New("simulateBlock: BlockNumber is nil"), nil
+    }
+	// Extract the block number from the map
+    var blockNumberStr string
+    for _, v := range *blockNumber {
+        blockNumberStr = v
+        break
+    }
 	// @TODO: Fix me to work with new submit block msg format
 	blockReq := common.BlockValidationRequest{
 		Txs:              txs,
-		BlockNumber:      req.BlockNumber,
+		BlockNumber:      blockNumberStr,
 		StateBlockNumber: "latest",
 		Timestamp:        uint64(time.Now().UnixMilli()),
 	}
@@ -1432,7 +1442,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// @TODO: double check if helper funcs or funcs in general need to return AnchorHeader instead of common.Hash
-	var resp common.AnchorGetHeaderResponse
+	var resp common.HeaderInfo
 	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 	if err != nil {
 		log.WithError(err).Error("could not get bid for ToB")
@@ -1474,8 +1484,9 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	chunkHashBytes := sha256.Sum256(combined)
 
 	// Convert the result to a common.Hash
-	resp.ChunkHash = common2.BytesToHash(chunkHashBytes[:])
-	resp.Slot = slot
+	var headerReq common.AnchorGetHeaderResponse
+	headerReq.ChunkHash = common2.BytesToHash(chunkHashBytes[:])
+	headerReq.Slot = slot
 
 	if resp.ToBHash == nil && len(resp.RoBHashes) == 0 {
 		log.Info("handleGetHeader: no chunks, nothing to do")
@@ -1483,7 +1494,11 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	api.RespondOK(w, resp)
+	var final common.Header 
+	final.Info = resp
+	final.Resp = headerReq
+
+	api.RespondOK(w, final)
 }
 
 func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
@@ -1930,7 +1945,7 @@ func (api *BatonAPI) getValidatorGasLimit(
 
 func (api *BatonAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) bool {
 	api.payloadAttributesLock.RLock()
-	attrs, ok := api.payloadAttributes[payload.ParentHash()]
+	attrs, ok := api.payloadAttributes[*payload.ParentHash()]
 	api.payloadAttributesLock.RUnlock()
 	if !ok || payload.Slot() != attrs.slot {
 		log.Warn("payload attributes not (yet) known")
