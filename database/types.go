@@ -158,7 +158,7 @@ type BuilderBlockSubmissionEntry struct {
 
 	// Helpers
 	Epoch       uint64 `db:"epoch"`
-	BlockNumber uint64 `db:"block_number"`
+	BlockNumber string `db:"block_number"`
 
 	// Profile data.
 	DecodeDuration       uint64 `db:"decode_duration"`
@@ -170,12 +170,41 @@ type BuilderBlockSubmissionEntry struct {
 	OptimisticSubmission bool   `db:"optimistic_submission"`
 }
 
+/*
 type DeliveredPayloadEntry struct {
 	ID         int64        `db:"id"`
 	InsertedAt time.Time    `db:"inserted_at"`
 	SignedAt   sql.NullTime `db:"signed_at"`
 
 	SignedBlindedBeaconBlock sql.NullString `db:"signed_blinded_beacon_block"`
+
+	Slot  uint64 `db:"slot"`
+	Epoch uint64 `db:"epoch"`
+
+	BuilderPubkey        string `db:"builder_pubkey"`
+	ProposerPubkey       string `db:"proposer_pubkey"`
+	ProposerFeeRecipient string `db:"proposer_fee_recipient"`
+
+	ParentHash  string `db:"parent_hash"`
+	BlockHash   string `db:"block_hash"`
+	BlockNumber uint64 `db:"block_number"`
+
+	GasUsed  uint64 `db:"gas_used"`
+	GasLimit uint64 `db:"gas_limit"`
+
+	NumTx uint64 `db:"num_tx"`
+	Value string `db:"value"`
+
+	PublishMs uint64 `db:"publish_ms"`
+}
+*/
+
+type DeliveredPayloadEntry2 struct {
+	ID         int64        `db:"id"`
+	InsertedAt time.Time    `db:"inserted_at"`
+	SignedAt   sql.NullTime `db:"signed_at"`
+
+	Payload string `db:"payload"`
 
 	Slot  uint64 `db:"slot"`
 	Epoch uint64 `db:"epoch"`

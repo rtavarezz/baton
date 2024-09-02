@@ -573,6 +573,7 @@ type SubmitNewBlockRequest struct {
 	BuilderPubKey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 }
 
+/*
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
 type SubmitNewBlockRequest struct {
@@ -605,18 +606,19 @@ type SubmitNewBlockRequest struct {
 	BuilderPubkey  boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
 }
+*/
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
 		Chunk:         NewBatonBlockRequest(),
 		Signature:     boostTypes.Signature{},
-		BuilderPubkey: boostTypes.PublicKey{},
+		BuilderPubKey: boostTypes.PublicKey{},
 	}
 }
 
 func NewBatonBlockRequest() BatonBlock {
 	return BatonBlock{
-		Txs:             make([]byte, 0),
+		Txs:             make([]*chain.Transaction, 0),
 		Slot:            0,
 		ParentHash:      common.Hash{},
 		BlockNumber:     make(map[string]string),
@@ -662,8 +664,16 @@ func (r *SubmitNewBlockRequest) ParentHash() common.Hash {
 	return r.Chunk.ParentHash
 }
 
-func (r *SubmitNewBlockRequest) Txs() []byte {
+func (r *SubmitNewBlockRequest) Txs() []*chain.Transaction {
 	return r.Chunk.Txs
+}
+
+func (r *SubmitNewBlockRequest) BlockNumberAsStr() (string, error) {
+	blockNumberJson, err := json.Marshal(r.BlockNumber())
+	if err != nil {
+		return "", errors.New("could not marshal block number into string")
+	}
+	return string(blockNumberJson), nil
 }
 
 // TODO: Fill this in later
@@ -680,7 +690,8 @@ func (r *SubmitNewBlockRequest) Sig() boostTypes.Signature {
 	return r.Signature
 }
 
-
+//TODO: Remove when determined not needed
+/*
 func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
   scli := srpc.NewJSONRPCClient(uri, networkID, chainID)
   parser    chain.Parser
@@ -690,9 +701,9 @@ func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
     return nil, err
   }
 }
+*/
 
-
-//@TODO: fix me SOON
+// @TODO: fix me SOON
 func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
 	if len(r.Chunk.Txs) == 0 {
 		return "", errors.New("getFirstChainID: no transactions found")

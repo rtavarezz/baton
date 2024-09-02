@@ -39,7 +39,16 @@ func (db MockDB) GetLatestValidatorRegistrations(timestampOnly bool) ([]*Validat
 	return nil, nil
 }
 
-func (db MockDB) SaveBuilderBlockSubmission(payload *common.BuilderSubmitBlockRequest, requestError, validationError error, receivedAt, eligibleAt time.Time, wasSimulated, saveExecPayload bool, profile common.Profile, optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error) {
+func (db MockDB) SaveBuilderBlockSubmission(
+	payload *common.BuilderSubmitBlockRequest,
+	requestError,
+	validationError error,
+	receivedAt,
+	eligibleAt time.Time,
+	wasSimulated,
+	saveExecPayload bool,
+	profile common.Profile,
+	optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error) {
 	key := fmt.Sprintf("%d-%s-%s", payload.Slot(), payload.ProposerPubkey(), payload.BlockHash())
 
 	execPayloadEntry, err := PayloadToExecPayloadEntry(payload)

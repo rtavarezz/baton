@@ -71,7 +71,7 @@ var Migration001InitDatabase = &migrate.Migration{
 
 			-- helpers
 			epoch        bigint NOT NULL,
-			block_number bigint NOT NULL,
+			block_number varchar(98) NOT NULL,
 			was_most_profitable boolean NOT NULL
 
 			PRIMARY KEY (id, chain_id, is_tob, builder_pubkey)  -- Composite primary key

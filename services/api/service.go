@@ -421,17 +421,10 @@ func (api *BatonAPI) getRouter() http.Handler {
 	if api.opts.BlockBuilderAPI {
 		api.log.Info("block builder API enabled")
 		r.HandleFunc(pathBuilderGetValidators, api.handleBuilderGetValidators).Methods(http.MethodGet)
+		r.HandleFunc(pathGetTobGasReservations, api.handleGetTobGasReservations).Methods(http.MethodGet)
 
 		// Handles both ToB and RoB submissions
 		r.HandleFunc(pathSubmitNewBlockRequest, api.handleSubmitNewBlockRequest).Methods(http.MethodPost)
-
-		// DEPRECATED
-		/*
-			r.HandleFunc(pathSubmitNewBlock, api.handleSubmitNewBlock).Methods(http.MethodPost)
-			r.HandleFunc(pathSubmitNewRoBBlock, api.handleSubmitNewRoBBlock).Methods(http.MethodPost)
-			r.HandleFunc(pathSubmitNewToBTxs, api.handleSubmitNewTobTxs).Methods(http.MethodPost)
-		*/
-		r.HandleFunc(pathGetTobGasReservations, api.handleGetTobGasReservations).Methods(http.MethodGet)
 	}
 
 	// Data API
@@ -540,15 +533,18 @@ func (api *BatonAPI) StartServer() (err error) {
 		// Get current proposer duties blocking before starting, to have them ready
 		api.updateProposerDuties(syncStatus.HeadSlot)
 
-		// Subscribe to payload attributes events (only for builder-api)
-		go func() {
-			c := make(chan beaconclient.PayloadAttributesEvent)
-			api.beaconClient.SubscribeToPayloadAttributesEvents(c)
-			for {
-				payloadAttributes := <-c
-				api.processPayloadAttributes(payloadAttributes)
-			}
-		}()
+		// TODO: We shouldn't need payload attributes event. Remove when absolutely sure.
+		/*
+			// Subscribe to payload attributes events (only for builder-api)
+			go func() {
+				c := make(chan beaconclient.PayloadAttributesEvent)
+				api.beaconClient.SubscribeToPayloadAttributesEvents(c)
+				for {
+					payloadAttributes := <-c
+					api.processPayloadAttributes(payloadAttributes)
+				}
+			}()
+		*/
 	}
 
 	// Process current slot
@@ -808,16 +804,16 @@ func (api *BatonAPI) simulateBlock(
 		}
 	}
 	blockNumber := req.BlockNumber()
-    if blockNumber == nil {
-        log.Error("simulateBlock: BlockNumber is nil")
-        return 0, errors.New("simulateBlock: BlockNumber is nil"), nil
-    }
+	if blockNumber == nil {
+		log.Error("simulateBlock: BlockNumber is nil")
+		return 0, errors.New("simulateBlock: BlockNumber is nil"), nil
+	}
 	// Extract the block number from the map
-    var blockNumberStr string
-    for _, v := range *blockNumber {
-        blockNumberStr = v
-        break
-    }
+	var blockNumberStr string
+	for _, v := range *blockNumber {
+		blockNumberStr = v
+		break
+	}
 	// @TODO: Fix me to work with new submit block msg format
 	blockReq := common.BlockValidationRequest{
 		Txs:              txs,
@@ -1494,7 +1490,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var final common.Header 
+	var final common.Header
 	final.Info = resp
 	final.Resp = headerReq
 
@@ -1628,24 +1624,42 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	// Save information about delivered payload
 	//TODO: figure out Anchor Payload Response logic below
 	defer func() {
-		// TODO: Fix the below
-		bidTrace, err := api.redis.GetBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash)
-		if err != nil {
-			log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
-			return
+		var bidTrace *common.BidTraceV3
+
+		// we only need to get the bidtrace for one of the involved blocks.
+		if getPayloadResp.ToBPayload != nil {
+			bidTrace, err = api.redis.GetToBBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash)
+			if err != nil {
+				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
+				return
+			}
+		} else {
+			// Get RoB bid trace. There should be at least one entry in the response rob map.
+			if len(getPayloadResp.RoBPayloads) == 0 {
+				log.WithError(err).Error("could not get bidtrace because no tob or rob chain ids were found")
+				return
+			}
+
+			var robFirstChainID string
+			for k, _ := range getPayloadResp.RoBPayloads {
+				robFirstChainID = k
+			}
+			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash, robFirstChainID)
+			if err != nil {
+				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
+				return
+			}
 		}
 
 		// TODO: Review below delivered payload
-		/*
-			// note needs sharding
-			err = api.db.SaveDeliveredPayload(bidTrace, payload, decodeTime, msNeededForPublishing)
-			if err != nil {
-				log.WithError(err).WithFields(logrus.Fields{
-					"bidTrace": bidTrace,
-					"payload":  payload,
-				}).Error("failed to save delivered payload")
-			}
-		*/
+		// note needs sharding
+		err = api.db.SaveDeliveredPayload(bidTrace, payload, decodeTime, msNeededForPublishing)
+		if err != nil {
+			log.WithError(err).WithFields(logrus.Fields{
+				"bidTrace": bidTrace,
+				"payload":  payload,
+			}).Error("failed to save delivered payload")
+		}
 
 		// TODO: Fix the below
 		/*
@@ -1943,6 +1957,8 @@ func (api *BatonAPI) getValidatorGasLimit(
 	return slotDuty.Entry.Message.GasLimit, true
 }
 
+// TODO: Below shouldn't be needed. Remove when needed.
+/*
 func (api *BatonAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *logrus.Entry, payload *common.BuilderSubmitBlockRequest) bool {
 	api.payloadAttributesLock.RLock()
 	attrs, ok := api.payloadAttributes[*payload.ParentHash()]
@@ -1975,39 +1991,14 @@ func (api *BatonAPI) checkSubmissionPayloadAttrs(w http.ResponseWriter, log *log
 			return false
 		}
 	}
-
 	return true
 }
+*/
 
 func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.SubmitNewBlockRequest) bool {
-	if payload.Slot <= headSlot {
-		log.Info("submitNewBlock failed: submission for past slot")
-		api.RespondError(w, http.StatusBadRequest, "submission for past slot")
-		return false
-	}
-
-	return true
-}
-
-func (api *BatonAPI) checkSubmissionSlotDetails2(w http.ResponseWriter, log *logrus.Entry, headSlot uint64, payload *common.BuilderSubmitBlockRequest) bool {
-	// TODO: add deneb support.
-	if payload.Capella == nil {
-		log.Info("rejecting submission - non-capella payload for capella fork")
-		api.RespondError(w, http.StatusBadRequest, "non-capella payload")
-		return false
-	}
-
 	if payload.Slot() <= headSlot {
 		log.Info("submitNewBlock failed: submission for past slot")
 		api.RespondError(w, http.StatusBadRequest, "submission for past slot")
-		return false
-	}
-
-	// Timestamp check
-	expectedTimestamp := api.genesisInfo.Data.GenesisTime + (payload.Slot() * common.SecondsPerSlot)
-	if payload.Timestamp() != expectedTimestamp {
-		log.Warnf("incorrect timestamp. got %d, expected %d", payload.Timestamp(), expectedTimestamp)
-		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("incorrect timestamp. got %d, expected %d", payload.Timestamp(), expectedTimestamp))
 		return false
 	}
 
@@ -2211,7 +2202,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	isLargeRequest := len(payloadBytes) > fastTrackPayloadSizeLimit
 	slot := blockReq.Slot()
-	parentHash := blockReq.ParentHash()
 
 	if slot < headSlot {
 		log.Error("TOB tx request for past slot!")
@@ -2346,8 +2336,11 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			simResult = &blockSimResult{false, false, nil, nil}
 		}
 
-		submissionEntry, err := api.db.SaveBuilderBlockSubmission2(
+		submissionEntry, err := api.db.SaveBuilderBlockSubmission(
+			blockReq,
 			getPayload,
+			gasUsed,
+			gasLimit,
 			simResult.requestErr,
 			simResult.validationErr,
 			receivedAt,
@@ -2370,7 +2363,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}()
 
 	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
-	// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped seperatley and then we simulate the txs in those groups)
+	// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
 	gasUsed, reqErr, validErr := api.simulateBlock(context.Background(), &blockReq, log)
 	// @TODO: figure out exact gas limit later
 	if gasUsed != 0 && gasUsed > gasLimit {
@@ -2833,6 +2826,7 @@ func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// TODO: Fix this once we figure out hypersdk txs
 // Check if block request is ToB
 func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (bool, error) {
 	if len(req.Txs) == 0 {
