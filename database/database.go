@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	eth "github.com/ethereum/go-ethereum/common"
-	"github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/database/migrations"
 	"github.com/flashbots/mev-boost-relay/database/vars"
@@ -28,7 +28,7 @@ type IDatabaseService interface {
 	GetValidatorRegistration(pubkey string) (*ValidatorRegistrationEntry, error)
 	GetValidatorRegistrationsForPubkeys(pubkeys []string) ([]*ValidatorRegistrationEntry, error)
 
-	SaveBuilderBlockSubmission(blockReq *common.SubmitNewBlockRequest, payload *common.AnchorPayload, gasUsed uint64, gasLimit uint64, isToB bool, robChainID string, requestError, validationError error, receivedAt, eligibleAt time.Time, wasSimulated, saveExecPayload bool, profile common.Profile, optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error)
+	SaveBuilderBlockSubmission(blockReq *common.SubmitNewBlockRequest, payload *common.AnchorPayload, gasUsed uint64, gasLimit uint64, isToB bool, value *big.Int, robChainID string, requestError, validationError error, receivedAt, eligibleAt time.Time, wasSimulated, saveExecPayload bool, profile common.Profile, optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error)
 	GetBlockSubmissionEntry(slot uint64, proposerPubkey, blockHash string) (entry *BuilderBlockSubmissionEntry, err error)
 	GetBuilderSubmissions(filters GetBuilderSubmissionsFilters) ([]*BuilderBlockSubmissionEntry, error)
 	GetBuilderSubmissionsBySlots(slotFrom, slotTo uint64) (entries []*BuilderBlockSubmissionEntry, err error)
@@ -38,22 +38,26 @@ type IDatabaseService interface {
 	GetToBAnchorPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error)
 	GetRoBAnchorPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string, chainID string) (entry *ExecutionPayloadEntry, err error)
 
-	GetToBExecutionPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error)
-	GetRoBExecutionPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error)
 	GetExecutionPayloads(idFirst, idLast uint64) (entries []*ExecutionPayloadEntry, err error)
 	DeleteExecutionPayloads(idFirst, idLast uint64) error
 
 	SaveDeliveredAnchorPayload(bidTrace *common.BidTraceV3, payloadResp *common.AnchorGetPayloadResponse, signedAt time.Time, publishMs uint64) error
 	//SaveDeliveredPayload(bidTrace *common.BidTraceV2, signedBlindedBeaconBlock *common.SignedBlindedBeaconBlock, signedAt time.Time, publishMs uint64) error
 
-  // DEPRECATED
+	// DEPRECATED
 	//GetNumDeliveredPayloads() (uint64, error)
 	//GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*DeliveredPayloadEntry, error)
 	//GetDeliveredPayloads(idFirst, idLast uint64) (entries []*DeliveredPayloadEntry, err error)
 
-  GetNumDeliveredPayloads() (uint64, error)
-  GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*common.AnchorPayload, error)
-  GetDeliveredPayloads(idFirst, idLast uint64) (entries []*common.AnchorPayload, err error)
+	GetNumDeliveredPayloads() (uint64, error)
+
+	// @TODO: Figure out which version we want to use later
+	GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*DeliveredPayloadEntry2, error)
+	//GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*common.AnchorPayload, error)
+	GetDeliveredPayloads(idFirst, idLast uint64) (entries []*DeliveredPayloadEntry2, err error)
+
+	// @TODO: Below may or may not be needed.
+	//GetAnchorDeliveredPayloads(idFirst, idLast uint64) (entries []*common.AnchorPayload, err error)
 
 	GetBlockBuilders() ([]*BlockBuilderEntry, error)
 	GetBlockBuilderByPubkey(pubkey string) (*BlockBuilderEntry, error)
@@ -62,9 +66,10 @@ type IDatabaseService interface {
 	SetBlockBuilderCollateral(pubkey, builderID, collateral string) error
 	IncBlockBuilderStatsAfterGetPayload(builderPubkey string) error
 
-	InsertBuilderDemotion(submitBlockRequest *common.BuilderSubmitBlockRequest, simError error) error
-	UpdateBuilderDemotion(trace *common.BidTraceV2, signedBlock *common.SignedBeaconBlock, signedRegistration *types.SignedValidatorRegistration) error
-	GetBuilderDemotion(trace *common.BidTraceV2) (*BuilderDemotionEntry, error)
+	// TODO: Figure out what should we do with builder demotion
+	//InsertBuilderDemotion(submitBlockRequest *common.BuilderSubmitBlockRequest, simError error) error
+	//UpdateBuilderDemotion(trace *common.BidTraceV2, signedBlock *common.SignedBeaconBlock, signedRegistration *types.SignedValidatorRegistration) error
+	//GetBuilderDemotion(trace *common.BidTraceV2) (*BuilderDemotionEntry, error)
 
 	GetTooLateGetPayload(slot uint64) (entries []*TooLateGetPayloadEntry, err error)
 	InsertTooLateGetPayload(slot uint64, proposerPubkey, blockHash string, slotStart, requestTime, decodeTime, msIntoSlot uint64) error
@@ -73,10 +78,11 @@ type IDatabaseService interface {
 	GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(slot uint64, parentHash string, blockHash string) ([]*IncludedTobTxEntry, error)
 
 	InsertToBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
-	GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
-
 	InsertRoBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
-	GetRobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
+
+	// @TODO: Are the below needed?
+	//GetRobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
+	//GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
 
 	UpsertBlockBuilderEntryAfterSubmission(lastSubmission *BuilderBlockSubmissionEntry, isToB bool, chainID string, isError bool) error
 }
@@ -208,6 +214,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 	gasUsed uint64,
 	gasLimit uint64,
 	isToB bool,
+	value *big.Int,
 	robChainID string,
 	requestError,
 	validationError error,
@@ -272,7 +279,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 		GasLimit: gasLimit,
 
 		NumTx: uint64(len(payload.Transactions)),
-		Value: blockReq.Value().String(),
+		Value: value.String(),
 
 		Epoch:       blockReq.Slot() / common.SlotsPerEpoch,
 		BlockNumber: blockNumberStr,
@@ -316,11 +323,25 @@ func (s *DatabaseService) GetExecutionPayloadEntryBySlotPkHash(slot uint64, prop
 	return entry, err
 }
 
-// TODO: Verify this appropriately pulls out the payload from the database
 func (s *DatabaseService) GetToBAnchorPayloadEntryBySlotPkHash(
 	slot uint64,
 	proposerPubkey,
 	blockHash string,
+) (entry *ExecutionPayloadEntry, err error) {
+	query := `SELECT id, inserted_at, slot, proposer_pubkey, block_hash, version, payload
+	FROM ` + vars.TableExecutionPayload + `
+	WHERE slot=$1 AND proposer_pubkey=$2 AND block_hash=$3`
+	entry = &ExecutionPayloadEntry{}
+	err = s.DB.Get(entry, query, slot, proposerPubkey, blockHash)
+	return entry, err
+}
+
+// @TODO: Fix me later. Needs to use chain id.
+func (s *DatabaseService) GetRoBAnchorPayloadEntryBySlotPkHash(
+	slot uint64,
+	proposerPubkey,
+	blockHash string,
+	chainID string,
 ) (entry *ExecutionPayloadEntry, err error) {
 	query := `SELECT id, inserted_at, slot, proposer_pubkey, block_hash, version, payload
 	FROM ` + vars.TableExecutionPayload + `
@@ -464,8 +485,9 @@ func (s *DatabaseService) SaveDeliveredPayload(
 }
 */
 
-func (s *DatabaseService) GetRecentDeliveredPayloads(queryArgs GetPayloadsFilters)
-  ([]*DeliveredPayloadEntry, error) {
+func (s *DatabaseService) GetRecentDeliveredPayloads(
+	queryArgs GetPayloadsFilters,
+) ([]*DeliveredPayloadEntry2, error) {
 	arg := map[string]interface{}{
 		"limit":           queryArgs.Limit,
 		"slot":            queryArgs.Slot,
@@ -513,13 +535,13 @@ func (s *DatabaseService) GetRecentDeliveredPayloads(queryArgs GetPayloadsFilter
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	entries := []*DeliveredPayloadEntry{}
+	entries := []*DeliveredPayloadEntry2{}
 	rows, err := s.DB.NamedQueryContext(ctx, query, arg)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
-		entry := new(DeliveredPayloadEntry)
+		entry := new(DeliveredPayloadEntry2)
 		err = rows.StructScan(entry)
 		if err != nil {
 			return nil, err
@@ -529,7 +551,7 @@ func (s *DatabaseService) GetRecentDeliveredPayloads(queryArgs GetPayloadsFilter
 	return entries, nil
 }
 
-func (s *DatabaseService) GetDeliveredPayloads(idFirst, idLast uint64) (entries []*DeliveredPayloadEntry, err error) {
+func (s *DatabaseService) GetDeliveredPayloads(idFirst, idLast uint64) (entries []*DeliveredPayloadEntry2, err error) {
 	query := `SELECT id, inserted_at, signed_at, slot, epoch, builder_pubkey, proposer_pubkey, proposer_fee_recipient, parent_hash, block_hash, block_number, num_tx, value, gas_used, gas_limit, publish_ms
 	FROM ` + vars.TableDeliveredPayload + `
 	WHERE id >= $1 AND id <= $2

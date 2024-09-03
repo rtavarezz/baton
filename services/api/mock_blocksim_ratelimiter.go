@@ -18,7 +18,3 @@ func (m *MockBlockSimulationRateLimiter) Send(context context.Context, payload *
 func (m *MockBlockSimulationRateLimiter) CurrentCounter() int64 {
 	return 0
 }
-
-func (m *MockBlockSimulationRateLimiter) TobSim(context context.Context, tobValidationRequest *common.TobValidationRequest) (error, error) {
-	return nil, m.tobSimulationError
-}

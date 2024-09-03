@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"io"
 	"math/big"
 	"net/http"
@@ -32,7 +33,6 @@ import (
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/go-utils/httplogger"
-	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/contracts"
 	"github.com/flashbots/mev-boost-relay/database"
@@ -147,13 +147,6 @@ type BatonAPIOpts struct {
 	InternalAPI     bool
 }
 
-type payloadAttributesHelper struct {
-	slot              uint64
-	parentHash        string
-	withdrawalsRoot   phase0.Root
-	payloadAttributes beaconclient.PayloadAttributes
-}
-
 // Data needed to issue a block validation request.
 type blockSimOptions struct {
 	isHighPrio bool
@@ -198,69 +191,66 @@ type tracerResult struct {
 
 // BatonAPI represents a single Relay instance
 type BatonAPI struct {
-	opts BatonAPIOpts
-	log  *logrus.Entry
+	opts BatonAPIOpts  `jjj:"opts"`
+	log  *logrus.Entry `jjj:"log"`
 
-	blsSk     *bls.SecretKey
-	publicKey *boostTypes.PublicKey
+	blsSk     *bls.SecretKey        `jjj:"bls_sk"`
+	publicKey *boostTypes.PublicKey `jjj:"public_key"`
 
-	srv         *http.Server
-	srvStarted  uberatomic.Bool
-	srvShutdown uberatomic.Bool
+	srv         *http.Server    `jjj:"srv"`
+	srvStarted  uberatomic.Bool `jjj:"srv_started"`
+	srvShutdown uberatomic.Bool `jjj:"srv_shutdown"`
 
-	beaconClient beaconclient.IMultiBeaconClient
-	datastore    *datastore.Datastore
-	redis        *datastore.RedisCache
-	memcached    *datastore.Memcached
-	db           database.IDatabaseService
+	beaconClient beaconclient.IMultiBeaconClient `jjj:"beacon_client"`
+	datastore    *datastore.Datastore            `jjj:"datastore"`
+	redis        *datastore.RedisCache           `jjj:"redis"`
+	memcached    *datastore.Memcached            `jjj:"memcached"`
+	db           database.IDatabaseService       `jjj:"db"`
 
-	headSlot     uberatomic.Uint64
-	genesisInfo  *beaconclient.GetGenesisResponse
-	capellaEpoch uint64
-	denebEpoch   uint64
+	headSlot     uberatomic.Uint64                `jjj:"head_slot"`
+	genesisInfo  *beaconclient.GetGenesisResponse `jjj:"genesis_info"`
+	capellaEpoch uint64                           `jjj:"capella_epoch"`
+	denebEpoch   uint64                           `jjj:"deneb_epoch"`
 
-	proposerDutiesLock       sync.RWMutex
-	proposerDutiesResponse   *[]byte // raw http response
-	proposerDutiesMap        map[uint64]*common.BuilderGetValidatorsResponseEntry
-	proposerDutiesSlot       uint64
-	isUpdatingProposerDuties uberatomic.Bool
+	proposerDutiesLock       sync.RWMutex                                         `jjj:"proposer_duties_lock"`
+	proposerDutiesResponse   *[]byte                                              `jjj:"proposer_duties_response"` // raw http response
+	proposerDutiesMap        map[uint64]*common.BuilderGetValidatorsResponseEntry `jjj:"proposer_duties_map"`
+	proposerDutiesSlot       uint64                                               `jjj:"proposer_duties_slot"`
+	isUpdatingProposerDuties uberatomic.Bool                                      `jjj:"is_updating_proposer_duties"`
 
-	blockSimRateLimiter IBlockSimRateLimiter
-	blockAssembler      IBlockAssembler
-	tracer              ITracer
+	blockSimRateLimiter IBlockSimRateLimiter `jjj:"block_sim_rate_limiter"`
+	tracer              ITracer              `jjj:"tracer"`
 
-	validatorRegC chan boostTypes.SignedValidatorRegistration
+	validatorRegC chan boostTypes.SignedValidatorRegistration `jjj:"validator_reg_c"`
 
 	// used to wait on any active getPayload calls on shutdown
-	getPayloadCallsInFlight sync.WaitGroup
+	getPayloadCallsInFlight sync.WaitGroup `jjj:"get_payload_calls_in_flight"`
 
 	// Feature flags
-	ffForceGetHeader204          bool
-	ffDisableLowPrioBuilders     bool
-	ffDisablePayloadDBStorage    bool // disable storing the execution payloads in the database
-	ffLogInvalidSignaturePayload bool // log payload if getPayload signature validation fails
-	ffEnableCancellations        bool // whether to enable block builder cancellations
-	ffRegValContinueOnInvalidSig bool // whether to continue processing further validators if one fails
-	ffIgnorableValidationErrors  bool // whether to enable ignorable validation errors
-	ffMockSimulation             bool // simulations always pass, intended for testing internal server functionality
+	ffForceGetHeader204          bool `jjj:"ff_force_get_header_204"`
+	ffDisableLowPrioBuilders     bool `jjj:"ff_disable_low_prio_builders"`
+	ffDisablePayloadDBStorage    bool `jjj:"ff_disable_payload_db_storage"`      // disable storing the execution payloads in the database
+	ffLogInvalidSignaturePayload bool `jjj:"ff_log_invalid_signature_payload"`   // log payload if getPayload signature validation fails
+	ffEnableCancellations        bool `jjj:"ff_enable_cancellations"`            // whether to enable block builder cancellations
+	ffRegValContinueOnInvalidSig bool `jjj:"ff_reg_val_continue_on_invalid_sig"` // whether to continue processing further validators if one fails
+	ffIgnorableValidationErrors  bool `jjj:"ff_ignorable_validation_errors"`     // whether to enable ignorable validation errors
+	ffMockSimulation             bool `jjj:"ff_mock_simulation"`                 // simulations always pass, intended for testing internal server functionality
 
-	payloadAttributes       map[string]payloadAttributesHelper // key:parentBlockHash
-	payloadAttributesBySlot map[uint64]payloadAttributesHelper // key:slot
-	payloadAttributesLock   sync.RWMutex
+	payloadAttributesLock sync.RWMutex `jjj:"payload_attributes_lock"`
 
 	// The slot we are currently optimistically simulating.
-	optimisticSlot uberatomic.Uint64
+	optimisticSlot uberatomic.Uint64 `jjj:"optimistic_slot"`
 	// The number of optimistic blocks being processed (only used for logging).
-	optimisticBlocksInFlight uberatomic.Uint64
+	optimisticBlocksInFlight uberatomic.Uint64 `jjj:"optimistic_blocks_in_flight"`
 	// Wait group used to monitor status of per-slot optimistic processing.
-	optimisticBlocksWG sync.WaitGroup
+	optimisticBlocksWG sync.WaitGroup `jjj:"optimistic_blocks_wg"`
 	// Cache for builder statuses and collaterals.
-	blockBuildersCache map[string]*blockBuilderCacheEntry
+	blockBuildersCache map[string]*blockBuilderCacheEntry `jjj:"block_builders_cache"`
 	// stores DeFi contract addresses rquired for state interference checks
-	defiAddresses map[string]common2.Address
+	defiAddresses map[string]common2.Address `jjj:"defi_addresses"`
 	// stores RoB chain IDs
-	robChainIDs    map[string]struct{}
-	expectedHeader common.AnchorGetHeaderResponse
+	robChainIDs    map[string]struct{}            `jjj:"rob_chain_i_ds"`
+	expectedHeader common.AnchorGetHeaderResponse `jjj:"expected_header"`
 }
 
 func FillUpDefiAddresses(opts BatonAPIOpts) map[string]common2.Address {
@@ -346,12 +336,8 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		memcached:    opts.Memcached,
 		db:           opts.DB,
 
-		payloadAttributes:       make(map[string]payloadAttributesHelper),
-		payloadAttributesBySlot: make(map[uint64]payloadAttributesHelper),
-
 		proposerDutiesResponse: &[]byte{},
 		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.BlockSimURL),
-		blockAssembler:         NewBlockAssembler(opts.BlockSimURL),
 		tracer:                 NewTracer(opts.BlockSimURL),
 
 		validatorRegC: make(chan boostTypes.SignedValidatorRegistration, 450_000),
@@ -529,25 +515,27 @@ func (api *BatonAPI) StartServer() (err error) {
 		}
 	}
 
+	// TODO: Verify we don't need anything here for our purposes
 	// start block-builder API specific things
-	if api.opts.BlockBuilderAPI {
-		// Get current proposer duties blocking before starting, to have them ready
-		api.updateProposerDuties(syncStatus.HeadSlot)
+	//if api.opts.BlockBuilderAPI {
+	// Get current proposer duties blocking before starting, to have them ready
+	//api.updateProposerDuties(syncStatus.HeadSlot)
 
-		// TODO: We shouldn't need payload attributes event. Remove when absolutely sure.
-		/*
-			// Subscribe to payload attributes events (only for builder-api)
-			go func() {
-				c := make(chan beaconclient.PayloadAttributesEvent)
-				api.beaconClient.SubscribeToPayloadAttributesEvents(c)
-				for {
-					payloadAttributes := <-c
-					api.processPayloadAttributes(payloadAttributes)
-				}
-			}()
-		*/
-	}
+	// TODO: We shouldn't need payload attributes event. Remove when absolutely sure.
+	/*
+				// Subscribe to payload attributes events (only for builder-api)
+				go func() {
+					c := make(chan beaconclient.PayloadAttributesEvent)
+					api.beaconClient.SubscribeToPayloadAttributesEvents(c)
+					for {
+						payloadAttributes := <-c
+						api.processPayloadAttributes(payloadAttributes)
+					}
+				}()
+		}
+	*/
 
+	// @TODO: Figure out what to do with this here. Recall slots should come from SEQ.
 	// Process current slot
 	api.processNewSlot(currentSlot)
 
@@ -799,9 +787,9 @@ func (api *BatonAPI) simulateBlock(
 	txs = make([]hexutil.Bytes, 0)
 	for i, tx := range req.Chunk.Txs {
 		// case 1: checking if last tx(proposer tx)
-		if (i == (len(req.Chunk.Txs) - 1)) {
+		if i == (len(req.Chunk.Txs) - 1) {
 			// checking that len returns 1 action since proposer tx should only have transfer action itself
-			if (len(tx.Actions) != 1) {
+			if len(tx.Actions) != 1 {
 				return 0, errors.New("simulateBlock: transfer action had multiple txs"), nil
 			}
 			for _, action := range tx.Actions {
@@ -814,7 +802,7 @@ func (api *BatonAPI) simulateBlock(
 					return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
 				}
 			}
-		// otherwise, not proposer tx(last tx) and do loop for this case
+			// otherwise, not proposer tx(last tx) and do loop for this case
 		} else {
 			for _, action := range tx.Actions {
 				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
@@ -1142,6 +1130,7 @@ func (api *BatonAPI) handleGetSlot(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, api.headSlot.Load())
 }
 
+// TODO: Fix this function later
 func (api *BatonAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http.Request) {
 	// slot is passed as url args
 	slotStr := mux.Vars(req)["slot"]
@@ -1150,13 +1139,17 @@ func (api *BatonAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 	}
 
-	// get parent hash
-	res, ok := api.payloadAttributesBySlot[slot]
-	if !ok {
-		api.RespondError(w, http.StatusNotFound, "slot payload attributes not found")
-		return
-	}
-	api.RespondOK(w, res.parentHash)
+	/*
+	   	// get parent hash
+	   	res, ok := api.payloadAttributesBySlot[slot]
+	   	if !ok {
+	   		api.RespondError(w, http.StatusNotFound, "slot payload attributes not found")
+	   		return
+	   	}
+	     api.RespondOK(w, res.parentHash)
+	*/
+
+	api.RespondError(w, 500, "not implemented for slot "+strconv.FormatUint(slot, 10))
 }
 
 func (api *BatonAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.Request) {
@@ -1327,10 +1320,16 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 
 		// Ensure a valid timestamp (not too early, and not too far in the future)
 		registrationTimestamp := int64(signedValidatorRegistration.Message.Timestamp)
-		if registrationTimestamp < int64(api.genesisInfo.Data.GenesisTime) {
-			handleError(regLog, http.StatusBadRequest, "timestamp too early")
-			return
-		} else if registrationTimestamp > registrationTimestampUpperBound {
+
+		// TODO: Do we need this timestamp check? Hard to make since we are removing beacon dependency.
+		/*
+			if registrationTimestamp < int64(api.genesisInfo.Data.GenesisTime) {
+				handleError(regLog, http.StatusBadRequest, "timestamp too early")
+				return
+			}
+		*/
+
+		if registrationTimestamp > registrationTimestampUpperBound {
 			handleError(regLog, http.StatusBadRequest, "timestamp too far in the future")
 			return
 		}
@@ -1578,6 +1577,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	decodeTime := time.Now().UTC()
 	slotStartTimestamp := api.genesisInfo.Data.GenesisTime + (payload.Slot * common.SecondsPerSlot)
 	msIntoSlot := decodeTime.UnixMilli() - int64((slotStartTimestamp * 1000))
+
 	log = log.WithFields(logrus.Fields{
 		"slot":                 payload.Slot,
 		"slotEpochPos":         (payload.Slot % common.SlotsPerEpoch) + 1,
@@ -2274,13 +2274,13 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	})
 
 	// Build the header and payload for this block request.
-	getHeader, err := buildHeader(&blockReq)
+	getHeader, err := BuildHeader(&blockReq)
 	if err != nil {
 		log.WithError(err).Warn("failed to build header")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	getPayload, err := buildPayload(&blockReq)
+	getPayload, err := BuildPayload(&blockReq)
 	if err != nil {
 		log.WithError(err).Warn("failed to build payload")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -2312,6 +2312,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			gasUsed,
 			gasLimit,
 			isToB,
+			value,
 			chainID,
 			simResult.requestErr,
 			simResult.validationErr,
@@ -2543,6 +2544,7 @@ func (api *BatonAPI) handleInternalBuilderCollateral(w http.ResponseWriter, req 
 //  DATA APIS
 // -----------
 
+// TODO: Revise me later for new functionality
 func (api *BatonAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, req *http.Request) {
 	var err error
 	args := req.URL.Query()
@@ -2629,9 +2631,11 @@ func (api *BatonAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, r
 	}
 
 	response := make([]common.BidTraceV2JSON, len(deliveredPayloads))
-	for i, payload := range deliveredPayloads {
-		response[i] = database.DeliveredPayloadEntryToBidTraceV2JSON(payload)
-	}
+
+	// TODO: Fix me later
+	//for i, payload := range deliveredPayloads {
+	//		response[i] = database.DeliveredPayloadEntryToBidTraceV2JSON(payload)
+	//	}
 
 	api.RespondOK(w, response)
 }

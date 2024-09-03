@@ -32,7 +32,7 @@ type StatusHTMLData struct { //nolint:musttag
 	BeaconProposerSigningDomain string
 	HeadSlot                    uint64
 	NumPayloadsDelivered        uint64
-	Payloads                    []*database.DeliveredPayloadEntry
+	Payloads                    []*database.DeliveredPayloadEntry2
 
 	ValueLink      string
 	ValueOrderIcon string

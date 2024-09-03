@@ -10,9 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 
-	"github.com/attestantio/go-eth2-client/spec/capella"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
-	utilcapella "github.com/attestantio/go-eth2-client/util/capella"
 	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -30,83 +27,6 @@ var (
 	ErrPayloadMismatchCapella   = errors.New("capella beacon-block but no capella payload")
 	ErrHeaderHTRMismatch        = errors.New("beacon-block and payload header mismatch")
 )
-
-func SanityCheckBuilderBlockSubmission(payload *common.BuilderSubmitBlockRequest) error {
-	if payload.BlockHash() != payload.ExecutionPayloadBlockHash() {
-		return ErrBlockHashMismatch
-	}
-
-	if payload.ParentHash() != payload.ExecutionPayloadParentHash() {
-		return ErrParentHashMismatch
-	}
-
-	return nil
-}
-
-func ComputeWithdrawalsRoot(w []*capella.Withdrawal) (phase0.Root, error) {
-	if w == nil {
-		return phase0.Root{}, ErrNoWithdrawals
-	}
-	withdrawals := utilcapella.ExecutionPayloadWithdrawals{Withdrawals: w}
-	return withdrawals.HashTreeRoot()
-}
-
-func EqExecutionPayloadToHeader(bb *common.AnchorGetPayloadRequest, payload *common.AnchorGetPayloadResponse) error {
-	if bb.Bellatrix != nil { // process Bellatrix beacon block
-		if payload.Bellatrix == nil {
-			return ErrPayloadMismatchBellatrix
-		}
-		bbHeaderHtr, err := bb.Bellatrix.Message.Body.ExecutionPayloadHeader.HashTreeRoot()
-		if err != nil {
-			return err
-		}
-
-		payloadHeader, err := boostTypes.PayloadToPayloadHeader(payload.Bellatrix.Data)
-		if err != nil {
-			return err
-		}
-		payloadHeaderHtr, err := payloadHeader.HashTreeRoot()
-		if err != nil {
-			return err
-		}
-
-		if bbHeaderHtr != payloadHeaderHtr {
-			return ErrHeaderHTRMismatch
-		}
-
-		// bellatrix block and payload are equal
-		return nil
-	}
-
-	if bb.Capella != nil { // process Capella beacon block
-		if payload.Capella == nil {
-			return ErrPayloadMismatchCapella
-		}
-
-		bbHeaderHtr, err := bb.Capella.Message.Body.ExecutionPayloadHeader.HashTreeRoot()
-		if err != nil {
-			return err
-		}
-
-		payloadHeader, err := common.CapellaPayloadToPayloadHeader(payload.Capella.Capella)
-		if err != nil {
-			return err
-		}
-		payloadHeaderHtr, err := payloadHeader.HashTreeRoot()
-		if err != nil {
-			return err
-		}
-
-		if bbHeaderHtr != payloadHeaderHtr {
-			return ErrHeaderHTRMismatch
-		}
-
-		// capella block and payload are equal
-		return nil
-	}
-
-	return ErrNoPayloads
-}
 
 func checkBLSPublicKeyHex(pkHex string) error {
 	var proposerPubkey boostTypes.PublicKey
@@ -149,8 +69,8 @@ func hashHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
 	return hash, nil
 }
 
-func buildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
-	header, err := hashHeader(s.Chunk)
+func BuildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
+	header, err := hashHeader(s)
 	if err != nil {
 		log.Error("failed to hash header")
 	}
@@ -161,8 +81,8 @@ func buildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
 }
 
 // @TODO: probably don't need as hypersdk/seq has unmarshalling/marshalling funcs already ex: chain.Unmarshal(tx)
-func buildPayload(s *common.SubmitNewBlockRequest) (*common.AnchorPayload, error) {
-	hash, err := buildHeader(s)
+func BuildPayload(s *common.SubmitNewBlockRequest) (*common.AnchorPayload, error) {
+	hash, err := BuildHeader(s)
 	if err != nil {
 		log.Error("failed to hash header")
 	}
@@ -251,3 +171,69 @@ func VerifySignature(header *common.ExecPayloadsInfo, signature boostTypes.Signa
 	}
 	return nil
 }
+
+// TODO: Something like the below might be useful. Fix it later.
+/*
+func CreateTestBlockSubmission(
+	t *testing.T,
+	builderPubkey string,
+	value *big.Int,
+	opts *CreateTestBlockSubmissionOpts,
+) (payload *BuilderSubmitBlockRequest,
+	getPayloadResponse *AnchorGetPayloadResponse,
+	getHeaderResponse *AnchorGetHeaderResponse) {
+	t.Helper()
+	var err error
+
+	slot := uint64(0)
+	relaySk := bls.SecretKey{}
+	relayPk := types.PublicKey{}
+	domain := types.Domain{}
+	proposerPk := phase0.BLSPubKey{}
+	parentHash := phase0.Hash32{}
+
+	if opts != nil {
+		relaySk = opts.relaySk
+		relayPk = opts.relayPk
+		domain = opts.domain
+		slot = opts.Slot
+
+		if opts.ProposerPubkey != "" {
+			proposerPk, err = StrToPhase0Pubkey(opts.ProposerPubkey)
+			require.NoError(t, err)
+		}
+
+		if opts.ParentHash != "" {
+			parentHash, err = StrToPhase0Hash(opts.ParentHash)
+			require.NoError(t, err)
+		}
+	}
+
+	builderPk, err := StrToPhase0Pubkey(builderPubkey)
+	require.NoError(t, err)
+
+	payload := NewSubmitNewBlockRequest()
+
+//		payload = &BuilderSubmitBlockRequest{ //nolint:exhaustruct
+//			Capella: &capella.SubmitBlockRequest{
+//				Message: &v1.BidTrace{ //nolint:exhaustruct
+//					BuilderPubkey:  builderPk,
+//					Value:          uint256.MustFromBig(value),
+//					Slot:           slot,
+//					ParentHash:     parentHash,
+//					ProposerPubkey: proposerPk,
+//				},
+//				ExecutionPayload: &capellaspec.ExecutionPayload{}, //nolint:exhaustruct
+//				Signature:        phase0.BLSSignature{},
+//			},
+//		}
+
+	getHeaderResponse, err = api.BuildHeader(&payload)
+	require.NoError(t, err)
+
+	getPayloadResponse, err = api.BuildPayload(&payload)
+	require.NoError(t, err)
+
+	return payload, getPayloadResponse, getHeaderResponse
+}
+*/

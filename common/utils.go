@@ -8,17 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"testing"
 	"time"
 
-	"github.com/attestantio/go-builder-client/api/capella"
-	v1 "github.com/attestantio/go-builder-client/api/v1"
-	capellaspec "github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -26,7 +21,6 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/types"
 	"github.com/holiman/uint256"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -181,60 +175,6 @@ type CreateTestBlockSubmissionOpts struct {
 	Slot           uint64
 	ParentHash     string
 	ProposerPubkey string
-}
-
-func CreateTestBlockSubmission(t *testing.T, builderPubkey string, value *big.Int, opts *CreateTestBlockSubmissionOpts) (payload *BuilderSubmitBlockRequest, getPayloadResponse *GetPayloadResponse, getHeaderResponse *GetHeaderResponse) {
-	t.Helper()
-	var err error
-
-	slot := uint64(0)
-	relaySk := bls.SecretKey{}
-	relayPk := types.PublicKey{}
-	domain := types.Domain{}
-	proposerPk := phase0.BLSPubKey{}
-	parentHash := phase0.Hash32{}
-
-	if opts != nil {
-		relaySk = opts.relaySk
-		relayPk = opts.relayPk
-		domain = opts.domain
-		slot = opts.Slot
-
-		if opts.ProposerPubkey != "" {
-			proposerPk, err = StrToPhase0Pubkey(opts.ProposerPubkey)
-			require.NoError(t, err)
-		}
-
-		if opts.ParentHash != "" {
-			parentHash, err = StrToPhase0Hash(opts.ParentHash)
-			require.NoError(t, err)
-		}
-	}
-
-	builderPk, err := StrToPhase0Pubkey(builderPubkey)
-	require.NoError(t, err)
-
-	payload = &BuilderSubmitBlockRequest{ //nolint:exhaustruct
-		Capella: &capella.SubmitBlockRequest{
-			Message: &v1.BidTrace{ //nolint:exhaustruct
-				BuilderPubkey:  builderPk,
-				Value:          uint256.MustFromBig(value),
-				Slot:           slot,
-				ParentHash:     parentHash,
-				ProposerPubkey: proposerPk,
-			},
-			ExecutionPayload: &capellaspec.ExecutionPayload{}, //nolint:exhaustruct
-			Signature:        phase0.BLSSignature{},
-		},
-	}
-
-	getHeaderResponse, err = BuildGetHeaderResponse(payload, &relaySk, &relayPk, domain)
-	require.NoError(t, err)
-
-	getPayloadResponse, err = BuildGetPayloadResponse(payload)
-	require.NoError(t, err)
-
-	return payload, getPayloadResponse, getHeaderResponse
 }
 
 // GetEnvDurationSec returns the value of the environment variable as duration in seconds,

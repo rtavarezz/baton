@@ -2,10 +2,11 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
-	"github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
 )
 
@@ -39,6 +40,7 @@ func (db MockDB) GetLatestValidatorRegistrations(timestampOnly bool) ([]*Validat
 	return nil, nil
 }
 
+/*
 func (db MockDB) SaveBuilderBlockSubmission(
 	payload *common.BuilderSubmitBlockRequest,
 	requestError,
@@ -49,9 +51,27 @@ func (db MockDB) SaveBuilderBlockSubmission(
 	saveExecPayload bool,
 	profile common.Profile,
 	optimisticSubmission bool) (entry *BuilderBlockSubmissionEntry, err error) {
-	key := fmt.Sprintf("%d-%s-%s", payload.Slot(), payload.ProposerPubkey(), payload.BlockHash())
+*/
 
-	execPayloadEntry, err := PayloadToExecPayloadEntry(payload)
+func (db MockDB) SaveBuilderBlockSubmission(
+	blockReq *common.SubmitNewBlockRequest,
+	payload *common.AnchorPayload,
+	gasUsed uint64,
+	gasLimit uint64,
+	isToB bool,
+	value *big.Int,
+	robChainID string,
+	requestError,
+	validationError error,
+	receivedAt,
+	eligibleAt time.Time,
+	wasSimulated, saveExecPayload bool,
+	profile common.Profile,
+	optimisticSubmission bool,
+) (entry *BuilderBlockSubmissionEntry, err error) {
+	key := fmt.Sprintf("%d-%s-%s", payload.Slot, blockReq.ProposerPubKey().String(), blockReq.BlockHash().String())
+
+	execPayloadEntry, err := AnchorPayloadToExecPayloadEntry(payload, blockReq)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +91,11 @@ func (db MockDB) SaveBuilderBlockSubmission(
 		requestErrStr = requestError.Error()
 	}
 
+	blockNumberStr, err := blockReq.BlockNumberAsStr()
+	if err != nil {
+		return nil, errors.New("")
+	}
+
 	blockSubmissionEntry := &BuilderBlockSubmissionEntry{
 		ReceivedAt:         NewNullTime(receivedAt),
 		EligibleAt:         NewNullTime(eligibleAt),
@@ -81,24 +106,24 @@ func (db MockDB) SaveBuilderBlockSubmission(
 		SimError:     simErrStr,
 		SimReqError:  requestErrStr,
 
-		Signature: payload.Signature().String(),
+		Signature: blockReq.Signature.String(),
 
-		Slot:       payload.Slot(),
-		BlockHash:  payload.BlockHash(),
-		ParentHash: payload.ParentHash(),
+		Slot:       payload.Slot,
+		BlockHash:  blockReq.BlockHash().String(),
+		ParentHash: blockReq.ParentHash().String(),
 
-		BuilderPubkey:        payload.BuilderPubkey().String(),
-		ProposerPubkey:       payload.ProposerPubkey(),
-		ProposerFeeRecipient: payload.ProposerFeeRecipient(),
+		BuilderPubkey:        blockReq.BuilderPubKey.String(),
+		ProposerPubkey:       blockReq.ProposerPubKey().String(),
+		ProposerFeeRecipient: blockReq.ProposerPaymentAsStr(),
 
-		GasUsed:  payload.GasUsed(),
-		GasLimit: payload.GasLimit(),
+		GasUsed:  gasUsed,
+		GasLimit: gasLimit,
 
-		NumTx: uint64(payload.NumTx()),
-		Value: payload.Value().String(),
+		NumTx: uint64(len(payload.Transactions)),
+		Value: value.String(),
 
-		Epoch:       payload.Slot() / common.SlotsPerEpoch,
-		BlockNumber: payload.BlockNumber(),
+		Epoch:       blockReq.Slot() / common.SlotsPerEpoch,
+		BlockNumber: blockNumberStr,
 
 		DecodeDuration:       profile.Decode,
 		PrechecksDuration:    profile.Prechecks,
@@ -142,11 +167,11 @@ func (db MockDB) GetBlockSubmissionEntry(slot uint64, proposerPubkey, blockHash 
 	return entry, nil
 }
 
-func (db MockDB) GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*DeliveredPayloadEntry, error) {
+func (db MockDB) GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*common.AnchorPayload, error) {
 	return nil, nil
 }
 
-func (db MockDB) GetDeliveredPayloads(idFirst, idLast uint64) (entries []*DeliveredPayloadEntry, err error) {
+func (db MockDB) GetDeliveredPayloads(idFirst, idLast uint64) (entries []*common.AnchorPayload, err error) {
 	return nil, nil
 }
 
@@ -162,7 +187,7 @@ func (db MockDB) GetBuilderSubmissionsBySlots(slotFrom, slotTo uint64) (entries 
 	return nil, nil
 }
 
-func (db MockDB) SaveDeliveredPayload(bidTrace *common.BidTraceV2, signedBlindedBeaconBlock *common.SignedBlindedBeaconBlock, signedAt time.Time, publishMs uint64) error {
+func (db MockDB) SaveDeliveredPayload(bidTrace *common.BidTraceV3, payloadResp *common.AnchorGetPayloadResponse, signedAt time.Time, publishMs uint64) error {
 	return nil
 }
 
@@ -230,6 +255,8 @@ func (db MockDB) IncBlockBuilderStatsAfterGetPayload(builderPubkey string) error
 	return nil
 }
 
+// TODO: Add the below back when we handle builder demotion
+/*
 func (db MockDB) InsertBuilderDemotion(submitBlockRequest *common.BuilderSubmitBlockRequest, simError error) error {
 	pubkey := submitBlockRequest.BuilderPubkey().String()
 	db.Demotions[pubkey] = true
@@ -260,6 +287,7 @@ func (db MockDB) GetBuilderDemotion(trace *common.BidTraceV2) (*BuilderDemotionE
 	}
 	return nil, nil
 }
+*/
 
 func (db MockDB) GetTooLateGetPayload(slot uint64) (entries []*TooLateGetPayloadEntry, err error) {
 	return nil, nil

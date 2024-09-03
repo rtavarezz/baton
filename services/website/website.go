@@ -105,7 +105,7 @@ func NewWebserver(opts *WebserverOpts) (*Webserver, error) {
 		BeaconProposerSigningDomain: hexutil.Encode(opts.NetworkDetails.DomainBeaconProposerBellatrix[:]),
 		HeadSlot:                    0,
 		NumPayloadsDelivered:        0,
-		Payloads:                    []*database.DeliveredPayloadEntry{},
+		Payloads:                    []*database.DeliveredPayloadEntry2{},
 		ValueLink:                   "",
 		ValueOrderIcon:              "",
 		ShowConfigDetails:           opts.ShowConfigDetails,

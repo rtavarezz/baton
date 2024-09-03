@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
 	"math/big"
 	"os"
 
@@ -362,6 +363,41 @@ type AnchorHeader struct {
 	BlockHash string       `json:"block_hash"`
 }
 
+type SignedBeaconBlock struct {
+	Bellatrix *boostTypes.SignedBeaconBlock
+	Capella   *consensuscapella.SignedBeaconBlock
+}
+
+func (s *SignedBeaconBlock) MarshalJSON() ([]byte, error) {
+	if s.Capella != nil {
+		return json.Marshal(s.Capella)
+	}
+	if s.Bellatrix != nil {
+		return json.Marshal(s.Bellatrix)
+	}
+	return nil, ErrEmptyPayload
+}
+
+func (s *SignedBeaconBlock) Slot() uint64 {
+	if s.Capella != nil {
+		return uint64(s.Capella.Message.Slot)
+	}
+	if s.Bellatrix != nil {
+		return s.Bellatrix.Message.Slot
+	}
+	return 0
+}
+
+func (s *SignedBeaconBlock) BlockHash() string {
+	if s.Capella != nil {
+		return s.Capella.Message.Body.ExecutionPayload.BlockHash.String()
+	}
+	if s.Bellatrix != nil {
+		return s.Bellatrix.Message.Body.ExecutionPayload.BlockHash.String()
+	}
+	return ""
+}
+
 type AnchorGetHeaderResponse struct {
 	ExecPayloads ExecPayloadsInfo
 	BlockInfo    AnchorBlockInfo
@@ -680,14 +716,14 @@ func (r *SubmitNewBlockRequest) BlockNumberAsStr() (string, error) {
 // The value should come from the proposer tx.
 func (r *SubmitNewBlockRequest) Value() (*big.Int, error) {
 	if len(r.Chunk.Txs) == 0 {
-		return nil,  errors.New("no txs found in baton block")
+		return nil, errors.New("no txs found in baton block")
 	}
 	if len(r.Chunk.Txs) == 1 {
-		return nil,  errors.New("need more than 1 tx in baton block")
+		return nil, errors.New("need more than 1 tx in baton block")
 	}
-	lastTx := r.Chunk.Txs[len(r.Chunk.Txs) - 1]
+	lastTx := r.Chunk.Txs[len(r.Chunk.Txs)-1]
 
-	if (len(lastTx.Actions) != 1) {
+	if len(lastTx.Actions) != 1 {
 		return nil, errors.New("simulateBlock: transfer action had multiple txs")
 	}
 	for _, action := range lastTx.Actions {

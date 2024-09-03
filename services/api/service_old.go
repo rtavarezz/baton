@@ -2918,13 +2918,13 @@ func (api *BatonOldAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *
 	simulationDuration := time.Since(simStartTime).Microseconds()
 
 	// Build the header and payload for this block request.
-	getHeader, err := buildHeader(blockReq)
+	getHeader, err := BuildHeader(blockReq)
 	if err != nil {
 		log.WithError(validErr).Warn("failed to build header")
 		api.RespondError(w, http.StatusBadRequest, validErr.Error())
 		return
 	}
-	getPayload, err := buildPayload(blockReq)
+	getPayload, err := BuildPayload(blockReq)
 	if err != nil {
 		log.WithError(validErr).Warn("failed to build payload")
 		api.RespondError(w, http.StatusBadRequest, validErr.Error())

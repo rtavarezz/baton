@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/flashbots/mev-boost-relay/common"
@@ -22,10 +23,12 @@ type Tracer struct {
 }
 
 func NewTracer(tracerUrl string) *Tracer {
+	// TODO: Verify if this timeout is okay
+	timeout := time.Second * 5
 	return &Tracer{
 		tracerUrl: tracerUrl,
 		client: http.Client{ //nolint:exhaustruct
-			Timeout: assemblyRequestTimeout,
+			Timeout: timeout,
 		},
 	}
 }

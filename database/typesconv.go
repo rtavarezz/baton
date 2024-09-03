@@ -1,42 +1,12 @@
 package database
 
 import (
-  "encoding/json"
-  "errors"
-
-  "github.com/flashbots/mev-boost-relay/common"
+	"encoding/json"
+	"errors"
+	"github.com/flashbots/mev-boost-relay/common"
 )
 
 var ErrUnsupportedExecutionPayload = errors.New("unsupported execution payload version")
-
-// note: need to change
-func PayloadToExecPayloadEntry(payload *common.BuilderSubmitBlockRequest) (*ExecutionPayloadEntry, error) {
-	var _payload []byte
-	var version string
-	var err error
-	if payload.Bellatrix != nil {
-		_payload, err = json.Marshal(payload.Bellatrix.ExecutionPayload)
-		if err != nil {
-			return nil, err
-		}
-		version = common.ForkVersionStringBellatrix
-	}
-	if payload.Capella != nil {
-		_payload, err = json.Marshal(payload.Capella.ExecutionPayload)
-		if err != nil {
-			return nil, err
-		}
-		version = common.ForkVersionStringCapella
-	}
-	return &ExecutionPayloadEntry{
-		Slot:           payload.Slot(),
-		ProposerPubkey: payload.ProposerPubkey(),
-		BlockHash:      payload.BlockHash(),
-
-		Version: version,
-		Payload: string(_payload),
-	}, nil
-}
 
 func AnchorPayloadToExecPayloadEntry(
 	payload *common.AnchorPayload,
@@ -62,7 +32,7 @@ func AnchorPayloadToExecPayloadEntry(
 	}, nil
 }
 
-func DeliveredPayloadEntryToBidTraceV2JSON(payload *DeliveredPayloadEntry) common.BidTraceV2JSON {
+func DeliveredPayloadEntryToBidTraceV2JSON(payload *DeliveredPayloadEntry2) common.BidTraceV2JSON {
 	return common.BidTraceV2JSON{
 		Slot:                 payload.Slot,
 		ParentHash:           payload.ParentHash,
@@ -84,6 +54,16 @@ func BuilderSubmissionEntryToBidTraceV2WithTimestampJSON(payload *BuilderBlockSu
 		timestamp = payload.ReceivedAt.Time
 	}
 
+	// TODO: Fix the below later
+	/*
+	   blockNumberStr, err := json.Marshal(payload.BlockNumber)
+	   if err != nil {
+	     log.Error("BuilderSubmissionEntryToBidTraceV2WithTimestampJSON could not marshal block number. Using default block num.")
+	     blockNumberStr = []byte("")
+	   }
+	*/
+	blockNumberStr := 100
+
 	return common.BidTraceV2WithTimestampJSON{
 		Timestamp:            timestamp.Unix(),
 		TimestampMs:          timestamp.UnixMilli(),
@@ -99,7 +79,7 @@ func BuilderSubmissionEntryToBidTraceV2WithTimestampJSON(payload *BuilderBlockSu
 			GasUsed:              payload.GasUsed,
 			Value:                payload.Value,
 			NumTx:                payload.NumTx,
-			BlockNumber:          payload.BlockNumber,
+			BlockNumber:          uint64(blockNumberStr),
 		},
 	}
 }

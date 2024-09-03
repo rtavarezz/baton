@@ -9,9 +9,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/attestantio/go-builder-client/api/capella"
-	"github.com/attestantio/go-eth2-client/spec/bellatrix"
-	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/flashbots/go-boost-utils/bls"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/sirupsen/logrus"
@@ -67,7 +64,13 @@ var ValidPayloadRegisterValidator = boostTypes.SignedValidatorRegistration{
 func TestBuilderSubmitBlockRequest(sk *bls.SecretKey, bid *BidTraceV2) BuilderSubmitBlockRequest {
 	signature, err := boostTypes.SignMessage(bid, boostTypes.DomainBuilder, sk)
 	check(err, " SignMessage: ", bid, sk)
-	return BuilderSubmitBlockRequest{ //nolint:exhaustruct
+
+	// TODO: Fill with sane values later
+	blockReq := NewSubmitNewBlockRequest()
+	execPayload := ExecutionPayload{}
+
+	// DEPRECATED
+	/*
 		Capella: &capella.SubmitBlockRequest{
 			Message:   &bid.BidTrace,
 			Signature: [96]byte(signature),
@@ -76,9 +79,12 @@ func TestBuilderSubmitBlockRequest(sk *bls.SecretKey, bid *BidTraceV2) BuilderSu
 				Timestamp:    bid.Slot * 12, // 12 seconds per slot.
 				PrevRandao:   _HexToHash("01234567890123456789012345678901"),
 				Withdrawals:  []*consensuscapella.Withdrawal{},
-			},
-		},
-	}
+	*/
+
+	return BuilderSubmitBlockRequest{ //nolint:exhaustruct
+		AnchorSignature:  signature,
+		AnchorMessage:    &blockReq,
+		ExecutionPayload: &execPayload}
 }
 
 func LoadGzippedBytes(t *testing.T, filename string) []byte {
