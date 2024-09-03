@@ -792,11 +792,15 @@ func (api *BatonAPI) simulateBlock(
 	t := time.Now()
 
 	var txs []hexutil.Bytes
+	txsByNamespace := make(map[string][]hexutil.Bytes)
 	txs = make([]hexutil.Bytes, 0)
 	for _, tx := range req.Chunk.Txs {
 		for _, action := range tx.Actions {
 			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
 				txs = append(txs, seqMsg.Data)
+				// @TODO: grouping txs with same namespace into groups, check over logic
+				ns := string(seqMsg.ChainId)
+				txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.ChainId)
 			} else {
 				log.Error("simulateBlock: tx is not sequencer message")
 				return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
@@ -1601,18 +1605,20 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	// TODO: figure out how to use AnchorPayloadRequest to verify signature.
 	// SEQ needs to keep it in byte form when signing(signatures).
 	// 1.) define SEQ signatures
-	/*
-		ok, err := utils.VerifySignature(payload.Message(), api.opts.EthNetDetails.DomainBeaconProposerCapella, pk[:], payload.Signature)
-		if !ok || err != nil {
-			if api.ffLogInvalidSignaturePayload {
-				txt, _ := json.Marshal(payload) //nolint:errchkjson
-				fmt.Println("payload_invalid_sig_capella: ", string(txt), "pubkey:", proposerPubkey.String())
-			}
-			log.WithError(err).Warn("could not verify capella payload signature")
-			api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
-			return
+	// 2.) figure out how to pass header of HeaderInfo or if it's even needed 
+	seqSig := payload.Signature 
+	var header *common.HeaderInfo
+	// can possibly use index of proposer to get the pubkey
+	ok := VerifySignature(header, seqSig, proposerPubkey)
+	if ok != nil {
+		if api.ffLogInvalidSignaturePayload {
+			txt, _ := json.Marshal(payload) //nolint:errchkjson
+			fmt.Println("payload_invalid_sig_capella: ", string(txt), "pubkey:", proposerPubkey.String())
 		}
-	*/
+		log.WithError(err).Warn("could not verify capella payload signature")
+		api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
+		return
+	}
 
 	// Log about received payload (with a valid proposer signature)
 	log = log.WithField("timestampAfterSignatureVerify", time.Now().UTC().UnixMilli())
@@ -1653,7 +1659,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 		// TODO: Review below delivered payload
 		// note needs sharding
-		err = api.db.SaveDeliveredPayload(bidTrace, payload, decodeTime, msNeededForPublishing)
+		err = api.db.SaveDeliveredAnchorPayload(&getPayloadResp, decodeTime, msNeededForPublishing)
 		if err != nil {
 			log.WithError(err).WithFields(logrus.Fields{
 				"bidTrace": bidTrace,
@@ -2337,7 +2343,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 
 		submissionEntry, err := api.db.SaveBuilderBlockSubmission(
-			blockReq,
+			&blockReq,
 			getPayload,
 			gasUsed,
 			gasLimit,

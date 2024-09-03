@@ -9,12 +9,14 @@ import (
 
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
+	"github.com/AnomalyFi/nodekit-seq/actions"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -704,16 +706,16 @@ func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
 */
 
 // @TODO: fix me SOON
-func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
+func (r *SubmitNewBlockRequest) FirstChainID() ([]chain.Action, error) {
 	if len(r.Chunk.Txs) == 0 {
-		return "", errors.New("getFirstChainID: no transactions found")
+		return nil, errors.New("getFirstChainID: no transactions found")
 	}
 
 	actions := r.Chunk.Txs[0].Actions
 	if len(actions) == 0 {
-		return "", errors.New("getFirstChainID: no actions in first tx")
-	}
-
+		return nil, errors.New("getFirstChainID: no actions in first tx")
+	}	
+	return actions, nil
 }
 
 // callLog is the result of LOG opCode

@@ -223,7 +223,7 @@ func ComputeMerkleRoot(hashes [][]byte) []byte {
 	return hashes[0]
 }
 
-func VerifySignature(header *common.HeaderInfo, signature []byte, pubKey []byte) error {
+func VerifySignature(header *common.HeaderInfo, signature boostTypes.Signature, pubKey boostTypes.PubkeyHex) error {
 	if len(signature) != 65 {
 		return errors.New("invalid signature length")
 	}
@@ -244,7 +244,9 @@ func VerifySignature(header *common.HeaderInfo, signature []byte, pubKey []byte)
 	merkleRoot := ComputeMerkleRoot(hashes)
 	// verify the signature with pubkey and merkleroot and signature
 	// TODO: may need fixing( added signature and pubkey to make logic easier but need to double check if this is okay or not)
-	if !crypto.VerifySignature(pubKey, merkleRoot, signature) {
+	sigBytes := signature[:]
+	pubKeyBytes := []byte(pubKey)
+	if !crypto.VerifySignature(pubKeyBytes, merkleRoot, sigBytes) {
 		return errors.New("signature verification failed")
 	}
 	return nil
