@@ -43,12 +43,17 @@ type IDatabaseService interface {
 	GetExecutionPayloads(idFirst, idLast uint64) (entries []*ExecutionPayloadEntry, err error)
 	DeleteExecutionPayloads(idFirst, idLast uint64) error
 
-	SaveDeliveredAnchorPayload(payloadResp *common.AnchorGetPayloadResponse, signedAt time.Time, publishMs uint64) error
+	SaveDeliveredAnchorPayload(bidTrace *common.BidTraceV3, payloadResp *common.AnchorGetPayloadResponse, signedAt time.Time, publishMs uint64) error
 	//SaveDeliveredPayload(bidTrace *common.BidTraceV2, signedBlindedBeaconBlock *common.SignedBlindedBeaconBlock, signedAt time.Time, publishMs uint64) error
 
-	GetNumDeliveredPayloads() (uint64, error)
-	GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*DeliveredPayloadEntry, error)
-	GetDeliveredPayloads(idFirst, idLast uint64) (entries []*DeliveredPayloadEntry, err error)
+  // DEPRECATED
+	//GetNumDeliveredPayloads() (uint64, error)
+	//GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*DeliveredPayloadEntry, error)
+	//GetDeliveredPayloads(idFirst, idLast uint64) (entries []*DeliveredPayloadEntry, err error)
+
+  GetNumDeliveredPayloads() (uint64, error)
+  GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*common.AnchorPayload, error)
+  GetDeliveredPayloads(idFirst, idLast uint64) (entries []*common.AnchorPayload, err error)
 
 	GetBlockBuilders() ([]*BlockBuilderEntry, error)
 	GetBlockBuilderByPubkey(pubkey string) (*BlockBuilderEntry, error)

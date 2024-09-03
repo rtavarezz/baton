@@ -792,7 +792,7 @@ func (api *BatonAPI) simulateBlock(
 	t := time.Now()
 
 	var txs []hexutil.Bytes
-	// TODO: we have txs grouped but how do we simulate these txs? Should we update simulateBlockTxs? 
+	// TODO: we have txs grouped but how do we simulate these txs? Should we update simulateBlockTxs?
 	// that way we simulate block txs and the block itself all in this function?
 	txsByNamespace := make(map[string][]hexutil.Bytes)
 	txs = make([]hexutil.Bytes, 0)
@@ -1630,7 +1630,6 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	var msNeededForPublishing uint64
 
 	// Save information about delivered payload
-	//TODO: figure out Anchor Payload Response logic below
 	defer func() {
 		var bidTrace *common.BidTraceV3
 
@@ -1659,9 +1658,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			}
 		}
 
-		// TODO: Review below delivered payload
-		// note needs sharding
-		err = api.db.SaveDeliveredAnchorPayload(&getPayloadResp, decodeTime, msNeededForPublishing)
+		err = api.db.SaveDeliveredAnchorPayload(bidTrace, &getPayloadResp, decodeTime, msNeededForPublishing)
 		if err != nil {
 			log.WithError(err).WithFields(logrus.Fields{
 				"bidTrace": bidTrace,
@@ -1669,71 +1666,11 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			}).Error("failed to save delivered payload")
 		}
 
-		// TODO: Fix the below
-		/*
-			// Increment builder stats
-			err = api.db.IncBlockBuilderStatsAfterGetPayload(bidTrace.BuilderPubkey.String())
-			if err != nil {
-				log.WithError(err).Error("failed to increment builder-stats after getPayload")
-			}
-		*/
-
-		// TODO: We don't use optimistic blocks. Make sure this is ok.
-		// Wait until optimistic blocks are complete.
-		//api.optimisticBlocksWG.Wait()
-
-		// TODO: What's this builder demotion thing for?
-		// note: finds winning block, makes sure that block is sound and complete if so then success,
-		// otherwise, block demotion case occurs. I feel like this is an important case to keep.
-		// Check if there is a demotion for the winning block.
-		//	_, err = api.db.GetBuilderDemotion(bidTrace)
-		//	// If demotion not found, we are done!
-		//	if errors.Is(err, sql.ErrNoRows) {
-		//		log.Info("no demotion in getPayload, successful block proposal")
-		//		return
-		//	}
-		//	if err != nil {
-		//		log.WithError(err).Error("failed to read demotion table in getPayload")
-		//		return
-		//	}
-		//	// Demotion found, update the demotion table with refund data.
-		//	builderPubkey := bidTrace.BuilderPubkey.String()
-		//	log = log.WithFields(logrus.Fields{
-		//		"builderPubkey": builderPubkey,
-		//		"slot":          bidTrace.Slot,
-		//		"blockHash":     bidTrace.BlockHash,
-		//	})
-		//	log.Warn("demotion found in getPayload, inserting refund justification")
-
-		// TODO: What is this signed beacon block for?
-		// Prepare refund data.
-		//	signedBeaconBlock := common.SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp)
-
-		// TODO: Add the below when builder demotion is needed
-		//  registrationEntry, err := api.db.GetValidatorRegistration(proposerPubkey.String())
-		//  if err != nil {
-		//  if errors.Is(err, sql.ErrNoRows) {
-		//  		log.WithError(err).Error("no registration found for validator " + proposerPubkey.String())
-		//  	} else {
-		//  		log.WithError(err).Error("error reading validator registration")
-		//  	}
-		//  }
-		//  var signedRegistration *boostTypes.SignedValidatorRegistration
-		//  if registrationEntry != nil {
-		//	  signedRegistration, err = registrationEntry.ToSignedValidatorRegistration()
-		//	  if err != nil {
-		//		  log.WithError(err).Error("error converting registration to signed registration")
-		//	  }
-		//  }
-		//	err = api.db.UpdateBuilderDemotion(bidTrace, signedBeaconBlock, signedRegistration)
-		//	if err != nil {
-		//		log.WithFields(logrus.Fields{
-		//			"errorWritingRefundToDB": true,
-		//			"bidTrace":               bidTrace,
-		//			"signedBeaconBlock":      signedBeaconBlock,
-		//			"signedRegistration":     signedRegistration,
-		//		}).WithError(err).Error("unable to update builder demotion with refund justification")
-		//	}
+		// Increment builder stats
+		err = api.db.IncBlockBuilderStatsAfterGetPayload(bidTrace.BuilderPubkey)
+		if err != nil {
+			log.WithError(err).Error("failed to increment builder-stats after getPayload")
+		}
 	}()
 
 	// @TODO: Continue fixing the below
