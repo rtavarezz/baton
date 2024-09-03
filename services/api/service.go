@@ -259,7 +259,8 @@ type BatonAPI struct {
 	// stores DeFi contract addresses rquired for state interference checks
 	defiAddresses map[string]common2.Address
 	// stores RoB chain IDs
-	robChainIDs map[string]struct{}
+	robChainIDs    map[string]struct{}
+	expectedHeader common.AnchorGetHeaderResponse
 }
 
 func FillUpDefiAddresses(opts BatonAPIOpts) map[string]common2.Address {
@@ -792,23 +793,42 @@ func (api *BatonAPI) simulateBlock(
 	t := time.Now()
 
 	var txs []hexutil.Bytes
-	// TODO: we have txs grouped but how do we simulate these txs? Should we update simulateBlockTxs?
+	// @TODO: we have txs grouped but how do we simulate these txs? Should we update simulateBlockTxs?
 	// that way we simulate block txs and the block itself all in this function?
 	txsByNamespace := make(map[string][]hexutil.Bytes)
 	txs = make([]hexutil.Bytes, 0)
-	for _, tx := range req.Chunk.Txs {
-		for _, action := range tx.Actions {
-			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-				txs = append(txs, seqMsg.Data)
-				// @TODO: grouping txs with same namespace into groups, check over logic
-				ns := string(seqMsg.ChainId)
-				txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.ChainId)
-			} else {
-				log.Error("simulateBlock: tx is not sequencer message")
-				return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
+	for i, tx := range req.Chunk.Txs {
+		// case 1: checking if last tx(proposer tx)
+		if (i == (len(req.Chunk.Txs) - 1)) {
+			// checking that len returns 1 action since proposer tx should only have transfer action itself
+			if (len(tx.Actions) != 1) {
+				return 0, errors.New("simulateBlock: transfer action had multiple txs"), nil
+			}
+			for _, action := range tx.Actions {
+				if seqMsg, ok := action.(*actions.Transfer); ok {
+					txs = append(txs, seqMsg.Memo)
+					ns := "proposer_tx"
+					txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Memo)
+				} else {
+					log.Error("simulateBlock: tx is not sequencer message")
+					return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
+				}
+			}
+		// otherwise, not proposer tx(last tx) and do loop for this case
+		} else {
+			for _, action := range tx.Actions {
+				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+					txs = append(txs, seqMsg.Data)
+					ns := string(seqMsg.ChainId)
+					txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Data)
+				} else {
+					log.Error("simulateBlock: tx is not sequencer message")
+					return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
+				}
 			}
 		}
 	}
+
 	blockNumber := req.BlockNumber()
 	if blockNumber == nil {
 		log.Error("simulateBlock: BlockNumber is nil")
@@ -1444,7 +1464,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// @TODO: double check if helper funcs or funcs in general need to return AnchorHeader instead of common.Hash
-	var resp common.HeaderInfo
+	var resp common.ExecPayloadsInfo
 	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 	if err != nil {
 		log.WithError(err).Error("could not get bid for ToB")
@@ -1486,7 +1506,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	chunkHashBytes := sha256.Sum256(combined)
 
 	// Convert the result to a common.Hash
-	var headerReq common.AnchorGetHeaderResponse
+	var headerReq common.AnchorBlockInfo
 	headerReq.ChunkHash = common2.BytesToHash(chunkHashBytes[:])
 	headerReq.Slot = slot
 
@@ -1496,11 +1516,10 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var final common.Header
-	final.Info = resp
-	final.Resp = headerReq
+	api.expectedHeader.ExecPayloads = resp
+	api.expectedHeader.BlockInfo = headerReq
 
-	api.RespondOK(w, final)
+	api.RespondOK(w, api.expectedHeader)
 }
 
 func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
@@ -1609,7 +1628,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	// 1.) define SEQ signatures
 	// 2.) figure out how to pass header of HeaderInfo or if it's even needed
 	seqSig := payload.Signature
-	var header *common.HeaderInfo
+	var header *common.ExecPayloadsInfo
 	// can possibly use index of proposer to get the pubkey
 	ok := VerifySignature(header, seqSig, proposerPubkey)
 	if ok != nil {
@@ -1810,9 +1829,10 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	}
 
 	// TODO: Verify not needed. Looks to be Eth 2.0 related.
+	// TODO: make our own version for the EqExecutionPayloadToHeader
+	// Check that ExecutionPayloadHeader fields (sent by the proposer) match our known ExecutionPayload
 	/*
-		// Check that ExecutionPayloadHeader fields (sent by the proposer) match our known ExecutionPayload
-		err = EqExecutionPayloadToHeader(payload, getPayloadResp)
+		err = EqExecutionPayloadToHeader(payload, &getPayloadResp)
 		if err != nil {
 			log.WithError(err).Warn("ExecutionPayloadHeader not matching known ExecutionPayload")
 			api.RespondError(w, http.StatusBadRequest, "invalid execution payload header")
@@ -2177,16 +2197,18 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// ToB will have varying chain id in txs, RoB will have uniform
 	// Also verifies len(txs) >= 2
-	// TODO: Might need fixing
 	isToB, err := api.checkBlockRequestIsToB(&blockReq)
 	if err != nil {
 		log.WithError(err).Info(err.Error())
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// TODO: Fix me SOON
-	// chainID, err := blockReq.FirstChainID()
-	chainID := ""
+	chainID, err := blockReq.FirstChainID()
+	if err != nil {
+		log.WithError(err).Info(err.Error())
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	builderPubkey := blockReq.BuilderPubkey()
 	builderEntry, ok := api.checkBuilderEntry(w, log, phase0.BLSPubKey(builderPubkey))
@@ -2212,12 +2234,16 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	var topBidValue *big.Int
 	tx := api.redis.NewTxPipeline()
 	bidIsTopBid := false
-	// @TODO fill me in later
 	var value *big.Int
+	value, err = blockReq.Value()
+	if err != nil {
+		log.WithError(err).Info("block req value returned err")
+		api.RespondError(w, http.StatusBadRequest, "value check failed")
+		return
+	}
 	if isToB {
 		topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
 	} else {
-		// TODO: resolved when chainID is fixed
 		topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey(), chainID)
 	}
 	if err != nil {
@@ -2225,7 +2251,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, "failed to get top bid value from redis")
 		return
 	} else {
-		// TODO: value needs to be fixed
 		bidIsTopBid = value.Cmp(topBidValue) == 1
 		log = log.WithFields(logrus.Fields{
 			"topBidValue":    topBidValue.String(),
@@ -2270,7 +2295,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// Once we process the sim, then we want to save the results to the redis database.
 	var eligibleAt time.Time // will be set once the bid is ready
-
+	var gasUsed uint64
 	defer func() {
 		savePayloadToDatabase := !api.ffDisablePayloadDBStorage
 		var simResult *blockSimResult
@@ -2286,6 +2311,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			getPayload,
 			gasUsed,
 			gasLimit,
+			isToB,
+			chainID,
 			simResult.requestErr,
 			simResult.validationErr,
 			receivedAt,
@@ -2294,14 +2321,13 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			savePayloadToDatabase,
 			pf,
 			simResult.optimisticSubmission,
-			isToB,
-			chainID)
+		)
 		if err != nil {
 			log.WithError(err).WithField("payload", blockReq).Error("saving builder block submission to database failed")
 			return
 		}
 
-		err = api.db.UpsertBlockBuilderEntryAfterSubmission2(submissionEntry, isToB, chainID, simResult.validationErr != nil)
+		err = api.db.UpsertBlockBuilderEntryAfterSubmission(submissionEntry, isToB, chainID, simResult.validationErr != nil)
 		if err != nil {
 			log.WithError(err).Error("failed to upsert block-builder-entry")
 		}
@@ -2309,7 +2335,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 	// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
-	gasUsed, reqErr, validErr := api.simulateBlock(context.Background(), &blockReq, log)
+	gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, log)
 	// @TODO: figure out exact gas limit later
 	if gasUsed != 0 && gasUsed > gasLimit {
 		errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
@@ -2771,7 +2797,6 @@ func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// TODO: Fix this once we figure out hypersdk txs
 // Check if block request is ToB
 func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (bool, error) {
 	if len(req.Chunk.Txs) == 0 {
@@ -2787,12 +2812,10 @@ func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (
 	if err != nil {
 		return false, err
 	}
-	firstChainIDStr := fmt.Sprintf("%v", firstChainID)
-
 	for i := 0; i < len(req.Chunk.Txs); i++ {
 		for _, action := range req.Chunk.Txs[i].Actions {
 			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-				if string(seqMsg.ChainId) != firstChainIDStr {
+				if string(seqMsg.ChainId) != firstChainID {
 					return false, nil
 				}
 			} else {

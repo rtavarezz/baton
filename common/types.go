@@ -16,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
-	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -363,11 +362,11 @@ type AnchorHeader struct {
 	BlockHash string       `json:"block_hash"`
 }
 
-type Header struct {
-	Info HeaderInfo
-	Resp AnchorGetHeaderResponse
-}
 type AnchorGetHeaderResponse struct {
+	ExecPayloads ExecPayloadsInfo
+	BlockInfo    AnchorBlockInfo
+}
+type AnchorBlockInfo struct {
 	// note: Message should be the anchor req
 	Slot uint64 `json:"slot"`
 	// nodeID of chunk producing validator.
@@ -376,8 +375,8 @@ type AnchorGetHeaderResponse struct {
 	ChunkHash common.Hash `json:"chunkhash"`
 }
 
-// @TODO: Figure out how to verify the signatures in util.VerifySignature
-type HeaderInfo struct {
+// SEQ validator should sign this
+type ExecPayloadsInfo struct {
 	// Make signature based off ToBHash + RoBHashes then we use this signature for Baton/Anchor to check against
 	ToBHash   *AnchorHeader            `json:"tobhash"`
 	RoBHashes map[string]*AnchorHeader `json:"robhashes"`
@@ -678,10 +677,25 @@ func (r *SubmitNewBlockRequest) BlockNumberAsStr() (string, error) {
 	return string(blockNumberJson), nil
 }
 
-// TODO: Fill this in later
 // The value should come from the proposer tx.
-func (r *SubmitNewBlockRequest) Value() *big.Int {
-	return big.NewInt(0)
+func (r *SubmitNewBlockRequest) Value() (*big.Int, error) {
+	if len(r.Chunk.Txs) == 0 {
+		return nil,  errors.New("no txs found in baton block")
+	}
+	if len(r.Chunk.Txs) == 1 {
+		return nil,  errors.New("need more than 1 tx in baton block")
+	}
+	lastTx := r.Chunk.Txs[len(r.Chunk.Txs) - 1]
+
+	if (len(lastTx.Actions) != 1) {
+		return nil, errors.New("simulateBlock: transfer action had multiple txs")
+	}
+	for _, action := range lastTx.Actions {
+		if seqMsg, ok := action.(*actions.Transfer); ok {
+			return big.NewInt(int64(seqMsg.Value)), nil
+		}
+	}
+	return nil, errors.New("simulateBlock: could not retireve value and transfer action")
 }
 
 func (r *SubmitNewBlockRequest) BuilderPubkey() boostTypes.PublicKey {
@@ -706,16 +720,19 @@ func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
 */
 
 // @TODO: fix me SOON
-func (r *SubmitNewBlockRequest) FirstChainID() ([]chain.Action, error) {
+func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
 	if len(r.Chunk.Txs) == 0 {
-		return nil, errors.New("getFirstChainID: no transactions found")
+		return "", errors.New("getFirstChainID: no transactions found")
 	}
-
-	actions := r.Chunk.Txs[0].Actions
-	if len(actions) == 0 {
-		return nil, errors.New("getFirstChainID: no actions in first tx")
-	}	
-	return actions, nil
+	seqActions := r.Chunk.Txs[0].Actions
+	if len(seqActions) == 0 {
+		return "", errors.New("getFirstChainID: no actions in first tx")
+	}
+	if seqMsg, ok := seqActions[0].(*actions.SequencerMsg); ok {
+		return string(seqMsg.ChainId), nil
+	} else {
+		return "", errors.New("could not convert seq actions to seqMsg")
+	}
 }
 
 // callLog is the result of LOG opCode

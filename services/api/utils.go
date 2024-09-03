@@ -51,7 +51,7 @@ func ComputeWithdrawalsRoot(w []*capella.Withdrawal) (phase0.Root, error) {
 	return withdrawals.HashTreeRoot()
 }
 
-func EqExecutionPayloadToHeader(bb *common.SignedBlindedBeaconBlock, payload *common.VersionedExecutionPayload) error {
+func EqExecutionPayloadToHeader(bb *common.AnchorGetPayloadRequest, payload *common.AnchorGetPayloadResponse) error {
 	if bb.Bellatrix != nil { // process Bellatrix beacon block
 		if payload.Bellatrix == nil {
 			return ErrPayloadMismatchBellatrix
@@ -136,7 +136,7 @@ func hashHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
 	hasher := sha256.New()
 
 	// Serialize the struct to JSON
-	structBytes, err := json.Marshal(s)
+	structBytes, err := json.Marshal(s.Chunk)
 	if err != nil {
 		return eth.Hash{}, err
 	}
@@ -150,7 +150,7 @@ func hashHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
 }
 
 func buildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
-	header, err := hashHeader(s)
+	header, err := hashHeader(s.Chunk)
 	if err != nil {
 		log.Error("failed to hash header")
 	}
@@ -223,7 +223,7 @@ func ComputeMerkleRoot(hashes [][]byte) []byte {
 	return hashes[0]
 }
 
-func VerifySignature(header *common.HeaderInfo, signature boostTypes.Signature, pubKey boostTypes.PubkeyHex) error {
+func VerifySignature(header *common.ExecPayloadsInfo, signature boostTypes.Signature, pubKey boostTypes.PubkeyHex) error {
 	if len(signature) != 65 {
 		return errors.New("invalid signature length")
 	}
