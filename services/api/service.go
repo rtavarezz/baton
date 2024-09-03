@@ -792,6 +792,8 @@ func (api *BatonAPI) simulateBlock(
 	t := time.Now()
 
 	var txs []hexutil.Bytes
+	// TODO: we have txs grouped but how do we simulate these txs? Should we update simulateBlockTxs? 
+	// that way we simulate block txs and the block itself all in this function?
 	txsByNamespace := make(map[string][]hexutil.Bytes)
 	txs = make([]hexutil.Bytes, 0)
 	for _, tx := range req.Chunk.Txs {
@@ -1605,8 +1607,8 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	// TODO: figure out how to use AnchorPayloadRequest to verify signature.
 	// SEQ needs to keep it in byte form when signing(signatures).
 	// 1.) define SEQ signatures
-	// 2.) figure out how to pass header of HeaderInfo or if it's even needed 
-	seqSig := payload.Signature 
+	// 2.) figure out how to pass header of HeaderInfo or if it's even needed
+	seqSig := payload.Signature
 	var header *common.HeaderInfo
 	// can possibly use index of proposer to get the pubkey
 	ok := VerifySignature(header, seqSig, proposerPubkey)
@@ -2835,11 +2837,11 @@ func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 // TODO: Fix this once we figure out hypersdk txs
 // Check if block request is ToB
 func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (bool, error) {
-	if len(req.Txs) == 0 {
+	if len(req.Chunk.Txs) == 0 {
 		return false, errors.New("block request has no transactions provided")
 	}
 
-	if len(req.Txs) == 1 {
+	if len(req.Chunk.Txs) == 1 {
 		return false, errors.New("block request needs more than one transaction provided")
 	}
 
@@ -2848,11 +2850,12 @@ func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (
 	if err != nil {
 		return false, err
 	}
+	firstChainIDStr := fmt.Sprintf("%v", firstChainID)
 
-	for i := 0; i < len(req.Txs); i++ {
-		for _, action := range req.Txs[i].Actions {
+	for i := 0; i < len(req.Chunk.Txs); i++ {
+		for _, action := range req.Chunk.Txs[i].Actions {
 			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-				if string(seqMsg.ChainId) != firstChainID {
+				if string(seqMsg.ChainId) != firstChainIDStr {
 					return false, nil
 				}
 			} else {
