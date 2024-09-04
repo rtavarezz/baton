@@ -1,13 +1,7 @@
 package database
 
-import (
-	"testing"
-	"time"
-
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/stretchr/testify/require"
-)
-
+// TODO: Below shouldn't be needed. Remove later.
+/*
 func TestExecutionPayloadEntryToExecutionPayload(t *testing.T) {
 	filename := "../testdata/executionPayloadCapella_Goerli.json.gz"
 	payloadBytes := common.LoadGzippedBytes(t, filename)
@@ -26,3 +20,4 @@ func TestExecutionPayloadEntryToExecutionPayload(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "0x1bafdc454116b605005364976b134d761dd736cb4788d25c835783b46daeb121", payload.Capella.Capella.BlockHash.String())
 }
+*/

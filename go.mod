@@ -7,7 +7,6 @@ toolchain go1.22.5
 require (
 	github.com/AnomalyFi/hypersdk v0.9.5
 	github.com/AnomalyFi/nodekit-seq v0.9.13
-	github.com/AnomalyFi/seq-sdk v0.1.3
 	github.com/NYTimes/gziphandler v1.1.1
 	github.com/alicebob/miniredis/v2 v2.31.0
 	github.com/attestantio/go-builder-client v0.4.2
@@ -26,7 +25,6 @@ require (
 	github.com/lib/pq v1.10.8
 	github.com/pkg/errors v0.9.1
 	github.com/r3labs/sse/v2 v2.10.0
-	github.com/rs/zerolog v1.29.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.8.4
@@ -124,7 +122,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/ferranbt/fastssz v0.1.3
+	github.com/ferranbt/fastssz v0.1.3 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

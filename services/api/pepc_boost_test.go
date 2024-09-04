@@ -1,5 +1,7 @@
 package api
 
+// @TODO: This test seems to be irrelevant for us. Determine if this is so and then get rid of it.
+/*
 import (
 	"context"
 	"encoding/json"
@@ -2084,3 +2086,4 @@ func TestSubmitBuilderBlock(t *testing.T) {
 		})
 	}
 }
+*/

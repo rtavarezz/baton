@@ -283,7 +283,7 @@ func (r *RedisCache) keyFloorToBBidValue(slot uint64, parentHash, proposerPubkey
 
 // keyFloorBidValue returns the key for the highest non-cancellable value of a given slot+parentHash+proposerPubkey
 func (r *RedisCache) keyFloorRoBBidValue(slot uint64, parentHash, proposerPubkey string, chainID string) string {
-	return fmt.Sprintf("rob,%s:%d_%s_%s_%s_%s", r.prefixFloorBidValue, slot, parentHash, proposerPubkey, chainID)
+	return fmt.Sprintf("rob,%s:%d_%s_%s_%s", r.prefixFloorBidValue, slot, parentHash, proposerPubkey, chainID)
 }
 
 func (r *RedisCache) GetObj(key string, obj any) (err error) {

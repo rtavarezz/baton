@@ -15,6 +15,10 @@ func (m *MockBlockSimulationRateLimiter) Send(context context.Context, payload *
 	return nil, m.simulationError
 }
 
+func (m *MockBlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Context, blockReq *common.BlockValidationRequest) (uint64, error, error) {
+	return 0, nil, nil
+}
+
 func (m *MockBlockSimulationRateLimiter) CurrentCounter() int64 {
 	return 0
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	eth "github.com/ethereum/go-ethereum/common"
 	"math/big"
 	"time"
 
@@ -18,6 +19,7 @@ type MockDB struct {
 	Refunds          map[string]bool
 	IncludedTobTxs   map[string][]*IncludedTobTxEntry
 	TobSubmitProfile map[string]*ToBSubmitProfileEntry
+	RobSubmitProfile map[string]*RoBSubmitProfileEntry
 }
 
 func (db MockDB) NumRegisteredValidators() (count uint64, err error) {
@@ -136,12 +138,40 @@ func (db MockDB) SaveBuilderBlockSubmission(
 	return blockSubmissionEntry, err
 }
 
+// TODO: Fill me in later if needed
+func (db MockDB) SaveDeliveredAnchorPayload(
+	bidTrace *common.BidTraceV3,
+	payloadResp *common.AnchorGetPayloadResponse,
+	signedAt time.Time,
+	publishMs uint64,
+) error {
+	return nil
+}
+
 func (db MockDB) GetExecutionPayloadEntryByID(executionPayloadID int64) (entry *ExecutionPayloadEntry, err error) {
 	return nil, nil
 }
 
 func (db MockDB) GetExecutionPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error) {
 	key := fmt.Sprintf("%d-%s-%s", slot, proposerPubkey, blockHash)
+	entry, ok := db.ExecPayloads[key]
+	if !ok {
+		return nil, sql.ErrNoRows
+	}
+	return entry, nil
+}
+
+func (db MockDB) GetToBAnchorPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string) (entry *ExecutionPayloadEntry, err error) {
+	key := fmt.Sprintf("tob,%d-%s-%s", slot, proposerPubkey, blockHash)
+	entry, ok := db.ExecPayloads[key]
+	if !ok {
+		return nil, sql.ErrNoRows
+	}
+	return entry, nil
+}
+
+func (db MockDB) GetRoBAnchorPayloadEntryBySlotPkHash(slot uint64, proposerPubkey, blockHash string, chainID string) (entry *ExecutionPayloadEntry, err error) {
+	key := fmt.Sprintf("rob,%d-%s-%s-%s", slot, proposerPubkey, blockHash, chainID)
 	entry, ok := db.ExecPayloads[key]
 	if !ok {
 		return nil, sql.ErrNoRows
@@ -167,11 +197,11 @@ func (db MockDB) GetBlockSubmissionEntry(slot uint64, proposerPubkey, blockHash 
 	return entry, nil
 }
 
-func (db MockDB) GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*common.AnchorPayload, error) {
+func (db MockDB) GetRecentDeliveredPayloads(filters GetPayloadsFilters) ([]*DeliveredPayloadEntry2, error) {
 	return nil, nil
 }
 
-func (db MockDB) GetDeliveredPayloads(idFirst, idLast uint64) (entries []*common.AnchorPayload, err error) {
+func (db MockDB) GetDeliveredPayloads(idFirst, idLast uint64) (entries []*DeliveredPayloadEntry2, err error) {
 	return nil, nil
 }
 
@@ -191,7 +221,7 @@ func (db MockDB) SaveDeliveredPayload(bidTrace *common.BidTraceV3, payloadResp *
 	return nil
 }
 
-func (db MockDB) UpsertBlockBuilderEntryAfterSubmission(lastSubmission *BuilderBlockSubmissionEntry, isError bool) error {
+func (db MockDB) UpsertBlockBuilderEntryAfterSubmission(lastSubmission *BuilderBlockSubmissionEntry, isToB bool, chainID string, isError bool) error {
 	return nil
 }
 
@@ -319,12 +349,12 @@ func (db MockDB) GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(slot uin
 	return entries, nil
 }
 
-func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
-	key := fmt.Sprintf("%d-%s-%s", slot, parentHash, txHashes)
+func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
+	key := fmt.Sprintf("tob,%d-%s-%s", slot, parentHash.String(), txHashes)
 	db.TobSubmitProfile[key] = &ToBSubmitProfileEntry{
 		TxHashes:             txHashes,
 		Slot:                 slot,
-		ParentHash:           parentHash,
+		ParentHash:           parentHash.String(),
 		SimulationDurationUs: simulationDuration,
 		TracerDurationUs:     tracerDuration,
 		TotalDurationUs:      totalDuration,
@@ -333,10 +363,35 @@ func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash string, txHashes
 	return nil
 }
 
-func (db MockDB) GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *ToBSubmitProfileEntry, err error) {
-	key := fmt.Sprintf("%d-%s-%s", slot, parentHash, txHashes)
+func (db MockDB) InsertRoBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
+	key := fmt.Sprintf("rob,%d-%s-%s", slot, parentHash.String(), txHashes)
+	db.RobSubmitProfile[key] = &RoBSubmitProfileEntry{
+		TxHashes:             txHashes,
+		Slot:                 slot,
+		ParentHash:           parentHash.String(),
+		SimulationDurationUs: simulationDuration,
+		TracerDurationUs:     tracerDuration,
+		TotalDurationUs:      totalDuration,
+	}
+
+	return nil
+}
+
+func (db MockDB) GetToBSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *ToBSubmitProfileEntry, err error) {
+	key := fmt.Sprintf("tob,%d-%s-%s", slot, parentHash, txHashes)
 
 	res, ok := db.TobSubmitProfile[key]
+	if !ok {
+		return nil, fmt.Errorf(sql.ErrNoRows.Error())
+	}
+
+	return res, nil
+}
+
+func (db MockDB) GetRoBSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *RoBSubmitProfileEntry, err error) {
+	key := fmt.Sprintf("rob,%d-%s-%s", slot, parentHash, txHashes)
+
+	res, ok := db.RobSubmitProfile[key]
 	if !ok {
 		return nil, fmt.Errorf(sql.ErrNoRows.Error())
 	}

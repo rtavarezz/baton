@@ -80,9 +80,8 @@ type IDatabaseService interface {
 	InsertToBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
 	InsertRoBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error
 
-	// @TODO: Are the below needed?
-	//GetRobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
-	//GetTobSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
+	GetRoBSubmitProfile(slot uint64, parentHash string, txHashes string) (*RoBSubmitProfileEntry, error)
+	GetToBSubmitProfile(slot uint64, parentHash string, txHashes string) (*ToBSubmitProfileEntry, error)
 
 	UpsertBlockBuilderEntryAfterSubmission(lastSubmission *BuilderBlockSubmissionEntry, isToB bool, chainID string, isError bool) error
 }
@@ -881,6 +880,13 @@ func (s *DatabaseService) InsertRoBSubmitProfile(
 		(:slot, :parent_hash, :tx_hashes, :simulation_duration_us, :tracer_duration_us, :total_duration_us);`
 	_, err := s.DB.NamedExec(query, entry)
 	return err
+}
+
+func (s *DatabaseService) GetToBSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *ToBSubmitProfileEntry, err error) {
+	entries := []*ToBSubmitProfileEntry{}
+	query := `SELECT id, inserted_at, slot, parent_hash, tx_hashes, simulation_duration_us, tracer_duration_us, total_duration_us FROM ` + vars.TableTobSubmitProfile + ` WHERE slot = $1 AND parent_hash = $2 AND tx_hashes = $3`
+	err = s.DB.Select(&entries, query, slot, parentHash, txHashes)
+	return entries[0], err
 }
 
 func (s *DatabaseService) GetRoBSubmitProfile(slot uint64, parentHash string, txHashes string) (entry *RoBSubmitProfileEntry, err error) {
