@@ -632,7 +632,11 @@ func (s *DatabaseService) GetBuilderSubmissionsBySlots(slotFrom, slotTo uint64) 
 	return entries, err
 }
 
-func (s *DatabaseService) UpsertBlockBuilderEntryAfterSubmission(lastSubmission *BuilderBlockSubmissionEntry, isToB bool, chainID string, isError bool) error {
+func (s *DatabaseService) UpsertBlockBuilderEntryAfterSubmission(
+	lastSubmission *BuilderBlockSubmissionEntry,
+	isToB bool,
+	chainID string,
+	isError bool) error {
 	entry := BlockBuilderEntry{
 		BuilderPubkey:          lastSubmission.BuilderPubkey,
 		LastSubmissionID:       NewNullInt64(lastSubmission.ID),

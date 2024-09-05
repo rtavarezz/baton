@@ -5,15 +5,17 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	common2 "github.com/ethereum/go-ethereum/common"
-	"github.com/flashbots/go-boost-utils/bls"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/database/migrations"
 	"github.com/flashbots/mev-boost-relay/database/vars"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
+	"math/big"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -50,44 +52,35 @@ func createValidatorRegistration(pubKey string) ValidatorRegistrationEntry {
 	}
 }
 
-func getTestKeyPair(t *testing.T) (*phase0.BLSPubKey, *bls.SecretKey) {
-	t.Helper()
-	sk, _, err := bls.GenerateNewKeypair()
-	require.NoError(t, err)
-	blsPubkey, err := bls.PublicKeyFromSecretKey(sk)
-	require.NoError(t, err)
-	var pubkey phase0.BLSPubKey
-	bytes := blsPubkey.Bytes()
-	copy(pubkey[:], bytes[:])
-	return &pubkey, sk
-}
-
-// @TODO: FIX ME LATER
 func insertTestBuilder(t *testing.T, db *DatabaseService) string {
-	/*
-		t.Helper()
-		pk, sk := getTestKeyPair(t)
-		var testBlockHash phase0.Hash32
-		hashSlice, err := hexutil.Decode(blockHashStr)
-		require.NoError(t, err)
-		copy(testBlockHash[:], hashSlice)
-		req := common.TestBuilderSubmitBlockRequest(sk, &common.BidTraceV2{
-			BidTrace: v1.BidTrace{
-				BlockHash:            testBlockHash,
-				Slot:                 slot,
-				BuilderPubkey:        *pk,
-				ProposerPubkey:       *pk,
-				ProposerFeeRecipient: feeRecipient,
-				Value:                uint256.NewInt(collateral),
-			},
-		})
-		entry, err := db.SaveBuilderBlockSubmission(&req, nil, nil, time.Now(), time.Now().Add(time.Second), true, true, profile, optimisticSubmission)
-		require.NoError(t, err)
-		err = db.UpsertBlockBuilderEntryAfterSubmission(entry, false)
-		require.NoError(t, err)
-		return req.BuilderPubkey().String()
-	*/
-	return ""
+	t.Helper()
+	var testBlockHash phase0.Hash32
+	hashSlice, err := hexutil.Decode(blockHashStr)
+	require.NoError(t, err)
+	copy(testBlockHash[:], hashSlice)
+
+	req := common.SubmitNewBlockRequest{}
+
+	entry, err := db.SaveBuilderBlockSubmission(
+		&req,
+		nil,
+		10,
+		100000,
+		true,
+		big.NewInt(100),
+		"chain1",
+		nil,
+		nil,
+		time.Now(),
+		time.Now().Add(time.Second),
+		true,
+		true,
+		profile,
+		optimisticSubmission)
+	require.NoError(t, err)
+	err = db.UpsertBlockBuilderEntryAfterSubmission(entry, true, "chain1", false)
+	require.NoError(t, err)
+	return req.BuilderPubkey().String()
 }
 
 func resetDatabase(t *testing.T) *DatabaseService {
