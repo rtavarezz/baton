@@ -3,19 +3,32 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/AnomalyFi/hypersdk/chain"
+	"github.com/AnomalyFi/hypersdk/codec"
 	"github.com/alicebob/miniredis/v2"
+	eth "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/types"
+	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/database"
 	"github.com/flashbots/mev-boost-relay/datastore"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"net/http"
-	"net/http/httptest"
-	"testing"
+	"go.uber.org/atomic"
 )
+
 
 const (
 	testGasLimit        = uint64(30000000)
@@ -290,56 +303,147 @@ func TestRegisterValidator(t *testing.T) {
 	// })
 }
 
-// TODO: Fix me.
+// TODO: Fix me. Possibly change test below by defining struct, making a request, and calling func using that request
+// just like it was done for testHandleSubmitNewBlock
 func TestGetHeader(t *testing.T) {
-	/*
-		// Setup backend with headSlot and genesisTime
-		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-		backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
-			Data: beaconclient.GetGenesisResponseData{
-				GenesisTime: uint64(time.Now().UTC().Unix()),
-			},
-		}
+    // Setup backend with headSlot and genesisTime
+    backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+    backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+        Data: beaconclient.GetGenesisResponseData{
+            GenesisTime: uint64(time.Now().UTC().Unix()),
+        },
+    }
+    // request params
+    slot := uint64(1)
+    backend.relay.headSlot.Store(slot)
+    parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
+    proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+    // request path
+    path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/%s", slot, parentHash, proposerPubkey)
+    // cretae bids 
+    robBids := make(map[string]*common.AnchorHeader)
+    robBids["builder1"] = &common.AnchorHeader{
+        Header: &eth.Hash{},
+        BlockHash: "0x1",
+    }
+    robBids["builder2"] = &common.AnchorHeader{
+        Header: &eth.Hash{},
+        BlockHash: "0x2",
+    }
+    robBids["builder3"] = &common.AnchorHeader{
+        Header: &eth.Hash{},
+        BlockHash: "0x3",
+    }
+	fmt.Println("robBids: ", robBids)
+    tobBest, err := backend.redis.GetBestToBBid(slot, parentHash, proposerPubkey)
+    require.NoError(t, err)
+    require.NotNil(t, tobBest)
+	fmt.Println("tobBest: ", tobBest)
+    // @TODO: use any other Get/Set methods that were forgotten from redis for tob/rob bids
+    execPayloadsInfo := &common.ExecPayloadsInfo{
+        ToBHash:   tobBest,
+        RoBHashes: robBids,
+    }
+	fmt.Println("execPayloadsInfo: ", execPayloadsInfo)
 
-		// request params
-		slot := uint64(2)
-		backend.relay.headSlot.Store(slot)
-		parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
-		proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-		builderPubkey := "0xfa1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
-		bidValue := big.NewInt(99)
-		trace := &common.BidTraceV2{
-			BidTrace: v1.BidTrace{
-				Value: uint256.MustFromBig(bidValue),
-			},
-		}
+    tobPayloadHash := execPayloadsInfo.ToBHash.Header.Bytes()
+	fmt.Println("tobPayloadHash: ", tobPayloadHash)
+    for chainID := range robBids {
+        // @TODO: need to set best rob bid first
+        bid, err := backend.redis.GetBestRoBBid(slot, parentHash, proposerPubkey, chainID)
+		fmt.Println("bid in rob: ", bid)
+        require.NoError(t, err)
+        require.NotNil(t, bid)
+        require.NotEqual(t, big.NewInt(0), bid.Header.Big())
+        execPayloadsInfo.RoBHashes[chainID] = bid
+        tobPayloadHash = append(tobPayloadHash, bid.Header.Bytes()...)
+		fmt.Println("tobPayloadHash in rob: ", tobPayloadHash)
+    }
+    concate := sha256.Sum256(tobPayloadHash)
+	fmt.Println("concate: ", concate)
+    var Anchor *common.AnchorBlockInfo 
+    Anchor.Slot = slot
+    Anchor.ChunkHash = concate
+	fmt.Println("Anchor: ", Anchor)
+    var anchorResp *common.AnchorGetHeaderResponse
+    anchorResp.ExecPayloads = *execPayloadsInfo
+    anchorResp.BlockInfo = *Anchor
+	fmt.Println("anchorResp: ", anchorResp)
+    // Check 1: regular request works and returns a bid
+    rr := backend.request(http.MethodGet, path, nil)
+    require.Equal(t, http.StatusOK, rr.Code)
+    resp := common.AnchorGetHeaderResponse{}
+    jsonError := json.Unmarshal(rr.Body.Bytes(), &resp)
+    require.NoError(t, jsonError)
+    require.NotNil(t, resp.ExecPayloads.ToBHash)
+    require.Equal(t, "0x0", resp.ExecPayloads.ToBHash.BlockHash)
+    require.NotNil(t, resp.ExecPayloads.RoBHashes["builder1"])
+    require.Equal(t, "0x1", resp.ExecPayloads.RoBHashes["builder1"].BlockHash)
+    require.NotNil(t, resp.ExecPayloads.RoBHashes["builder2"])
+    require.Equal(t, "0x2", resp.ExecPayloads.RoBHashes["builder2"].BlockHash)
+    require.NotNil(t, resp.ExecPayloads.RoBHashes["builder3"])
+    require.Equal(t, "0x3", resp.ExecPayloads.RoBHashes["builder3"].BlockHash)
 
-		// request path
-		path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/%s", slot, parentHash, proposerPubkey)
+    // check bids contains chain ids
+    require.NotNil(t, execPayloadsInfo.ToBHash.Header)
+    require.Contains(t, execPayloadsInfo.RoBHashes, "builder1")
+    require.Contains(t, execPayloadsInfo.RoBHashes, "builder2")
+    require.Contains(t, execPayloadsInfo.RoBHashes, "builder3")
 
-		// Create a bid
-		opts := common.CreateTestBlockSubmissionOpts{
-			Slot:           slot,
-			ParentHash:     parentHash,
-			ProposerPubkey: proposerPubkey,
-		}
-		payload, getPayloadResp, getHeaderResp := common.CreateTestBlockSubmission(t, builderPubkey, bidValue, &opts)
-		_, err := backend.redis.SaveBidAndUpdateTopBid(context.Background(), backend.redis.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
-		require.NoError(t, err)
-
-		// Check 1: regular request works and returns a bid
-		rr := backend.request(http.MethodGet, path, nil)
-		require.Equal(t, http.StatusOK, rr.Code)
-		resp := common.GetHeaderResponse{}
-		err = json.Unmarshal(rr.Body.Bytes(), &resp)
-		require.NoError(t, err)
-		require.Equal(t, bidValue.String(), resp.Value().String())
-
-		// Check 2: Request returns 204 if sending a filtered user agent
-		rr = backend.requestWithUA(http.MethodGet, path, "mev-boost/v1.5.0 Go-http-client/1.1", nil)
-		require.Equal(t, http.StatusNoContent, rr.Code)
-	*/
+    // check for invalid bid
+    invalidBid := &common.AnchorHeader{
+        Header:    &eth.Hash{},
+        BlockHash: "0x4",
+    }
+    execPayloadsInfo.RoBHashes["invalid"] = invalidBid
+    require.NotEqual(t, "0x4", execPayloadsInfo.RoBHashes["builder1"].BlockHash)
 }
+
+// @TODO: Finish/fix handle test function below. Can either hard code which is copying most logic of actual function
+// or create a fake request to call the function which is the approach taken below.
+func TestHandleSubmitNewBlockRequest(t *testing.T) {
+	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+    backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+        Data: beaconclient.GetGenesisResponseData{
+            GenesisTime: uint64(time.Now().UTC().Unix()),
+        },
+    }
+	api := &BatonAPI{
+        headSlot:  *atomic.NewUint64(0),
+    }
+	slot := uint64(1)
+    api.headSlot.Store(slot)
+	validRequest := common.SubmitNewBlockRequest{
+        Chunk: common.BatonBlock{
+            Txs: []*chain.Transaction{
+                // populate with test txs and fill those values too
+            },
+            Slot:           2,
+            ParentHash:     eth.HexToHash("0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"),
+            BlockNumber:    map[string]string{"mainnet": "12345"},
+            BlockHash:      eth.HexToHash("0x0"),
+            ProposerPubkey: boostTypes.PublicKey{0x01, 0x02, 0x03},
+            ProposerPayment: codec.Address{
+                // populate with test address
+            },
+        },
+        Signature:     boostTypes.Signature{0x01, 0x02, 0x03},
+        BuilderPubKey: boostTypes.PublicKey{0x01, 0x02, 0x03}, 
+    }
+
+    // marshal the req body
+    requestBodyBytes, err := json.Marshal(validRequest)
+    require.NoError(t, err)
+    // new HTTP req
+    req := httptest.NewRequest(http.MethodPost, "todo: make endpoint for this req", bytes.NewReader(requestBodyBytes))
+    req.Header.Set("Content-Type", "application/json")
+    // capture the resp
+    rr := httptest.NewRecorder()
+	// call handle func
+	api.handleSubmitNewBlockRequest(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
 
 func TestBuilderApiGetValidators(t *testing.T) {
 	path := "/relay/v1/builder/validators"

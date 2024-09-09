@@ -1484,7 +1484,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	resp.ToBHash = bid
 	combined := resp.ToBHash.Header.Bytes()
 
-	for chainID, _ := range api.robChainIDs {
+	for chainID := range api.robChainIDs {
 		bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
 		if err != nil {
 			log.WithError(err).Error("could not get bid for RoB: " + chainID)
@@ -2357,13 +2357,13 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	simulationDuration := time.Since(simStartTime).Microseconds()
 
-	blockNumberJson, err := json.Marshal(blockReq.BlockNumber())
+	blockNumberJSON, err := json.Marshal(blockReq.BlockNumber())
 	if err != nil {
 		log.WithError(err).Warn("couldn't marshal block number")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	blockNumberJsonStr := string(blockNumberJson[:])
+	blockNumberJSONStr := string(blockNumberJSON[:])
 
 	trace := common.BidTraceV3{
 		Slot:            slot,
@@ -2377,7 +2377,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		GasLimit:        gasLimit,
 		GasUsed:         gasUsed,
 		Value:           value.Uint64(),
-		BlockNumber:     blockNumberJsonStr,
+		BlockNumber:     blockNumberJSONStr,
 		NumTx:           uint64(len(blockReq.Txs())),
 	}
 
