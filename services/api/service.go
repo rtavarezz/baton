@@ -1426,6 +1426,8 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		"msIntoSlot":       msIntoSlot,
 	})
 
+	log.Debug("request arrived")
+	
 	if len(proposerPubkeyHex) != 98 {
 		api.RespondError(w, http.StatusBadRequest, common.ErrInvalidPubkey.Error())
 		return
@@ -2125,8 +2127,13 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	headSlot := api.headSlot.Load()
 	receivedAt := time.Now().UTC()
 	prevTime = receivedAt
+	if api.log == nil {
+        panic("api.log is nil")
+    }
 
-	log := api.log.WithFields(logrus.Fields{
+    log := api.log.WithField("method", "submitNewBlockRequest")
+    log.Info("Received request")
+	log = api.log.WithFields(logrus.Fields{
 		"method":                "submitNewBlockRequest",
 		"contentLength":         req.ContentLength,
 		"headSlot":              headSlot,
