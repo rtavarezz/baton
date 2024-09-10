@@ -308,6 +308,7 @@ func TestGetHeader(t *testing.T) {
 			GenesisTime: uint64(time.Now().UTC().Unix()),
 		},
 	}
+
 	// request params
 	api := &BatonAPI{
 		headSlot: *atomic.NewUint64(0),

@@ -1397,6 +1397,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 
 func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
+	// TODO: figure out slot(block number from seq) with rollups
 	slotStr := vars["slot"]
 	parentHashHex := vars["parent_hash"]
 	proposerPubkeyHex := vars["pubkey"]
@@ -1632,6 +1633,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	seqSig := payload.Signature
 	var header *common.ExecPayloadsInfo
 	// can possibly use index of proposer to get the pubkey
+	// TODO: marshal the header then verify sig and pubkey
 	ok := VerifySignature(header, seqSig, proposerPubkey)
 	if ok != nil {
 		if api.ffLogInvalidSignaturePayload {
@@ -2121,6 +2123,8 @@ func (api *BatonAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBid
 */
 
 // This method used for both ToB and for RoB.
+// TODO: Builders need to register themeselves on Baton before submitting blocks
+// TODO: rollup sequencer provide slot state and we need to make sure slot is seperated between rob and tob(this we can provide in baton, just verify that the slot matches)
 func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *http.Request) {
 	var pf common.Profile
 	var prevTime, nextTime time.Time
@@ -2161,6 +2165,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	blockReq := common.NewSubmitNewBlockRequest()
+
 	err = blockReq.FromJSON(payloadBytes)
 
 	if err != nil {
