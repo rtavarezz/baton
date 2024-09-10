@@ -10,11 +10,8 @@ import (
 	"testing"
 	"time"
 
-	ava "github.com/AnomalyFi/hypersdk/chain"
-	"github.com/AnomalyFi/hypersdk/codec"
 	// "github.com/AnomalyFi/hypersdk/state"
 	"github.com/alicebob/miniredis/v2"
-	"github.com/ava-labs/avalanchego/ids"
 	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/types"
@@ -27,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 )
-
 
 const (
 	testGasLimit        = uint64(30000000)
@@ -305,204 +301,97 @@ func TestRegisterValidator(t *testing.T) {
 // TODO: Fix me. Possibly change test below by defining struct, making a request, and calling func using that request
 // just like it was done for testHandleSubmitNewBlock
 func TestGetHeader(t *testing.T) {
-    // Setup backend with headSlot and genesisTime
-    backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-    backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
-        Data: beaconclient.GetGenesisResponseData{
-            GenesisTime: uint64(time.Now().UTC().Unix()),
-        },
-    }
-    // request params
-	api := &BatonAPI{
-		headSlot:  *atomic.NewUint64(0),
+	// Setup backend with headSlot and genesisTime
+	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+		Data: beaconclient.GetGenesisResponseData{
+			GenesisTime: uint64(time.Now().UTC().Unix()),
+		},
 	}
-    slot := uint64(1)
-    backend.relay.headSlot.Store(slot)
-    parentHash := eth.HexToHash("0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747")
-    proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-    // request path
-    path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/%s", slot, parentHash, proposerPubkey)
+	// request params
+	api := &BatonAPI{
+		headSlot: *atomic.NewUint64(0),
+	}
+	slot := uint64(1)
+	backend.relay.headSlot.Store(slot)
+	parentHash := eth.HexToHash("0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747")
+	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+	// request path
+	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/%s", slot, parentHash, proposerPubkey)
 	// validRequest := common.AnchorHeader{
-    //     Header: &eth.Hash{},
-    //     BlockHash: "0x1",
-    // }
-    rr := httptest.NewRecorder()
+	//     Header: &eth.Hash{},
+	//     BlockHash: "0x1",
+	// }
+	rr := httptest.NewRecorder()
 
-    req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 
-    api.handleGetHeader(rr, req)
+	api.handleGetHeader(rr, req)
 
-    require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, http.StatusOK, rr.Code)
 
-    var resp common.AnchorGetHeaderResponse
-    err := json.Unmarshal(rr.Body.Bytes(), &resp)
-    require.NoError(t, err)
-    require.NotNil(t, resp.ExecPayloads.ToBHash)
-    require.Equal(t, "0x0", resp.ExecPayloads.ToBHash.BlockHash)
-    require.NotNil(t, resp.ExecPayloads.RoBHashes["builder1"])
-    require.Equal(t, "0x1", resp.ExecPayloads.RoBHashes["builder1"].BlockHash)
-    require.NotNil(t, resp.ExecPayloads.RoBHashes["builder2"])
-    require.Equal(t, "0x2", resp.ExecPayloads.RoBHashes["builder2"].BlockHash)
-    require.NotNil(t, resp.ExecPayloads.RoBHashes["builder3"])
-    require.Equal(t, "0x3", resp.ExecPayloads.RoBHashes["builder3"].BlockHash)
+	var resp common.AnchorGetHeaderResponse
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	require.NotNil(t, resp.ExecPayloads.ToBHash)
+	require.Equal(t, "0x0", resp.ExecPayloads.ToBHash.BlockHash)
+	require.NotNil(t, resp.ExecPayloads.RoBHashes["builder1"])
+	require.Equal(t, "0x1", resp.ExecPayloads.RoBHashes["builder1"].BlockHash)
+	require.NotNil(t, resp.ExecPayloads.RoBHashes["builder2"])
+	require.Equal(t, "0x2", resp.ExecPayloads.RoBHashes["builder2"].BlockHash)
+	require.NotNil(t, resp.ExecPayloads.RoBHashes["builder3"])
+	require.Equal(t, "0x3", resp.ExecPayloads.RoBHashes["builder3"].BlockHash)
 }
-    // cretae bids 
-//     robBids := make(map[string]*common.AnchorHeader)
-//     robBids["builder1"] = &common.AnchorHeader{
-//         Header: &eth.Hash{},
-//         BlockHash: "0x1",
-//     }
-//     robBids["builder2"] = &common.AnchorHeader{
-//         Header: &eth.Hash{},
-//         BlockHash: "0x2",
-//     }
-//     robBids["builder3"] = &common.AnchorHeader{
-//         Header: &eth.Hash{},
-//         BlockHash: "0x3",
-//     }
-// 	fmt.Println("robBids: ", robBids)
-//     tobBest, err := backend.redis.GetBestToBBid(slot, parentHash, proposerPubkey)
-//     require.NoError(t, err)
-//     require.NotNil(t, tobBest)
-// 	fmt.Println("tobBest: ", tobBest)
-//     // @TODO: use any other Get/Set methods that were forgotten from redis for tob/rob bids
-//     execPayloadsInfo := &common.ExecPayloadsInfo{
-//         ToBHash:   tobBest,
-//         RoBHashes: robBids,
-//     }
-// 	fmt.Println("execPayloadsInfo: ", execPayloadsInfo)
-
-//     tobPayloadHash := execPayloadsInfo.ToBHash.Header.Bytes()
-// 	fmt.Println("tobPayloadHash: ", tobPayloadHash)
-//     for chainID := range robBids {
-//         // @TODO: need to set best rob bid first
-//         bid, err := backend.redis.GetBestRoBBid(slot, parentHash, proposerPubkey, chainID)
-// 		fmt.Println("bid in rob: ", bid)
-//         require.NoError(t, err)
-//         require.NotNil(t, bid)
-//         require.NotEqual(t, big.NewInt(0), bid.Header.Big())
-//         execPayloadsInfo.RoBHashes[chainID] = bid
-//         tobPayloadHash = append(tobPayloadHash, bid.Header.Bytes()...)
-// 		fmt.Println("tobPayloadHash in rob: ", tobPayloadHash)
-//     }
-//     concate := sha256.Sum256(tobPayloadHash)
-// 	fmt.Println("concate: ", concate)
-//     var Anchor *common.AnchorBlockInfo 
-//     Anchor.Slot = slot
-//     Anchor.ChunkHash = concate
-// 	fmt.Println("Anchor: ", Anchor)
-//     var anchorResp *common.AnchorGetHeaderResponse
-//     anchorResp.ExecPayloads = *execPayloadsInfo
-//     anchorResp.BlockInfo = *Anchor
-// 	fmt.Println("anchorResp: ", anchorResp)
-//     // Check 1: regular request works and returns a bid
-//     rr := backend.request(http.MethodGet, path, nil)
-//     require.Equal(t, http.StatusOK, rr.Code)
-//     resp := common.AnchorGetHeaderResponse{}
-//     jsonError := json.Unmarshal(rr.Body.Bytes(), &resp)
-//     require.NoError(t, jsonError)
-//     require.NotNil(t, resp.ExecPayloads.ToBHash)
-//     require.Equal(t, "0x0", resp.ExecPayloads.ToBHash.BlockHash)
-//     require.NotNil(t, resp.ExecPayloads.RoBHashes["builder1"])
-//     require.Equal(t, "0x1", resp.ExecPayloads.RoBHashes["builder1"].BlockHash)
-//     require.NotNil(t, resp.ExecPayloads.RoBHashes["builder2"])
-//     require.Equal(t, "0x2", resp.ExecPayloads.RoBHashes["builder2"].BlockHash)
-//     require.NotNil(t, resp.ExecPayloads.RoBHashes["builder3"])
-//     require.Equal(t, "0x3", resp.ExecPayloads.RoBHashes["builder3"].BlockHash)
-
-//     // check bids contains chain ids
-//     require.NotNil(t, execPayloadsInfo.ToBHash.Header)
-//     require.Contains(t, execPayloadsInfo.RoBHashes, "builder1")
-//     require.Contains(t, execPayloadsInfo.RoBHashes, "builder2")
-//     require.Contains(t, execPayloadsInfo.RoBHashes, "builder3")
-
-//     // check for invalid bid
-//     invalidBid := &common.AnchorHeader{
-//         Header:    &eth.Hash{},
-//         BlockHash: "0x4",
-//     }
-//     execPayloadsInfo.RoBHashes["invalid"] = invalidBid
-//     require.NotEqual(t, "0x4", execPayloadsInfo.RoBHashes["builder1"].BlockHash)
-// }
 
 // @TODO: Finish/fix handle test function below. Can either hard code which is copying most logic of actual function
 // or create a fake request to call the function which is the approach taken below.
 func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-    backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
-        Data: beaconclient.GetGenesisResponseData{
-            GenesisTime: uint64(time.Now().UTC().Unix()),
-        },
-    }
-	logger := logrus.New()
-    logEntry := logrus.NewEntry(logger)
-	api := &BatonAPI{
-        headSlot:  *atomic.NewUint64(0),
-		log: logEntry,
-    }
-	slot := uint64(1)
-    api.headSlot.Store(slot)
-	// Initialize default values
-	validRequest := common.SubmitNewBlockRequest{
-		Chunk: common.BatonBlock{
-			Txs: []*ava.Transaction{
-				{
-					Base: &ava.Base{
-						Timestamp: time.Now().Unix(),
-						ChainID:   ids.ID{0x01, 0x02, 0x03, 0x04},
-						MaxFee:    1000,
-					},
-					Actions: []ava.Action{}, 
-					Auth:    nil,             
-					// digest:  []byte{0x01, 0x02, 0x03},
-					// bytes:   []byte{0x04, 0x05, 0x06},
-					// size:    256,
-					// id:      ids.ID{0x07, 0x08, 0x09, 0x0A},
-					// stateKeys: state.Keys{
-					// 	"key1": state.Permissions{Read: true, Write: false},
-					// 	"key2": state.Permissions{Read: true, Write: true},
-					// },
-				},
-				{
-					Base: &ava.Base{
-						Timestamp: time.Now().Unix(),
-						ChainID:   ids.ID{0x05, 0x06, 0x07, 0x08},
-						MaxFee:    1000,
-					},
-					Actions: []ava.Action{}, 
-					Auth:    nil,             
-					// digest:  []byte{0x01, 0x02, 0x03},
-					// bytes:   []byte{0x04, 0x05, 0x06},
-					// size:    256,
-					// id:      ids.ID{0x07, 0x08, 0x09, 0x0A},
-					// stateKeys: state.Keys{
-					// 	"key1": state.Permissions{Read: true, Write: false},
-					// 	"key2": state.Permissions{Read: true, Write: true},
-					// },
-				},
-			},
-			Slot:           2,
-            ParentHash:     eth.HexToHash("0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"),
-            BlockNumber:    map[string]string{"mainnet": "12345"},
-            BlockHash:      eth.HexToHash("0x0"),
-            ProposerPubkey: boostTypes.PublicKey{0x01, 0x02, 0x03},
-            ProposerPayment: codec.CreateAddress(0x01, ids.ID{0x01, 0x02, 0x03, 0x04}),
+	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+		Data: beaconclient.GetGenesisResponseData{
+			GenesisTime: uint64(time.Now().UTC().Unix()),
 		},
 	}
+	logger := logrus.New()
+	logEntry := logrus.NewEntry(logger)
+	api := &BatonAPI{
+		headSlot: *atomic.NewUint64(0),
+		log:      logEntry,
+	}
+	slot := uint64(1)
+	api.headSlot.Store(slot)
+	opts := CreateTestBlockSubmissionOpts{
+		Slot:           0,
+		ParentHash:     "",
+		BuilderPubkey:  "",
+		ProposerPubkey: boostTypes.PublicKey{},
+		IsToB:          false,
+		robChainIndex:  0,
+		numTxs:         0,
+	}
+	// Initialize default values
+	opts.IsToB = true
+	opts.numTxs = 1
+	opts.ParentHash = "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
+	opts.BuilderPubkey = "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890453"
+	var err error
+	opts.ProposerPubkey, err = boostTypes.HexToPubkey(proposerPubkey)
+	require.NoError(t, err)
+	block, _, _ := CreateTestChunkSubmission(t, uint64(2), &opts)
 
-    // marshal the req body
-    requestBodyBytes, err := json.Marshal(validRequest)
-    require.NoError(t, err)
-    // new HTTP req
-    req := httptest.NewRequest(http.MethodPost, "/relay/v1/builder/submit", bytes.NewReader(requestBodyBytes))
-    req.Header.Set("Content-Type", "application/json")
-    // capture the resp
-    rr := httptest.NewRecorder()
+	// marshal the req body
+	requestBodyBytes, err := json.Marshal(block)
+	require.NoError(t, err)
+	// new HTTP req
+	req := httptest.NewRequest(http.MethodPost, "/relay/v1/builder/submit", bytes.NewReader(requestBodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	// capture the resp
+	rr := httptest.NewRecorder()
 	// call handle func
 	api.handleSubmitNewBlockRequest(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
 }
-
 
 func TestBuilderApiGetValidators(t *testing.T) {
 	path := "/relay/v1/builder/validators"

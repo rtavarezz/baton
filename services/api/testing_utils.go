@@ -135,10 +135,12 @@ func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
 		FromAddress: TestProposerPayment,
 		RelayerID:   TestRelayerID,
 	}
-
+	//ids := make([]ids.ID, 32)
+	var id ids.ID
+	copy(id[:], seqMsg.ChainId)
 	base := chain.Base{
 		Timestamp: 0,
-		ChainID:   ids.ID([]byte(chainID)),
+		ChainID:   id,
 		MaxFee:    TestMaxFee,
 	}
 
@@ -151,10 +153,11 @@ func CreateTestProposerTransfer(chainID string, value uint64) *chain.Transaction
 		To:    TestProposerPayment,
 		Value: value,
 	}
-
+	var id ids.ID
+	copy(id[:], chainID)
 	base := chain.Base{
 		Timestamp: 0,
-		ChainID:   ids.ID([]byte(chainID)),
+		ChainID:   id,
 		MaxFee:    TestMaxFee,
 	}
 

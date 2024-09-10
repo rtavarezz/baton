@@ -610,6 +610,10 @@ type SubmitNewBlockRequest struct {
 	BuilderPubKey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 }
 
+type SubmitNewBlockReq2 struct {
+	Txs []*chain.Transaction `json:"txs"`
+}
+
 /*
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
@@ -666,6 +670,9 @@ func NewBatonBlockRequest() BatonBlock {
 }
 
 func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+func (r *SubmitNewBlockRequest) FromJSONAction(data []byte) error {
 	return json.Unmarshal(data, r)
 }
 
