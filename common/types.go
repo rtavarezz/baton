@@ -610,10 +610,6 @@ type SubmitNewBlockRequest struct {
 	BuilderPubKey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 }
 
-type SubmitNewBlockReq2 struct {
-	Txs []*chain.Transaction `json:"txs"`
-}
-
 /*
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
@@ -669,7 +665,37 @@ func NewBatonBlockRequest() BatonBlock {
 	}
 }
 
+func NewBatonBlockRequest2() BatonBlock2 {
+	return BatonBlock2{
+		Txs:             make([]byte, 20000), // TODO: JUST A TEST. FIX ME
+		Slot:            0,
+		ParentHash:      common.Hash{},
+		BlockNumber:     make(map[string]string),
+		BlockHash:       common.Hash{},
+		ProposerPayment: codec.Address{},
+		ProposerPubkey:  boostTypes.PublicKey{},
+	}
+}
+
 func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
+	/*
+	   var authCounts map[uint8]int
+	   var txs []*chain.Transaction
+	   var err error
+
+	   actionRegistry, authRegistry := g.vm.Registry()
+
+	   actionRegistry, authRegistry := g.vm.Registry()
+	   authCounts, txs, err := chain.UnmarshalTxs(msg, initialCapacity, actionRegistry, authRegistry)
+
+	   authCounts, txs, err := chain.UnmarshalTxs(
+	     data,
+	     initialCapacity int,
+	     actionRegistry ActionRegistry,
+	     authRegistry AuthRegistry)
+
+	*/
+
 	return json.Unmarshal(data, r)
 }
 func (r *SubmitNewBlockRequest) FromJSONAction(data []byte) error {

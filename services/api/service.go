@@ -1427,7 +1427,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	})
 
 	log.Debug("request arrived")
-	
+
 	if len(proposerPubkeyHex) != 98 {
 		api.RespondError(w, http.StatusBadRequest, common.ErrInvalidPubkey.Error())
 		return
@@ -2128,11 +2128,11 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	receivedAt := time.Now().UTC()
 	prevTime = receivedAt
 	if api.log == nil {
-        panic("api.log is nil")
-    }
+		panic("api.log is nil")
+	}
 
-    log := api.log.WithField("method", "submitNewBlockRequest")
-    log.Info("Received request")
+	log := api.log.WithField("method", "submitNewBlockRequest")
+	log.Info("Received request")
 	log = api.log.WithFields(logrus.Fields{
 		"method":                "submitNewBlockRequest",
 		"contentLength":         req.ContentLength,
@@ -2162,6 +2162,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	blockReq := common.NewSubmitNewBlockRequest()
 	err = blockReq.FromJSON(payloadBytes)
+
 	if err != nil {
 		log.WithError(err).Warn("could not parse payload into SubmitNewBlockRequest")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
