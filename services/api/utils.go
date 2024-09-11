@@ -80,14 +80,13 @@ func BuildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
 	return anchorHeader, nil
 }
 
-// @TODO: probably don't need as hypersdk/seq has unmarshalling/marshalling funcs already ex: chain.Unmarshal(tx)
-func BuildPayload(s *common.SubmitNewBlockRequest) (*common.AnchorPayload, error) {
+func BuildPayload(s *common.SubmitNewBlockRequest, txs []*chain.Transaction) (*common.AnchorPayload, error) {
 	hash, err := BuildHeader(s)
 	if err != nil {
 		log.Error("failed to hash header")
 	}
 
-	seqTxs, err := marshalTxs(s.Chunk.Txs)
+	seqTxs, err := marshalTxs(txs)
 	if err != nil {
 		log.Error("failed to marshal txs, err: " + err.Error())
 		return nil, err

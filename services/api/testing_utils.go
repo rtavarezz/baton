@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
@@ -62,7 +63,8 @@ func CreateTestChunkSubmission(
 	opts *CreateTestBlockSubmissionOpts,
 ) (*common.SubmitNewBlockRequest,
 	*common.AnchorHeader,
-	*common.AnchorPayload) {
+	*common.AnchorPayload,
+	error) {
 	t.Helper()
 	var err error
 
@@ -113,15 +115,21 @@ func CreateTestChunkSubmission(
 	blockReq.Chunk.ParentHash = parentHash
 	blockReq.Chunk.ProposerPubkey = proposerPk
 	copy(blockReq.Chunk.ProposerPayment[:], TestAddress[:])
-	blockReq.Chunk.Txs = txs
+
+	txsBytes, err := json.Marshal(txs)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	blockReq.Chunk.Txs = txsBytes
 
 	anchorHeader, err := BuildHeader(&blockReq)
 	require.NoError(t, err)
 
-	anchorPayload, err := BuildPayload(&blockReq)
+	anchorPayload, err := BuildPayload(&blockReq, txs)
 	require.NoError(t, err)
 
-	return &blockReq, &anchorHeader, anchorPayload
+	return &blockReq, &anchorHeader, anchorPayload, nil
 }
 
 func GetTestChainId(i int) string {

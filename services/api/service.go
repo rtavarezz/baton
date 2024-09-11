@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AnomalyFi/hypersdk/chain"
+	"github.com/AnomalyFi/nodekit-seq/consts"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/go-redis/redis/v9"
 	"io"
@@ -45,9 +47,10 @@ import (
 )
 
 const (
-	ErrBlockAlreadyKnown  = "simulation failed: block already known"
-	ErrBlockRequiresReorg = "simulation failed: block requires a reorg"
-	ErrMissingTrieNode    = "missing trie node"
+	ErrBlockAlreadyKnown           = "simulation failed: block already known"
+	ErrBlockRequiresReorg          = "simulation failed: block requires a reorg"
+	ErrMissingTrieNode             = "missing trie node"
+	SeqUnmarshalTxsInitialCapacity = 100
 )
 
 var (
@@ -776,25 +779,26 @@ func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 func (api *BatonAPI) simulateBlock(
 	ctx context.Context,
 	req *common.SubmitNewBlockRequest,
+	origTxs []*chain.Transaction,
 	log *logrus.Entry,
 ) (gasUsed uint64, requestErr, validationErr error) {
 	t := time.Now()
 
-	var txs []hexutil.Bytes
-	// @TODO: we have txs grouped but how do we simulate these txs? Should we update simulateBlockTxs?
-	// that way we simulate block txs and the block itself all in this function?
+	ethTxs := make([]hexutil.Bytes, 0)
+	// @TODO: we have ethTxs grouped but how do we simulate these ethTxs? Should we update simulateBlockTxs?
+	// that way we simulate block ethTxs and the block itself all in this function?
 	txsByNamespace := make(map[string][]hexutil.Bytes)
-	txs = make([]hexutil.Bytes, 0)
-	for i, tx := range req.Chunk.Txs {
+
+	for i, tx := range origTxs {
 		// case 1: checking if last tx(proposer tx)
 		if i == (len(req.Chunk.Txs) - 1) {
 			// checking that len returns 1 action since proposer tx should only have transfer action itself
 			if len(tx.Actions) != 1 {
-				return 0, errors.New("simulateBlock: transfer action had multiple txs"), nil
+				return 0, errors.New("simulateBlock: transfer action had multiple ethTxs"), nil
 			}
 			for _, action := range tx.Actions {
 				if seqMsg, ok := action.(*actions.Transfer); ok {
-					txs = append(txs, seqMsg.Memo)
+					ethTxs = append(ethTxs, seqMsg.Memo)
 					ns := "proposer_tx"
 					txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Memo)
 				} else {
@@ -806,7 +810,7 @@ func (api *BatonAPI) simulateBlock(
 		} else {
 			for _, action := range tx.Actions {
 				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-					txs = append(txs, seqMsg.Data)
+					ethTxs = append(ethTxs, seqMsg.Data)
 					ns := string(seqMsg.ChainId)
 					txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Data)
 				} else {
@@ -828,9 +832,8 @@ func (api *BatonAPI) simulateBlock(
 		blockNumberStr = v
 		break
 	}
-	// @TODO: Fix me to work with new submit block msg format
 	blockReq := common.BlockValidationRequest{
-		Txs:              txs,
+		Txs:              ethTxs,
 		BlockNumber:      blockNumberStr,
 		StateBlockNumber: "latest",
 		Timestamp:        uint64(time.Now().UnixMilli()),
@@ -2167,12 +2170,20 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	blockReq := common.NewSubmitNewBlockRequest()
 
 	err = blockReq.FromJSON(payloadBytes)
-
 	if err != nil {
 		log.WithError(err).Warn("could not parse payload into SubmitNewBlockRequest")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// TODO: Unmarshal hypersdk txs
+	var txs []*chain.Transaction
+
+	_, txs, err = chain.UnmarshalTxs(
+		blockReq.Chunk.Txs,
+		SeqUnmarshalTxsInitialCapacity,
+		consts.ActionRegistry,
+		consts.AuthRegistry)
 
 	nextTime = time.Now().UTC()
 	pf.Decode = uint64(nextTime.Sub(prevTime).Microseconds())
@@ -2210,13 +2221,13 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// ToB will have varying chain id in txs, RoB will have uniform
 	// Also verifies len(txs) >= 2
-	isToB, err := api.checkBlockRequestIsToB(&blockReq)
+	isToB, err := api.checkBlockRequestIsToB(txs)
 	if err != nil {
 		log.WithError(err).Info(err.Error())
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	chainID, err := blockReq.FirstChainID()
+	chainID, err := FirstChainID(txs)
 	if err != nil {
 		log.WithError(err).Info(err.Error())
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -2247,8 +2258,10 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	var topBidValue *big.Int
 	tx := api.redis.NewTxPipeline()
 	bidIsTopBid := false
+
 	var value *big.Int
-	value, err = blockReq.Value()
+	value, err = common.Value(txs)
+
 	if err != nil {
 		log.WithError(err).Info("block req value returned err")
 		api.RespondError(w, http.StatusBadRequest, "value check failed")
@@ -2293,7 +2306,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	getPayload, err := BuildPayload(&blockReq)
+	getPayload, err := BuildPayload(&blockReq, txs)
 	if err != nil {
 		log.WithError(err).Warn("failed to build payload")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -2349,7 +2362,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 	// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
-	gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, log)
+	gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, txs, log)
 	// @TODO: figure out exact gas limit later
 	if gasUsed != 0 && gasUsed > gasLimit {
 		errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
@@ -2399,7 +2412,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	var updateBidResult datastore.SaveBidAndUpdateTopBidResponse
 	if isToB {
 		// ToB case
-		updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx, &blockReq,
+		updateBidResult, err = api.redis.SaveToBBidAndUpdateTopBid(context.Background(), tx, &blockReq, value,
 			getPayload, &getHeader, receivedAt, false, nil, &trace)
 		if err != nil {
 			log.WithError(err).Error("could not save bid and update top bids")
@@ -2408,7 +2421,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	} else {
 		//RoB case
-		updateBidResult, err = api.redis.SaveRoBBidAndUpdateTopBid(context.Background(), tx, &blockReq,
+		updateBidResult, err = api.redis.SaveRoBBidAndUpdateTopBid(context.Background(), tx, &blockReq, value,
 			getPayload, &getHeader, chainID, receivedAt, false, nil, &trace)
 		if err != nil {
 			log.WithError(err).Error("could not save bid and update top bids for RoB")
@@ -2452,7 +2465,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		txHashList := []string{}
 		// TODO: figure logic out or if this is needed
 		for _, tx := range blockReq.Txs() {
-			txHashList = append(txHashList, string(tx.Bytes()))
+			txHashList = append(txHashList, string(tx))
 		}
 		txHashes := strings.Join(txHashList, ",")
 
@@ -2814,23 +2827,39 @@ func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func FirstChainID(txs []*chain.Transaction) (string, error) {
+	if len(txs) == 0 {
+		return "", errors.New("getFirstChainID: no transactions found")
+	}
+	seqActions := txs[0].Actions
+	if len(seqActions) == 0 {
+		return "", errors.New("getFirstChainID: no actions in first tx")
+	}
+	if seqMsg, ok := seqActions[0].(*actions.SequencerMsg); ok {
+		return string(seqMsg.ChainId), nil
+	} else {
+		return "", errors.New("could not convert seq actions to seqMsg")
+	}
+}
+
 // Check if block request is ToB
-func (api *BatonAPI) checkBlockRequestIsToB(req *common.SubmitNewBlockRequest) (bool, error) {
-	if len(req.Chunk.Txs) == 0 {
+func (api *BatonAPI) checkBlockRequestIsToB(txs []*chain.Transaction) (bool, error) {
+	if len(txs) == 0 {
 		return false, errors.New("block request has no transactions provided")
 	}
 
-	if len(req.Chunk.Txs) == 1 {
+	if len(txs) == 1 {
 		return false, errors.New("block request needs more than one transaction provided")
 	}
 
 	// RoBs have txs with all the same chain id, ToBs has more than chain id
-	firstChainID, err := req.FirstChainID()
+	firstChainID, err := FirstChainID(txs)
 	if err != nil {
 		return false, err
 	}
-	for i := 0; i < len(req.Chunk.Txs); i++ {
-		for _, action := range req.Chunk.Txs[i].Actions {
+
+	for i := 0; i < len(txs); i++ {
+		for _, action := range txs[i].Actions {
 			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
 				if string(seqMsg.ChainId) != firstChainID {
 					return false, nil

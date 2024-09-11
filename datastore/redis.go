@@ -846,6 +846,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	ctx context.Context,
 	pipeliner redis.Pipeliner,
 	payload *common.SubmitNewBlockRequest,
+	value *big.Int,
 	getPayload *common.AnchorPayload,
 	getHeader *common.AnchorHeader,
 	reqReceivedAt time.Time,
@@ -887,11 +888,6 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		state.TopBidValue = floorValue
 	}
 	state.PrevTopBidValue = state.TopBidValue
-
-	value, err := payload.Value()
-	if err != nil {
-		return state, err
-	}
 
 	// Abort now if non-cancellation bid is lower than floor value
 	isBidAboveFloor := value.Cmp(floorValue) == 1
@@ -1020,6 +1016,7 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	ctx context.Context,
 	pipeliner redis.Pipeliner,
 	payload *common.SubmitNewBlockRequest,
+	value *big.Int,
 	getPayload *common.AnchorPayload,
 	getHeader *common.AnchorHeader,
 	chainID string,
@@ -1051,11 +1048,6 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 		state.TopBidValue = floorValue
 	}
 	state.PrevTopBidValue = state.TopBidValue
-
-	value, err := payload.Value()
-	if err != nil {
-		return state, err
-	}
 
 	// Abort now if non-cancellation bid is lower than floor value
 	isBidAboveFloor := value.Cmp(floorValue) == 1

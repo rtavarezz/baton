@@ -298,8 +298,6 @@ func TestRegisterValidator(t *testing.T) {
 	// })
 }
 
-// TODO: Fix me. Possibly change test below by defining struct, making a request, and calling func using that request
-// just like it was done for testHandleSubmitNewBlock
 func TestGetHeader(t *testing.T) {
 	// Setup backend with headSlot and genesisTime
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
@@ -318,14 +316,25 @@ func TestGetHeader(t *testing.T) {
 	parentHash := eth.HexToHash("0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747")
 	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
 	// request path
-	path := fmt.Sprintf("/eth/v1/builder/header/%d/%s/%s", slot, parentHash, proposerPubkey)
+	path := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", slot, parentHash, proposerPubkey)
+	//path := "/eth/v1/builder/header"
+
+	url := GetURI(path)
 	// validRequest := common.AnchorHeader{
 	//     Header: &eth.Hash{},
 	//     BlockHash: "0x1",
 	// }
 	rr := httptest.NewRecorder()
 
+	/*
+		params := url.Values{}
+		params.Add("slot", strconv.FormatUint(slot, 10))
+		params.Add("parent_hash", parentHash.String())
+		params.Add("pubkey", proposerPubkey)
+	*/
+
 	req := httptest.NewRequest(http.MethodGet, path, nil)
+	//req := httptest.NewRequest(http.MethodGet, path+"?"+params.Encode(), nil)
 
 	api.handleGetHeader(rr, req)
 
@@ -379,16 +388,21 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	var err error
 	opts.ProposerPubkey, err = boostTypes.HexToPubkey(proposerPubkey)
 	require.NoError(t, err)
-	block, _, _ := CreateTestChunkSubmission(t, uint64(2), &opts)
+
+	block, _, _, err := CreateTestChunkSubmission(t, uint64(2), &opts)
+	require.NoError(t, err)
 
 	// marshal the req body
 	requestBodyBytes, err := json.Marshal(block)
 	require.NoError(t, err)
+
 	// new HTTP req
 	req := httptest.NewRequest(http.MethodPost, "/relay/v1/builder/submit", bytes.NewReader(requestBodyBytes))
 	req.Header.Set("Content-Type", "application/json")
+
 	// capture the resp
 	rr := httptest.NewRecorder()
+
 	// call handle func
 	api.handleSubmitNewBlockRequest(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)

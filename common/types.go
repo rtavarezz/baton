@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AnomalyFi/nodekit-seq/actions"
 	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
 	"math/big"
 	"os"
 
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
-	"github.com/AnomalyFi/nodekit-seq/actions"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common"
@@ -593,7 +593,9 @@ type SequencerMsgRequest struct {
 */
 
 type BatonBlock struct {
-	Txs             []*chain.Transaction `json:"txs"`
+	// TODO: Remove me when sure
+	//Txs             []*chain.Transaction `json:"txs"`
+	Txs             []byte               `json:"txs"`
 	Slot            uint64               `json:"slot"`
 	ParentHash      common.Hash          `json:"parent_hash"`
 	BlockNumber     map[string]string    `json:"blocknumber"`
@@ -655,19 +657,7 @@ func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 
 func NewBatonBlockRequest() BatonBlock {
 	return BatonBlock{
-		Txs:             make([]*chain.Transaction, 0),
-		Slot:            0,
-		ParentHash:      common.Hash{},
-		BlockNumber:     make(map[string]string),
-		BlockHash:       common.Hash{},
-		ProposerPayment: codec.Address{},
-		ProposerPubkey:  boostTypes.PublicKey{},
-	}
-}
-
-func NewBatonBlockRequest2() BatonBlock2 {
-	return BatonBlock2{
-		Txs:             make([]byte, 20000), // TODO: JUST A TEST. FIX ME
+		Txs:             make([]byte, 0),
 		Slot:            0,
 		ParentHash:      common.Hash{},
 		BlockNumber:     make(map[string]string),
@@ -678,24 +668,6 @@ func NewBatonBlockRequest2() BatonBlock2 {
 }
 
 func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
-	/*
-	   var authCounts map[uint8]int
-	   var txs []*chain.Transaction
-	   var err error
-
-	   actionRegistry, authRegistry := g.vm.Registry()
-
-	   actionRegistry, authRegistry := g.vm.Registry()
-	   authCounts, txs, err := chain.UnmarshalTxs(msg, initialCapacity, actionRegistry, authRegistry)
-
-	   authCounts, txs, err := chain.UnmarshalTxs(
-	     data,
-	     initialCapacity int,
-	     actionRegistry ActionRegistry,
-	     authRegistry AuthRegistry)
-
-	*/
-
 	return json.Unmarshal(data, r)
 }
 func (r *SubmitNewBlockRequest) FromJSONAction(data []byte) error {
@@ -734,7 +706,7 @@ func (r *SubmitNewBlockRequest) ParentHash() common.Hash {
 	return r.Chunk.ParentHash
 }
 
-func (r *SubmitNewBlockRequest) Txs() []*chain.Transaction {
+func (r *SubmitNewBlockRequest) Txs() []byte {
 	return r.Chunk.Txs
 }
 
@@ -746,15 +718,15 @@ func (r *SubmitNewBlockRequest) BlockNumberAsStr() (string, error) {
 	return string(blockNumberJson), nil
 }
 
-// The value should come from the proposer tx.
-func (r *SubmitNewBlockRequest) Value() (*big.Int, error) {
-	if len(r.Chunk.Txs) == 0 {
+// Note the value should come from the transfer action.
+func Value(txs []*chain.Transaction) (*big.Int, error) {
+	if len(txs) == 0 {
 		return nil, errors.New("no txs found in baton block")
 	}
-	if len(r.Chunk.Txs) == 1 {
+	if len(txs) == 1 {
 		return nil, errors.New("need more than 1 tx in baton block")
 	}
-	lastTx := r.Chunk.Txs[len(r.Chunk.Txs)-1]
+	lastTx := txs[len(txs)-1]
 
 	if len(lastTx.Actions) != 1 {
 		return nil, errors.New("simulateBlock: transfer action had multiple txs")
@@ -787,22 +759,6 @@ func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
   }
 }
 */
-
-// @TODO: fix me SOON
-func (r *SubmitNewBlockRequest) FirstChainID() (string, error) {
-	if len(r.Chunk.Txs) == 0 {
-		return "", errors.New("getFirstChainID: no transactions found")
-	}
-	seqActions := r.Chunk.Txs[0].Actions
-	if len(seqActions) == 0 {
-		return "", errors.New("getFirstChainID: no actions in first tx")
-	}
-	if seqMsg, ok := seqActions[0].(*actions.SequencerMsg); ok {
-		return string(seqMsg.ChainId), nil
-	} else {
-		return "", errors.New("could not convert seq actions to seqMsg")
-	}
-}
 
 // callLog is the result of LOG opCode
 type CallLog struct {
