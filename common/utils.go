@@ -13,6 +13,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -289,4 +290,11 @@ func ConvertDecompressedPubKey(x, y *big.Int) *ecdsa.PublicKey {
 		X:     x,
 		Y:     y,
 	}
+}
+
+func GetURI(url *url.URL, path string) string {
+	u2 := *url
+	u2.User = nil
+	u2.Path = path
+	return u2.String()
 }

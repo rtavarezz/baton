@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/AnomalyFi/hypersdk/chain"
-	"github.com/AnomalyFi/nodekit-seq/consts"
+	"github.com/ava-labs/avalanchego/ids"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/go-redis/redis/v9"
 	"io"
@@ -24,13 +24,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
-
 	"github.com/AnomalyFi/nodekit-seq/actions"
+	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	"github.com/NYTimes/gziphandler"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/buger/jsonparser"
 	common2 "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/flashbots/go-boost-utils/bls"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
@@ -123,6 +123,9 @@ var (
 		"mev-boost/v1.5.0 Go-http-client/1.1", // Prysm v4.0.1 (Shapella signing issue)
 	})
 )
+var uri string
+var networkID uint32
+var chainID ids.ID
 
 // BatonAPIOpts contains the options for a relay
 type BatonAPIOpts struct {
@@ -1478,6 +1481,10 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// think of more cases for hash if possible
+	if bid == nil || bid.Header == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -2178,13 +2185,31 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// TODO: Unmarshal hypersdk txs
 	var txs []*chain.Transaction
-
+	// TODO: figure out how to define and use parser to pass into chain.UnmarshalTxs
+	cli := srpc.NewJSONRPCClient(uri, networkID, chainID)
+	// note: left off here, parser keeps returning nil
+	parser, err := cli.Parser(context.Background())
+	if err != nil {
+		log.WithError(err).Warn("parser is nil")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	actionRegistry, authRegistry := parser.Registry()
 	_, txs, err = chain.UnmarshalTxs(
 		blockReq.Chunk.Txs,
 		SeqUnmarshalTxsInitialCapacity,
-		consts.ActionRegistry,
-		consts.AuthRegistry)
-
+		actionRegistry,
+		authRegistry)
+	if err != nil {
+		log.WithError(err).Warn("could not unmarshal txs")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if txs == nil || len(txs) == 0 {
+		log.WithError(err).Warn("txs is nil or no txs")
+		api.RespondError(w, http.StatusNoContent, err.Error())
+		return
+	}
 	nextTime = time.Now().UTC()
 	pf.Decode = uint64(nextTime.Sub(prevTime).Microseconds())
 	prevTime = nextTime
