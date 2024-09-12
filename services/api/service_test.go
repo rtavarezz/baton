@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	// "github.com/AnomalyFi/hypersdk/state"
 	"github.com/alicebob/miniredis/v2"
 	eth "github.com/ethereum/go-ethereum/common"
@@ -354,6 +355,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		headSlot: *atomic.NewUint64(0),
 		log:      logEntry,
 	}
+
+	var cli = srpc.Parser{}
+	_, _ = cli.Registry()
 	slot := uint64(1)
 	api.headSlot.Store(slot)
 	opts := CreateTestBlockSubmissionOpts{

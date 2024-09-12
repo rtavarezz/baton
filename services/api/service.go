@@ -2186,14 +2186,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	// TODO: Unmarshal hypersdk txs
 	var txs []*chain.Transaction
 	// TODO: figure out how to define and use parser to pass into chain.UnmarshalTxs
-	cli := srpc.NewJSONRPCClient(uri, networkID, chainID)
 	// note: left off here, parser keeps returning nil
-	parser, err := cli.Parser(context.Background())
-	if err != nil {
-		log.WithError(err).Warn("parser is nil")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	parser := srpc.Parser{}
 	actionRegistry, authRegistry := parser.Registry()
 	_, txs, err = chain.UnmarshalTxs(
 		blockReq.Chunk.Txs,
@@ -2236,14 +2230,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, "slot details check failed")
 		return
 	}
-
-	if len(blockReq.Txs()) > common.MaxTobTxs+1 {
-		msg := fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(blockReq.Txs()))
-		log.WithError(err).Info(msg)
-		api.Respond(w, http.StatusBadRequest, msg)
-		return
-	}
-
 	// ToB will have varying chain id in txs, RoB will have uniform
 	// Also verifies len(txs) >= 2
 	isToB, err := api.checkBlockRequestIsToB(txs)
@@ -2251,6 +2237,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		log.WithError(err).Info(err.Error())
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if isToB {
+		if len(blockReq.Txs()) > common.MaxTobTxs+1 {
+			msg := fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(blockReq.Txs()))
+			log.WithError(err).Info(msg)
+			api.Respond(w, http.StatusBadRequest, msg)
+			return
+		}
 	}
 	chainID, err := FirstChainID(txs)
 	if err != nil {

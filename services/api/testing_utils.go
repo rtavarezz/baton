@@ -1,11 +1,15 @@
 package api
 
 import (
-	"encoding/json"
+	"encoding/hex"
 	"fmt"
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
+	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
 	"github.com/AnomalyFi/nodekit-seq/actions"
+	"github.com/AnomalyFi/nodekit-seq/auth"
+	_ "github.com/AnomalyFi/nodekit-seq/auth"
+	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	"github.com/ava-labs/avalanchego/ids"
 	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -17,6 +21,7 @@ import (
 	"log"
 	"math/big"
 	"testing"
+	"time"
 )
 
 const (
@@ -29,6 +34,8 @@ const (
 
 var TestProposerPayment codec.Address
 var testNonce uint64
+
+const KEYHEX = "323b1d8f4eed5f0da9da93071b034f2dce9d2d22692c172f3cb252a64ddfafd01b057de320297c29ad0c1f589ea216869cf1938d88c9fbd70d6748323dbf2fa7"
 
 func init() {
 	testAddr := "0x59131f2c045f70Be0dDA"
@@ -116,7 +123,9 @@ func CreateTestChunkSubmission(
 	blockReq.Chunk.ProposerPubkey = proposerPk
 	copy(blockReq.Chunk.ProposerPayment[:], TestAddress[:])
 
-	txsBytes, err := json.Marshal(txs)
+	//txsBytes, err := json.Marshal(txs)
+	//var signer ed25519.PrivateKey
+	txsBytes, err := chain.MarshalTxs(txs)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -146,14 +155,24 @@ func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
 	//ids := make([]ids.ID, 32)
 	var id ids.ID
 	copy(id[:], seqMsg.ChainId)
-	base := chain.Base{
-		Timestamp: 0,
+	var base = chain.Base{
+		Timestamp: time.Now().UnixMilli(),
 		ChainID:   id,
 		MaxFee:    TestMaxFee,
 	}
-
+	base.Timestamp = int64(time.Now().Second() * 1000)
+	pkBytes, err := hex.DecodeString(KEYHEX)
+	pk := ed25519.PrivateKey(pkBytes)
+	authFactory := auth.NewED25519Factory(pk)
 	actionList := []chain.Action{&seqMsg}
-	return chain.NewTx(&base, actionList)
+	tx := chain.NewTx(&base, actionList)
+	var parser = srpc.Parser{}
+	actionRegistry, authRegistry := parser.Registry()
+	txSign, err := tx.Sign(authFactory, actionRegistry, authRegistry)
+	if err != nil {
+		panic(err)
+	}
+	return txSign
 }
 
 func CreateTestProposerTransfer(chainID string, value uint64) *chain.Transaction {
@@ -164,13 +183,23 @@ func CreateTestProposerTransfer(chainID string, value uint64) *chain.Transaction
 	var id ids.ID
 	copy(id[:], chainID)
 	base := chain.Base{
-		Timestamp: 0,
+		Timestamp: time.Now().UnixMilli(),
 		ChainID:   id,
 		MaxFee:    TestMaxFee,
 	}
-
+	base.Timestamp = int64(time.Now().Second() * 1000)
+	pkBytes, err := hex.DecodeString(KEYHEX)
+	pk := ed25519.PrivateKey(pkBytes)
+	authFactory := auth.NewED25519Factory(pk)
+	var parser = srpc.Parser{}
+	actionRegistry, authRegistry := parser.Registry()
 	actionList := []chain.Action{&transfer}
-	return chain.NewTx(&base, actionList)
+	tx := chain.NewTx(&base, actionList)
+	txSign, err := tx.Sign(authFactory, actionRegistry, authRegistry)
+	if err != nil {
+		panic(err)
+	}
+	return txSign
 }
 
 func CreateTestEthTransaction(nonce uint64, value big.Int, gasLimit uint64, gasPrice big.Int, data string) *types.Transaction {
