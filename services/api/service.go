@@ -508,18 +508,21 @@ func (api *BatonAPI) StartServer() (err error) {
 		log.Infof("capella fork detected (currentEpoch: %d / capellaEpoch: %d)", common.SlotToEpoch(currentSlot), api.capellaEpoch)
 	}
 
-	// start proposer API specific things
-	if api.opts.ProposerAPI {
-		// Update known validators (which can take 10-30 sec). This is a requirement for service readiness, because without them,
-		// getPayload() doesn't have the information it needs (known validators), which could lead to missed slots.
-		go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, currentSlot)
+	// TODO: Figure out what to do with this.
+	/*
+		// start proposer API specific things
+		if api.opts.ProposerAPI {
+			// Update known validators (which can take 10-30 sec). This is a requirement for service readiness, because without them,
+			// getPayload() doesn't have the information it needs (known validators), which could lead to missed slots.
+			go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, currentSlot)
 
-		// Start the validator registration db-save processor
-		api.log.Infof("starting %d validator registration processors", numValidatorRegProcessors)
-		for i := 0; i < numValidatorRegProcessors; i++ {
-			go api.startValidatorRegistrationDBProcessor()
+			// Start the validator registration db-save processor
+			api.log.Infof("starting %d validator registration processors", numValidatorRegProcessors)
+			for i := 0; i < numValidatorRegProcessors; i++ {
+				go api.startValidatorRegistrationDBProcessor()
+			}
 		}
-	}
+	*/
 
 	// TODO: Verify we don't need anything here for our purposes
 	// start block-builder API specific things
@@ -1471,8 +1474,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// @TODO: double check if helper funcs or funcs in general need to return AnchorHeader instead of common.Hash
-	var resp common.ExecPayloadsInfo
+	var resp common.ExecHeadersInfo
 	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 	if err != nil {
 		log.WithError(err).Error("could not get bid for ToB")
@@ -1640,8 +1642,8 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	// SEQ needs to keep it in byte form when signing(signatures).
 	// 1.) define SEQ signatures
 	// 2.) figure out how to pass header of HeaderInfo or if it's even needed
-	seqSig := payload.Signature
-	var header *common.ExecPayloadsInfo
+	seqSig := payload.SignedHeaders
+	var header *common.ExecHeadersInfo
 	// can possibly use index of proposer to get the pubkey
 	// TODO: marshal the header then verify sig and pubkey
 	ok := VerifySignature(header, seqSig, proposerPubkey)
@@ -1705,8 +1707,6 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			log.WithError(err).Error("failed to increment builder-stats after getPayload")
 		}
 	}()
-
-	// @TODO: Continue fixing the below
 
 	// Get the response - from Redis, Memcache or DB
 	// note that recent mev-boost versions only send getPayload to relays that provided the bid

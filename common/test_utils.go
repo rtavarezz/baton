@@ -1,11 +1,13 @@
 package common
 
+/*
 import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
-	"io"
+  "github.com/ethereum/go-ethereum/common"
+  "io"
 	"os"
 	"testing"
 
@@ -26,14 +28,17 @@ func check(err error, args ...interface{}) {
 }
 
 // _HexToAddress converts a hexadecimal string to an Ethereum address
-func _HexToAddress(s string) (ret boostTypes.Address) {
+func _HexToAddress(s string) (ret common.Address) {
 	check(ret.UnmarshalText([]byte(s)), " _HexToAddress: ", s)
 	return ret
 }
 
 // _HexToPubkey converts a hexadecimal string to a BLS Public Key
-func _HexToPubkey(s string) (ret boostTypes.PublicKey) {
-	check(ret.UnmarshalText([]byte(s)), " _HexToPubkey: ", s)
+func _HexToPubkey(s string) (ret bls.PublicKey) {
+	//check(ret.UnmarshalText([]byte(s)), " _HexToPubkey: ", s)
+  pk, err := bls.PublicKeyFromBytes([]byte(s))
+  require.NoError(err)
+  check(pk," _HexToPubkey: ", s)
 	return
 }
 
@@ -68,18 +73,6 @@ func TestBuilderSubmitBlockRequest(sk *bls.SecretKey, bid *BidTraceV2) BuilderSu
 	// TODO: Fill with sane values later
 	blockReq := NewSubmitNewBlockRequest()
 	execPayload := ExecutionPayload{}
-
-	// DEPRECATED
-	/*
-		Capella: &capella.SubmitBlockRequest{
-			Message:   &bid.BidTrace,
-			Signature: [96]byte(signature),
-			ExecutionPayload: &consensuscapella.ExecutionPayload{ //nolint:exhaustruct
-				Transactions: []bellatrix.Transaction{[]byte{0x03}},
-				Timestamp:    bid.Slot * 12, // 12 seconds per slot.
-				PrevRandao:   _HexToHash("01234567890123456789012345678901"),
-				Withdrawals:  []*consensuscapella.Withdrawal{},
-	*/
 
 	return BuilderSubmitBlockRequest{ //nolint:exhaustruct
 		AnchorSignature:  signature,
@@ -126,3 +119,4 @@ func LoadFileContents(t *testing.T, filename string) []byte {
 	require.NoError(t, err)
 	return fileContents
 }
+*/

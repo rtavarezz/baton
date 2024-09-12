@@ -142,7 +142,7 @@ func ComputeMerkleRoot(hashes [][]byte) []byte {
 	return hashes[0]
 }
 
-func VerifySignature(header *common.ExecPayloadsInfo, signature boostTypes.Signature, pubKey boostTypes.PubkeyHex) error {
+func VerifySignature(header *common.ExecHeadersInfo, signature boostTypes.Signature, pubKey boostTypes.PubkeyHex) error {
 	if len(signature) != 65 {
 		return errors.New("invalid signature length")
 	}

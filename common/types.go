@@ -4,19 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/AnomalyFi/nodekit-seq/actions"
-	consensuscapella "github.com/attestantio/go-eth2-client/spec/capella"
-	"math/big"
-	"os"
-
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
+	"github.com/AnomalyFi/nodekit-seq/actions"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
+	"github.com/flashbots/go-boost-utils/bls"
+	"math/big"
+	"strings"
 )
 
 var (
@@ -76,6 +74,7 @@ var (
 	TobGasReservations = 1000000
 )
 
+/*
 type EthNetworkDetails struct {
 	Name                     string
 	GenesisForkVersionHex    string
@@ -89,7 +88,9 @@ type EthNetworkDetails struct {
 	DomainBeaconProposerCapella   boostTypes.Domain
 	DomainBeaconProposerDeneb     boostTypes.Domain
 }
+*/
 
+/*
 func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error) {
 	var genesisForkVersion string
 	var genesisValidatorsRoot string
@@ -195,11 +196,22 @@ func (e *EthNetworkDetails) String() string {
 		e.DomainBeaconProposerCapella,
 		e.DomainBeaconProposerDeneb)
 }
+*/
+
+type PubkeyHex string
+
+func NewPubkeyHex(pk string) PubkeyHex {
+	return PubkeyHex(strings.ToLower(pk))
+}
+
+func (p PubkeyHex) String() string {
+	return string(p)
+}
 
 type BuilderGetValidatorsResponseEntry struct {
-	Slot           uint64                                  `json:"slot,string"`
-	ValidatorIndex uint64                                  `json:"validator_index,string"`
-	Entry          *boostTypes.SignedValidatorRegistration `json:"entry"`
+	Slot           uint64                             `json:"slot,string"`
+	ValidatorIndex uint64                             `json:"validator_index,string"`
+	Entry          *apiv1.SignedValidatorRegistration `json:"entry"`
 }
 
 type BidTraceV2 struct {
@@ -352,6 +364,7 @@ func (b *BidTraceV2WithTimestampJSON) ToCSVRecord() []string {
 	}
 }
 
+// TODO: Verify that Transactions contains the submit new block hypersdk txs
 type ExecutionPayload struct {
 	// Array of transaction objects, each object is a byte list (DATA) representing
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
@@ -363,6 +376,7 @@ type AnchorHeader struct {
 	BlockHash string       `json:"block_hash"`
 }
 
+/*
 type SignedBeaconBlock struct {
 	Bellatrix *boostTypes.SignedBeaconBlock
 	Capella   *consensuscapella.SignedBeaconBlock
@@ -397,43 +411,51 @@ func (s *SignedBeaconBlock) BlockHash() string {
 	}
 	return ""
 }
+*/
 
 type AnchorGetHeaderResponse struct {
-	ExecPayloads ExecPayloadsInfo
-	BlockInfo    AnchorBlockInfo
+	ExecPayloads    ExecHeadersInfo
+	BlockInfo       AnchorBlockInfo
+	ExecPayloadsSig bls.Signature
 }
+
 type AnchorBlockInfo struct {
 	// note: Message should be the anchor req
 	Slot uint64 `json:"slot"`
 	// nodeID of chunk producing validator.
 	Producer ids.NodeID `json:"producer"`
 	// hash of the anchor chunks (tob + robs)
-	ChunkHash common.Hash `json:"chunkhash"`
+	ChunkHash      common.Hash   `json:"chunkhash"`
+	ProposerPubkey bls.PublicKey `json:"proposer_pubkey"`
 }
 
 // SEQ validator should sign this
-type ExecPayloadsInfo struct {
+type ExecHeadersInfo struct {
 	// Make signature based off ToBHash + RoBHashes then we use this signature for Baton/Anchor to check against
 	ToBHash   *AnchorHeader            `json:"tobhash"`
 	RoBHashes map[string]*AnchorHeader `json:"robhashes"`
 }
 
 type AnchorGetPayloadRequest struct {
-	Slot uint64 `json:"slot"`
-	// TODO: Figure out how to verify signature(ex: actual vs expected)
-	Signature     boostTypes.Signature `json:"signature"`
-	ProposerIndex uint64               `json:"proposer_index"`
-	BlockHash     string               `json:"block_hash"`
+	Slot          uint64        `json:"slot"`
+	ProposerIndex uint64        `json:"proposer_index"`
+	BlockHash     string        `json:"block_hash"`
+	SignedHeaders bls.Signature `json:"signed_headers"`
 }
 
-type AnchorGetPayloadResponse struct {
-	Slot        uint64                      `json:"slot"`
+type ExecPayloadsInfo struct {
 	ToBPayload  *ExecutionPayload           `json:"tobpayload"`
 	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
 }
 
+type AnchorGetPayloadResponse struct {
+	Slot            uint64           `json:"slot"`
+	ExecPayloads    ExecPayloadsInfo `json:"execpayloads"`
+	ExecPayloadsSig bls.Signature    `json:"execpayloads_sig"`
+}
+
 type BuilderSubmitBlockRequest struct {
-	AnchorSignature  boostTypes.Signature   `json:"signature" ssz-size:"96"`
+	AnchorSignature  bls.Signature          `json:"signature" ssz-size:"96"`
 	AnchorMessage    *SubmitNewBlockRequest `json:"message"`
 	ExecutionPayload *ExecutionPayload      `json:"execution_payload"`
 }
@@ -595,21 +617,21 @@ type SequencerMsgRequest struct {
 type BatonBlock struct {
 	// TODO: Remove me when sure
 	//Txs             []*chain.Transaction `json:"txs"`
-	Txs             []byte               `json:"txs"`
-	Slot            uint64               `json:"slot"`
-	ParentHash      common.Hash          `json:"parent_hash"`
-	BlockNumber     map[string]string    `json:"blocknumber"`
-	BlockHash       common.Hash          `json:"block_hash" ssz-size:"32"`
-	ProposerPubkey  boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-	ProposerPayment codec.Address        `json:"proposer_payment" ssz-size:"48"`
+	Txs             []byte            `json:"txs"`
+	Slot            uint64            `json:"slot"`
+	ParentHash      common.Hash       `json:"parent_hash"`
+	BlockNumber     map[string]string `json:"blocknumber"`
+	BlockHash       common.Hash       `json:"block_hash" ssz-size:"32"`
+	ProposerPubkey  bls.PublicKey     `json:"proposer_pubkey" ssz-size:"48"`
+	ProposerPayment codec.Address     `json:"proposer_payment" ssz-size:"48"`
 }
 
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
 type SubmitNewBlockRequest struct {
 	Chunk         BatonBlock
-	Signature     boostTypes.Signature `json:"signature" ssz-size:"96"`
-	BuilderPubKey boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+	Signature     bls.Signature `json:"signature" ssz-size:"96"`
+	BuilderPubKey bls.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 }
 
 /*
@@ -650,8 +672,8 @@ type SubmitNewBlockRequest struct {
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
 		Chunk:         NewBatonBlockRequest(),
-		Signature:     boostTypes.Signature{},
-		BuilderPubKey: boostTypes.PublicKey{},
+		Signature:     bls.Signature{},
+		BuilderPubKey: bls.PublicKey{},
 	}
 }
 
@@ -663,7 +685,7 @@ func NewBatonBlockRequest() BatonBlock {
 		BlockNumber:     make(map[string]string),
 		BlockHash:       common.Hash{},
 		ProposerPayment: codec.Address{},
-		ProposerPubkey:  boostTypes.PublicKey{},
+		ProposerPubkey:  bls.PublicKey{},
 	}
 }
 
@@ -690,8 +712,15 @@ func (r *SubmitNewBlockRequest) BlockNumber() *map[string]string {
 	return &r.Chunk.BlockNumber
 }
 
-func (r *SubmitNewBlockRequest) ProposerPubKey() boostTypes.PublicKey {
+func (r *SubmitNewBlockRequest) ProposerPubKey() bls.PublicKey {
 	return r.Chunk.ProposerPubkey
+}
+
+func (r *SubmitNewBlockRequest) ProposerPubKeyAsStr() string {
+	pk := r.ProposerPubKey()
+	proposerPubKeyBytes := (&pk).Bytes()
+	proposerPubKeyBytesAsStr := string(proposerPubKeyBytes[:])
+	return proposerPubKeyBytesAsStr
 }
 
 func (r *SubmitNewBlockRequest) ProposerPayment() codec.Address {
@@ -739,11 +768,18 @@ func Value(txs []*chain.Transaction) (*big.Int, error) {
 	return nil, errors.New("simulateBlock: could not retireve value and transfer action")
 }
 
-func (r *SubmitNewBlockRequest) BuilderPubkey() boostTypes.PublicKey {
+func (r *SubmitNewBlockRequest) BuilderPubkey() bls.PublicKey {
 	return r.BuilderPubKey
 }
 
-func (r *SubmitNewBlockRequest) Sig() boostTypes.Signature {
+func (r *SubmitNewBlockRequest) BuilderPubkeyAsStr() string {
+	pk := r.BuilderPubkey()
+	builderPubKeyBytes := (&pk).Bytes()
+	builderPubKeyBytesAsStr := string(builderPubKeyBytes[:])
+	return builderPubKeyBytesAsStr
+}
+
+func (r *SubmitNewBlockRequest) Sig() bls.Signature {
 	return r.Signature
 }
 
@@ -823,10 +859,10 @@ type FlashbotsCallBundleResult struct {
 
 type BidTrace2 struct {
 	Slot                 uint64
-	ParentHash           common.Hash          `ssz-size:"32"`
-	BlockHash            common.Hash          `ssz-size:"32"`
-	BuilderPubkey        boostTypes.PublicKey `ssz-size:"48"`
-	ProposerPubkey       boostTypes.PublicKey `ssz-size:"48"`
+	ParentHash           common.Hash   `ssz-size:"32"`
+	BlockHash            common.Hash   `ssz-size:"32"`
+	BuilderPubkey        bls.PublicKey `ssz-size:"48"`
+	ProposerPubkey       bls.PublicKey `ssz-size:"48"`
 	ProposerFeeRecipient codec.Address
 	GasLimit             uint64
 	GasUsed              uint64

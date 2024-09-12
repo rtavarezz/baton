@@ -1,21 +1,21 @@
 package datastore
 
 import (
-	"context"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"math/big"
-	"strconv"
-	"strings"
-	"time"
+  "context"
+  "encoding/hex"
+  "encoding/json"
+  "errors"
+  "fmt"
+  "github.com/flashbots/go-boost-utils/bls"
+  "math/big"
+  "strconv"
+  "strings"
+  "time"
 
-	eth "github.com/ethereum/go-ethereum/common"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
-	"github.com/flashbots/go-utils/cli"
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/go-redis/redis/v9"
+  eth "github.com/ethereum/go-ethereum/common"
+  "github.com/flashbots/go-utils/cli"
+  "github.com/flashbots/mev-boost-relay/common"
+  "github.com/go-redis/redis/v9"
 )
 
 var (
@@ -39,7 +39,7 @@ var (
 	redisWriteTimeoutSec    = cli.GetEnvInt("REDIS_WRITE_TIMEOUT_SEC", 0)    // 0 means use default (3 seconds)
 )
 
-func PubkeyHexToLowerStr(pk boostTypes.PubkeyHex) string {
+func PubkeyHexToLowerStr(pk common.PubkeyHex) string {
 	return strings.ToLower(string(pk))
 }
 
@@ -328,7 +328,7 @@ func (r *RedisCache) HSetObj(key, field string, value any, expiration time.Durat
 	return r.client.Expire(context.Background(), key, expiration).Err()
 }
 
-func (r *RedisCache) GetValidatorRegistrationTimestamp(proposerPubkey boostTypes.PubkeyHex) (uint64, error) {
+func (r *RedisCache) GetValidatorRegistrationTimestamp(proposerPubkey common.PubkeyHex) (uint64, error) {
 	timestamp, err := r.client.HGet(context.Background(), r.keyValidatorRegistrationTimestamp, strings.ToLower(proposerPubkey.String())).Uint64()
 	if errors.Is(err, redis.Nil) {
 		return 0, nil
@@ -336,7 +336,7 @@ func (r *RedisCache) GetValidatorRegistrationTimestamp(proposerPubkey boostTypes
 	return timestamp, err
 }
 
-func (r *RedisCache) SetValidatorRegistrationTimestampIfNewer(proposerPubkey boostTypes.PubkeyHex, timestamp uint64) error {
+func (r *RedisCache) SetValidatorRegistrationTimestampIfNewer(proposerPubkey common.PubkeyHex, timestamp uint64) error {
 	knownTimestamp, err := r.GetValidatorRegistrationTimestamp(proposerPubkey)
 	if err != nil {
 		return err
@@ -347,7 +347,7 @@ func (r *RedisCache) SetValidatorRegistrationTimestampIfNewer(proposerPubkey boo
 	return r.SetValidatorRegistrationTimestamp(proposerPubkey, timestamp)
 }
 
-func (r *RedisCache) SetValidatorRegistrationTimestamp(proposerPubkey boostTypes.PubkeyHex, timestamp uint64) error {
+func (r *RedisCache) SetValidatorRegistrationTimestamp(proposerPubkey common.PubkeyHex, timestamp uint64) error {
 	return r.client.HSet(context.Background(), r.keyValidatorRegistrationTimestamp, proposerPubkey.String(), timestamp).Err()
 }
 
@@ -864,7 +864,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		pipeliner,
 		payload.Slot(),
 		payload.ParentHash().String(),
-		payload.ProposerPubKey().String())
+		payload.ProposerPubKeyAsStr())
 	if err != nil {
 		return state, err
 	}
@@ -876,7 +876,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 			pipeliner,
 			payload.Slot(),
 			payload.ParentHash().String(),
-			payload.ProposerPubKey().String())
+			payload.ProposerPubKeyAsStr())
 		if err != nil {
 			return state, err
 		}
@@ -908,7 +908,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		ctx,
 		pipeliner,
 		payload.Slot(),
-		payload.ProposerPubKey().String(),
+		payload.ProposerPubKeyAsStr(),
 		payload.BlockHash().String(), getPayload)
 	if err != nil {
 		return state, err
@@ -925,13 +925,13 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		pipeliner,
 		payload.Slot(),
 		payload.ParentHash().String(),
-		payload.ProposerPubKey().String(),
-		payload.BuilderPubkey().String(),
+		payload.ProposerPubKeyAsStr(),
+		payload.BuilderPubkeyAsStr(),
 		reqReceivedAt, getHeader)
 	if err != nil {
 		return state, err
 	}
-	builderBids.bidValues[payload.BuilderPubkey().String()] = value
+	builderBids.bidValues[payload.BuilderPubkeyAsStr()] = value
 
 	// Record time needed to save bid
 	nextTime = time.Now().UTC()
@@ -955,7 +955,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		return state, nil
 	}
 
-	state, err = r._updateToBTopBid(ctx, pipeliner, state, builderBids, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKey().String(), floorValue)
+	state, err = r._updateToBTopBid(ctx, pipeliner, state, builderBids, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), floorValue)
 	if err != nil {
 		return state, err
 	}
@@ -1511,10 +1511,10 @@ func (r *RedisCache) GetTopToBBidValue(
 	pipeliner redis.Pipeliner,
 	slot uint64,
 	parentHash eth.Hash,
-	proposerPubkey boostTypes.PublicKey,
+	proposerPubkey bls.PublicKey,
 ) (topBidValue *big.Int, err error) {
 	parentString := parentHash.String()
-	proposerString := proposerPubkey.String()
+	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopToBBidValue(slot, parentString, proposerString)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
@@ -1538,11 +1538,11 @@ func (r *RedisCache) GetTopRoBBidValue(
 	pipeliner redis.Pipeliner,
 	slot uint64,
 	parentHash eth.Hash,
-	proposerPubkey boostTypes.PublicKey,
+	proposerPubkey bls.PublicKey,
 	chainID string,
 ) (topBidValue *big.Int, err error) {
 	parentString := parentHash.String()
-	proposerString := proposerPubkey.String()
+	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentString, proposerString, chainID)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)

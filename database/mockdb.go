@@ -71,7 +71,7 @@ func (db MockDB) SaveBuilderBlockSubmission(
 	profile common.Profile,
 	optimisticSubmission bool,
 ) (entry *BuilderBlockSubmissionEntry, err error) {
-	key := fmt.Sprintf("%d-%s-%s", payload.Slot, blockReq.ProposerPubKey().String(), blockReq.BlockHash().String())
+	key := fmt.Sprintf("%d-%s-%s", payload.Slot, blockReq.ProposerPubKeyAsStr(), blockReq.BlockHash().String())
 
 	execPayloadEntry, err := AnchorPayloadToExecPayloadEntry(payload, blockReq)
 	if err != nil {
@@ -115,7 +115,7 @@ func (db MockDB) SaveBuilderBlockSubmission(
 		ParentHash: blockReq.ParentHash().String(),
 
 		BuilderPubkey:        blockReq.BuilderPubKey.String(),
-		ProposerPubkey:       blockReq.ProposerPubKey().String(),
+		ProposerPubkey:       blockReq.ProposerPubKeyAsStr(),
 		ProposerFeeRecipient: blockReq.ProposerPaymentAsStr(),
 
 		GasUsed:  gasUsed,

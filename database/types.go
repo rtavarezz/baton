@@ -3,9 +3,9 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/flashbots/go-boost-utils/utils"
 	"time"
-
-	"github.com/flashbots/go-boost-utils/types"
 )
 
 func NewNullInt64(i int64) sql.NullInt64 {
@@ -60,37 +60,37 @@ type ValidatorRegistrationEntry struct {
 	Signature    string `db:"signature"`
 }
 
-func (reg ValidatorRegistrationEntry) ToSignedValidatorRegistration() (*types.SignedValidatorRegistration, error) {
-	pubkey, err := types.HexToPubkey(reg.Pubkey)
+func (reg ValidatorRegistrationEntry) ToSignedValidatorRegistration() (*apiv1.SignedValidatorRegistration, error) {
+	pubkey, err := utils.HexToPubkey(reg.Pubkey)
 	if err != nil {
 		return nil, err
 	}
-	feeRec, err := types.HexToAddress(reg.FeeRecipient)
-	if err != nil {
-		return nil, err
-	}
-
-	sig, err := types.HexToSignature(reg.Signature)
+	feeRec, err := utils.HexToAddress(reg.FeeRecipient)
 	if err != nil {
 		return nil, err
 	}
 
-	return &types.SignedValidatorRegistration{
-		Message: &types.RegisterValidatorRequestMessage{
+	sig, err := utils.HexToSignature(reg.Signature)
+	if err != nil {
+		return nil, err
+	}
+
+	return &apiv1.SignedValidatorRegistration{
+		Message: &apiv1.ValidatorRegistration{
 			Pubkey:       pubkey,
 			FeeRecipient: feeRec,
-			Timestamp:    reg.Timestamp,
+			Timestamp:    time.Unix(int64(reg.Timestamp), 0),
 			GasLimit:     reg.GasLimit,
 		},
 		Signature: sig,
 	}, nil
 }
 
-func SignedValidatorRegistrationToEntry(valReg types.SignedValidatorRegistration) ValidatorRegistrationEntry {
+func SignedValidatorRegistrationToEntry(valReg apiv1.SignedValidatorRegistration) ValidatorRegistrationEntry {
 	return ValidatorRegistrationEntry{
 		Pubkey:       valReg.Message.Pubkey.String(),
 		FeeRecipient: valReg.Message.FeeRecipient.String(),
-		Timestamp:    valReg.Message.Timestamp,
+		Timestamp:    uint64(valReg.Message.Timestamp.Unix()),
 		GasLimit:     valReg.Message.GasLimit,
 		Signature:    valReg.Signature.String(),
 	}
@@ -236,7 +236,7 @@ type BlockBuilderEntry struct {
 	IsHighPrio    bool `db:"is_high_prio"   json:"is_high_prio"`
 	IsBlacklisted bool `db:"is_blacklisted" json:"is_blacklisted"`
 	IsOptimistic  bool `db:"is_optimistic"  json:"is_optimistic"`
-	isToB         bool `db:"is_tob"			json:"is_tob"`
+	isToB         bool `db:"is_tob" 		    json:"is_tob"`
 
 	Collateral string `db:"collateral" json:"collateral"`
 	BuilderID  string `db:"builder_id" json:"builder_id"`

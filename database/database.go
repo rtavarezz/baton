@@ -271,7 +271,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 		ParentHash: blockReq.ParentHash().String(),
 
 		BuilderPubkey:        blockReq.BuilderPubKey.String(),
-		ProposerPubkey:       blockReq.ProposerPubKey().String(),
+		ProposerPubkey:       blockReq.ProposerPubKeyAsStr(),
 		ProposerFeeRecipient: blockReq.ProposerPaymentAsStr(),
 
 		GasUsed:  gasUsed,

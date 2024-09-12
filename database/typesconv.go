@@ -25,7 +25,7 @@ func AnchorPayloadToExecPayloadEntry(
 
 	return &ExecutionPayloadEntry{
 		Slot:           payload.Slot,
-		ProposerPubkey: blockReq.ProposerPubKey().String(),
+		ProposerPubkey: blockReq.ProposerPubKeyAsStr(),
 		BlockHash:      blockReq.BlockHash().String(),
 		Version:        version,
 		Payload:        string(_payload),

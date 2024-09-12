@@ -1,5 +1,6 @@
 package beaconclient
 
+/*
 import (
 	"encoding/json"
 	"fmt"
@@ -359,3 +360,4 @@ func (c *ProdBeaconInstance) GetWithdrawals(slot uint64) (withdrawalsResp *GetWi
 	_, err = fetchBeacon(http.MethodGet, uri, nil, resp, nil, http.Header{})
 	return resp, err
 }
+*/

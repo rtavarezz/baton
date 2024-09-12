@@ -1,5 +1,6 @@
 package beaconclient
 
+/*
 import (
 	"sync"
 	"time"
@@ -134,3 +135,4 @@ func (c *MockBeaconInstance) GetRandao(slot uint64) (spec *GetRandaoResponse, er
 func (c *MockBeaconInstance) GetWithdrawals(slot uint64) (spec *GetWithdrawalsResponse, err error) {
 	return nil, nil
 }
+*/

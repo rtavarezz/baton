@@ -3,17 +3,14 @@ package common
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/flashbots/go-boost-utils/bls"
+	"github.com/flashbots/go-boost-utils/ssz"
 	"io"
-	"math/big"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -24,7 +21,6 @@ import (
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/types"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/holiman/uint256"
 )
 
@@ -75,15 +71,15 @@ func makeRequest(ctx context.Context, client http.Client, method, url string, pa
 }
 
 // ComputeDomain computes the signing domain
-func ComputeDomain(domainType types.DomainType, forkVersionHex, genesisValidatorsRootHex string) (domain types.Domain, err error) {
-	genesisValidatorsRoot := types.Root(ethcommon.HexToHash(genesisValidatorsRootHex))
+func ComputeDomain(domainType phase0.DomainType, forkVersionHex, genesisValidatorsRootHex string) (domain phase0.Domain, err error) {
+	genesisValidatorsRoot := phase0.Root(ethcommon.HexToHash(genesisValidatorsRootHex))
 	forkVersionBytes, err := hexutil.Decode(forkVersionHex)
 	if err != nil || len(forkVersionBytes) != 4 {
 		return domain, ErrInvalidForkVersion
 	}
 	var forkVersion [4]byte
 	copy(forkVersion[:], forkVersionBytes[:4])
-	return types.ComputeDomain(domainType, forkVersion, genesisValidatorsRoot), nil
+	return ssz.ComputeDomain(domainType, forkVersion, genesisValidatorsRoot), nil
 }
 
 func GetEnv(key, defaultValue string) string {
@@ -203,98 +199,8 @@ func MapValuesToSlice[K comparable, V any](m map[K]V) []V {
 	return values
 }
 
-func GetSignatureForChunk(block *BatonBlock, privateKeyHex string) (*boostTypes.Signature, error) {
-	privateKey, err := crypto.HexToECDSA(privateKeyHex)
-	if err != nil {
-		return nil, err
-	}
-
-	blockJson, err := json.Marshal(*block)
-	if err != nil {
-		return nil, err
-	}
-
-	return SignMessage(blockJson, privateKey)
-}
-
-func VerifySignatureForChunk(
-	block *BatonBlock,
-	signature *boostTypes.Signature,
-	expectedPublicKey *boostTypes.PublicKey,
-) (bool, error) {
-	blockJson, err := json.Marshal(*block)
-	if err != nil {
-		return false, err
-	}
-
-	return VerifySignature(blockJson, signature, expectedPublicKey)
-}
-
-// SignMessage signs a message using the given private key and returns a [96]byte signature.
-func SignMessage(message []byte, privateKey *ecdsa.PrivateKey) (*boostTypes.Signature, error) {
-	var flashbotsSignature boostTypes.Signature
-
-	// Hash the message using Keccak256
-	hash := crypto.Keccak256Hash(message)
-
-	// Sign the hash with the private key
-	signature, err := crypto.Sign(hash.Bytes(), privateKey)
-	if err != nil {
-		return nil, err
-	}
-
-	copy(flashbotsSignature[:65], signature)
-	return &flashbotsSignature, nil
-}
-
-func VerifySignature(
-	message []byte,
-	signature *boostTypes.Signature,
-	flashbotsPubKey *boostTypes.PublicKey,
-) (bool, error) {
-	// Hash the message using Keccak256
-	hash := crypto.Keccak256Hash(message)
-
-	// Extract the first 65 bytes, which contain the actual ECDSA signature
-	ecdsaSignature := signature[:65]
-
-	// Ensure the v value is in the correct range (27 or 28)
-	if ecdsaSignature[64] < 27 {
-		ecdsaSignature[64] += 27
-	}
-
-	// Decompress the [48]byte Flashbots public key to get X, Y coordinates
-	x, y := secp256k1.DecompressPubkey(flashbotsPubKey[:])
-	if x == nil || y == nil {
-		return false, fmt.Errorf("failed to decompress public key")
-	}
-
-	// Convert the X, Y coordinates into an *ecdsa.PublicKey
-	pubKey := ConvertDecompressedPubKey(x, y)
-
-	// Recover the public key from the signature
-	recoveredPubKey, err := crypto.SigToPub(hash.Bytes(), ecdsaSignature[:])
-	if err != nil {
-		return false, fmt.Errorf("failed to recover public key from signature: %w", err)
-	}
-
-	// Compare the recovered public key with the provided public key
-	match := bytes.Equal(crypto.FromECDSAPub(pubKey), crypto.FromECDSAPub(recoveredPubKey))
-
-	return match, nil
-}
-
-func ConvertDecompressedPubKey(x, y *big.Int) *ecdsa.PublicKey {
-	return &ecdsa.PublicKey{
-		Curve: secp256k1.S256(),
-		X:     x,
-		Y:     y,
-	}
-}
-
-func GetURI(url *url.URL, path string) string {
-	u2 := *url
-	u2.User = nil
-	u2.Path = path
-	return u2.String()
+func PublicKeyToByteString(pk *bls.PublicKey) string {
+	pubKeyBytes := pk.Bytes()
+	pubKeyBytesAsStr := string(pubKeyBytes[:])
+	return pubKeyBytesAsStr
 }
