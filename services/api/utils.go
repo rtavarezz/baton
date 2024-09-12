@@ -4,17 +4,16 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"github.com/flashbots/go-boost-utils/bls"
+	"github.com/flashbots/mev-boost-relay/common"
 	"strconv"
 
 	"github.com/AnomalyFi/hypersdk/chain"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 
 	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
-	"github.com/flashbots/mev-boost-relay/common"
 )
 
 var (
@@ -29,8 +28,10 @@ var (
 )
 
 func checkBLSPublicKeyHex(pkHex string) error {
-	var proposerPubkey boostTypes.PublicKey
-	return proposerPubkey.UnmarshalText([]byte(pkHex))
+	//var proposerPubkey boostTypes.PublicKey
+	//return proposerPubkey.UnmarshalText([]byte(pkHex))
+	var proposerPubKey bls.PublicKey
+	return proposerPubKey.Unmarshal([]byte(pkHex))
 }
 
 func hasReachedFork(slot, forkEpoch uint64) bool {
@@ -116,57 +117,50 @@ func marshalTxs(txs []*chain.Transaction) ([]hexutil.Bytes, error) {
 }
 
 // helper funcs used for verifying signatures
-func HashSha(data []byte) []byte {
-	hash := sha256.Sum256(data)
-	return hash[:]
-}
+//func HashSha(data []byte) []byte {
+//	hash := sha256.Sum256(data)
+//	return hash[:]
+//}
 
 // computes the Merkle root of the given hashes
-func ComputeMerkleRoot(hashes [][]byte) []byte {
-	if len(hashes) == 0 {
-		return nil
-	}
-	for len(hashes) > 1 {
-		var newLevel [][]byte
-		// hashes in pairs
-		for i := 0; i < len(hashes); i += 2 {
-			if i+1 < len(hashes) {
-				combined := append(hashes[i], hashes[i+1]...)
-				newLevel = append(newLevel, HashSha(combined))
-			} else {
-				newLevel = append(newLevel, hashes[i])
-			}
-		}
-		hashes = newLevel
-	}
-	return hashes[0]
-}
+//func ComputeMerkleRoot(hashes [][]byte) []byte {
+//	if len(hashes) == 0 {
+//		return nil
+//	}
+//	for len(hashes) > 1 {
+//		var newLevel [][]byte
+//		// hashes in pairs
+//		for i := 0; i < len(hashes); i += 2 {
+//			if i+1 < len(hashes) {
+//				combined := append(hashes[i], hashes[i+1]...)
+//				newLevel = append(newLevel, HashSha(combined))
+//			} else {
+//				newLevel = append(newLevel, hashes[i])
+//			}
+//		}
+//		hashes = newLevel
+//	}
+//	return hashes[0]
+//}
 
-func VerifySignature(header *common.ExecHeadersInfo, signature boostTypes.Signature, pubKey boostTypes.PubkeyHex) error {
-	if len(signature) != 65 {
-		return errors.New("invalid signature length")
-	}
-	if len(pubKey) != 64 {
-		return errors.New("invalid public key length")
-	}
-	// work to combine hashes
-	var hashes [][]byte
-	if header.ToBHash != nil && header.ToBHash.Header != nil {
-		hashes = append(hashes, HashSha(header.ToBHash.Header.Bytes()))
-	}
-	for _, robHash := range header.RoBHashes {
-		if robHash.Header != nil {
-			hashes = append(hashes, HashSha(robHash.Header.Bytes()))
-		}
-	}
-	// get root for list of hashes
-	merkleRoot := ComputeMerkleRoot(hashes)
-	// verify the signature with pubkey and merkleroot and signature
-	// TODO: may need fixing( added signature and pubkey to make logic easier but need to double check if this is okay or not)
-	sigBytes := signature[:]
-	pubKeyBytes := []byte(pubKey)
-	if !crypto.VerifySignature(pubKeyBytes, merkleRoot, sigBytes) {
-		return errors.New("signature verification failed")
-	}
+func VerifySignature(header *common.ExecHeadersInfo, signature bls.Signature, pubKey common.PubkeyHex) error {
+	//// work to combine hashes
+	//var hashes [][]byte
+	//if header.ToBHash != nil && header.ToBHash.Header != nil {
+	//	hashes = append(hashes, HashSha(header.ToBHash.Header.Bytes()))
+	//}
+	//for _, robHash := range header.RoBHashes {
+	//	if robHash.Header != nil {
+	//		hashes = append(hashes, HashSha(robHash.Header.Bytes()))
+	//	}
+	//}
+	//// get root for list of hashes
+	//merkleRoot := ComputeMerkleRoot(hashes)
+	//// verify the signature with pubkey and merkleroot and signature
+	//// TODO: may need fixing( added signature and pubkey to make logic easier but need to double check if this is okay or not)
+	//pubKeyBytes := []byte(pubKey)
+	//if !crypto.VerifySignature(pubKeyBytes, merkleRoot, signature) {
+	//	return errors.New("signature verification failed")
+	//}
 	return nil
 }

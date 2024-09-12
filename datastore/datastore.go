@@ -3,8 +3,10 @@ package datastore
 
 import (
 	"database/sql"
+	"fmt"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/bradfitz/gomemcache/memcache"
+	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/database"
 	"github.com/go-redis/redis/v9"
@@ -13,6 +15,7 @@ import (
 	uberatomic "go.uber.org/atomic"
 	"strings"
 	"sync"
+	"time"
 )
 
 var ErrExecutionPayloadNotFound = errors.New("execution payload not found")
@@ -58,7 +61,7 @@ func NewDatastore(redisCache *RedisCache, memcached *Memcached, db database.IDat
 }
 
 // TODO: Figure out what to do with this
-/*
+
 // RefreshKnownValidators loads known validators from CL client into memory
 //
 // For the CL client this is an expensive operation and takes a bunch of resources.
@@ -131,7 +134,7 @@ func (ds *Datastore) RefreshKnownValidators(log *logrus.Entry, beaconClient beac
 	knownValidatorsByIndex := make(map[uint64]common.PubkeyHex)
 
 	for _, valEntry := range validators.Data {
-		pk := types.NewPubkeyHex(valEntry.Validator.Pubkey)
+		pk := common.NewPubkeyHex(valEntry.Validator.Pubkey)
 		knownValidatorsByPubkey[pk] = valEntry.Index
 		knownValidatorsByIndex[valEntry.Index] = pk
 	}
@@ -144,7 +147,6 @@ func (ds *Datastore) RefreshKnownValidators(log *logrus.Entry, beaconClient beac
 	ds.KnownValidatorsWasUpdated.Store(true)
 	log.Infof("known validators updated")
 }
-*/
 
 func (ds *Datastore) IsKnownValidator(pubkeyHex common.PubkeyHex) bool {
 	ds.knownValidatorsLock.RLock()

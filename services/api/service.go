@@ -10,7 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/AnomalyFi/hypersdk/chain"
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/ava-labs/avalanchego/ids"
+	boostSsz "github.com/flashbots/go-boost-utils/ssz"
+	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/go-redis/redis/v9"
 	"io"
@@ -33,7 +36,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/flashbots/go-boost-utils/bls"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/go-utils/httplogger"
 	"github.com/flashbots/mev-boost-relay/common"
@@ -200,8 +202,8 @@ type BatonAPI struct {
 	opts BatonAPIOpts  `jjj:"opts"`
 	log  *logrus.Entry `jjj:"log"`
 
-	blsSk     *bls.SecretKey        `jjj:"bls_sk"`
-	publicKey *boostTypes.PublicKey `jjj:"public_key"`
+	blsSk     *bls.SecretKey `jjj:"bls_sk"`
+	publicKey *bls.PublicKey `jjj:"public_key"`
 
 	srv         *http.Server    `jjj:"srv"`
 	srvStarted  uberatomic.Bool `jjj:"srv_started"`
@@ -227,7 +229,7 @@ type BatonAPI struct {
 	blockSimRateLimiter IBlockSimRateLimiter `jjj:"block_sim_rate_limiter"`
 	tracer              ITracer              `jjj:"tracer"`
 
-	validatorRegC chan boostTypes.SignedValidatorRegistration `jjj:"validator_reg_c"`
+	validatorRegC chan apiv1.SignedValidatorRegistration `jjj:"validator_reg_c"`
 
 	// used to wait on any active getPayload calls on shutdown
 	getPayloadCallsInFlight sync.WaitGroup `jjj:"get_payload_calls_in_flight"`
@@ -300,18 +302,19 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	}
 
 	// If block-builder API is enabled, then ensure secret key is all set
-	var publicKey boostTypes.PublicKey
+	var publicKey phase0.BLSPubKey
+	var blsPubkey *bls.PublicKey
 	if opts.BlockBuilderAPI {
 		if opts.SecretKey == nil {
 			return nil, ErrBuilderAPIWithoutSecretKey
 		}
 
 		// If using a secret key, ensure it's the correct one
-		blsPubkey, err := bls.PublicKeyFromSecretKey(opts.SecretKey)
+		blsPubkey, err = bls.PublicKeyFromSecretKey(opts.SecretKey)
 		if err != nil {
 			return nil, err
 		}
-		publicKey, err = boostTypes.BlsPublicKeyToPublicKey(blsPubkey)
+		publicKey, err = utils.BlsPublicKeyToPublicKey(blsPubkey)
 		if err != nil {
 			return nil, err
 		}
@@ -335,7 +338,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		opts:         opts,
 		log:          opts.Log,
 		blsSk:        opts.SecretKey,
-		publicKey:    &publicKey,
+		publicKey:    blsPubkey,
 		datastore:    opts.Datastore,
 		beaconClient: opts.BeaconClient,
 		redis:        opts.Redis,
@@ -346,7 +349,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.BlockSimURL),
 		tracer:                 NewTracer(opts.BlockSimURL),
 
-		validatorRegC: make(chan boostTypes.SignedValidatorRegistration, 450_000),
+		validatorRegC: make(chan apiv1.SignedValidatorRegistration, 450_000),
 		defiAddresses: FillUpDefiAddresses(opts),
 		robChainIDs:   make(map[string]struct{}),
 	}
@@ -1228,14 +1231,14 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 	}
 	req.Body.Close()
 
-	parseRegistration := func(value []byte) (reg *boostTypes.SignedValidatorRegistration, err error) {
+	parseRegistration := func(value []byte) (reg *apiv1.SignedValidatorRegistration, err error) {
 		// Pubkey
 		_pubkey, err := jsonparser.GetUnsafeString(value, "message", "pubkey")
 		if err != nil {
 			return nil, fmt.Errorf("registration message error (pubkey): %w", err)
 		}
 
-		pubkey, err := boostTypes.HexToPubkey(_pubkey)
+		pubkey, err := utils.HexToPubkey(_pubkey)
 		if err != nil {
 			return nil, fmt.Errorf("registration message error (pubkey): %w", err)
 		}
@@ -1268,7 +1271,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 			return nil, fmt.Errorf("registration message error (fee_recipient): %w", err)
 		}
 
-		feeRecipient, err := boostTypes.HexToAddress(_feeRecipient)
+		feeRecipient, err := utils.HexToAddress(_feeRecipient)
 		if err != nil {
 			return nil, fmt.Errorf("registration message error (fee_recipient): %w", err)
 		}
@@ -1279,17 +1282,17 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 			return nil, fmt.Errorf("registration message error (signature): %w", err)
 		}
 
-		signature, err := boostTypes.HexToSignature(_signature)
+		signature, err := utils.HexToSignature(_signature)
 		if err != nil {
 			return nil, fmt.Errorf("registration message error (signature): %w", err)
 		}
 
 		// Construct and return full registration object
-		reg = &boostTypes.SignedValidatorRegistration{
-			Message: &boostTypes.RegisterValidatorRequestMessage{
+		reg = &apiv1.SignedValidatorRegistration{
+			Message: &apiv1.ValidatorRegistration{
 				FeeRecipient: feeRecipient,
 				GasLimit:     gasLimit,
-				Timestamp:    timestamp,
+				Timestamp:    time.Unix(int64(timestamp), 0),
 				Pubkey:       pubkey,
 			},
 			Signature: signature,
@@ -1318,7 +1321,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 		}
 
 		// Add validator pubkey to logs
-		pkHex := signedValidatorRegistration.Message.Pubkey.PubkeyHex()
+		pkHex := common.PubkeyHex(signedValidatorRegistration.Message.Pubkey.String())
 		regLog = regLog.WithFields(logrus.Fields{
 			"pubkey":       pkHex,
 			"signature":    signedValidatorRegistration.Signature.String(),
@@ -1328,7 +1331,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 		})
 
 		// Ensure a valid timestamp (not too early, and not too far in the future)
-		registrationTimestamp := int64(signedValidatorRegistration.Message.Timestamp)
+		registrationTimestamp := signedValidatorRegistration.Message.Timestamp.Unix()
 
 		// TODO: Do we need this timestamp check? Hard to make since we are removing beacon dependency.
 		/*
@@ -1354,13 +1357,13 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 		prevTimestamp, err := api.redis.GetValidatorRegistrationTimestamp(pkHex)
 		if err != nil {
 			regLog.WithError(err).Error("error getting last registration timestamp")
-		} else if prevTimestamp >= signedValidatorRegistration.Message.Timestamp {
+		} else if prevTimestamp >= uint64(signedValidatorRegistration.Message.Timestamp.Unix()) {
 			// abort if the current registration timestamp is older or equal to the last known one
 			return
 		}
 
 		// Verify the signature
-		ok, err := boostTypes.VerifySignature(signedValidatorRegistration.Message, api.opts.EthNetDetails.DomainBuilder, signedValidatorRegistration.Message.Pubkey[:], signedValidatorRegistration.Signature[:])
+		ok, err := boostSsz.VerifySignature(signedValidatorRegistration.Message, api.opts.EthNetDetails.DomainBuilder, signedValidatorRegistration.Message.Pubkey[:], signedValidatorRegistration.Signature[:])
 		if err != nil {
 			regLog.WithError(err).Error("error verifying registerValidator signature")
 			return
@@ -1630,7 +1633,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	// Create a BLS pubkey from the hex pubkey
 	//pk, err := boostTypes.HexToPubkey(proposerPubkey.String())
-	_, err = boostTypes.HexToPubkey(proposerPubkey.String())
+	_, err = utils.HexToPubkey(proposerPubkey.String())
 	if err != nil {
 		log.WithError(err).Warn("could not convert pubkey to types.PublicKey")
 		api.RespondError(w, http.StatusBadRequest, "could not convert pubkey to types.PublicKey")
@@ -1669,7 +1672,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		var bidTrace *common.BidTraceV3
 
 		// we only need to get the bidtrace for one of the involved blocks.
-		if getPayloadResp.ToBPayload != nil {
+		if getPayloadResp.ExecPayloads.ToBPayload != nil {
 			bidTrace, err = api.redis.GetToBBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash)
 			if err != nil {
 				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
@@ -1677,13 +1680,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			}
 		} else {
 			// Get RoB bid trace. There should be at least one entry in the response rob map.
-			if len(getPayloadResp.RoBPayloads) == 0 {
+			if len(getPayloadResp.ExecPayloads.RoBPayloads) == 0 {
 				log.WithError(err).Error("could not get bidtrace because no tob or rob chain ids were found")
 				return
 			}
 
 			var robFirstChainID string
-			for k, _ := range getPayloadResp.RoBPayloads {
+			for k, _ := range getPayloadResp.ExecPayloads.RoBPayloads {
 				robFirstChainID = k
 			}
 			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash, robFirstChainID)
@@ -1877,20 +1880,20 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	// fill in rest of the payload response
 	getPayloadResp.Slot = payload.Slot
-	getPayloadResp.RoBPayloads = make(map[string]common.ExecutionPayload)
+	getPayloadResp.ExecPayloads.RoBPayloads = make(map[string]common.ExecutionPayload)
 
 	if tobAnchorPayload != nil {
 		tobExecPayload := common.ExecutionPayload{
 			Transactions: tobAnchorPayload.Transactions,
 		}
-		getPayloadResp.ToBPayload = &tobExecPayload
+		getPayloadResp.ExecPayloads.ToBPayload = &tobExecPayload
 	}
 
 	for chainID, anchorPayload := range robPayloads {
 		robChunkExecPayload := common.ExecutionPayload{
 			Transactions: anchorPayload.Transactions,
 		}
-		getPayloadResp.RoBPayloads[chainID] = robChunkExecPayload
+		getPayloadResp.ExecPayloads.RoBPayloads[chainID] = robChunkExecPayload
 	}
 
 	// respond to the HTTP request
@@ -2254,7 +2257,13 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	builderPubkey := blockReq.BuilderPubkey()
-	builderEntry, ok := api.checkBuilderEntry(w, log, phase0.BLSPubKey(builderPubkey))
+	pbCheck, err := utils.BlsPublicKeyToPublicKey(&builderPubkey)
+	if err != nil {
+		log.WithError(err).Info(err.Error())
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	builderEntry, ok := api.checkBuilderEntry(w, log, pbCheck)
 	if !ok {
 		log.WithError(err).Info("builder entry check failed")
 		api.RespondError(w, http.StatusBadRequest, "builder entry check failed")
@@ -2311,7 +2320,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		"parentHash":             blockReq.ParentHash,
 		"blockHash":              blockReq.BlockHash,
 		"builderPubkey":          blockReq.BuilderPubKey.String(),
-		"proposerPubkey":         blockReq.ProposerPubKey().String(),
+		"proposerPubkey":         blockReq.ProposerPubKeyAsStr(),
 		"proposerPayment":        blockReq.ProposerPayment,
 		"signature":              blockReq.Signature,
 		"isLargeRequest":         isLargeRequest,
@@ -2416,8 +2425,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		ChainID:         chainID,
 		ParentHash:      blockReq.ParentHash().String(),
 		BlockHash:       blockReq.BlockHash().String(),
-		BuilderPubkey:   blockReq.BuilderPubkey().String(),
-		ProposerPubkey:  blockReq.ProposerPubKey().String(),
+		BuilderPubkey:   blockReq.BuilderPubkeyAsStr(),
+		ProposerPubkey:  blockReq.ProposerPubKeyAsStr(),
 		ProposerPayment: blockReq.ProposerPaymentAsStr(),
 		GasLimit:        gasLimit,
 		GasUsed:         gasUsed,
@@ -2459,12 +2468,12 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			go func() {
 				if isToB {
 					err = api.memcached.SaveToBAnchorPayload(blockReq.Slot(),
-						blockReq.ProposerPubKey().String(),
+						blockReq.ProposerPubKeyAsStr(),
 						blockReq.BlockHash().String(),
 						getPayload)
 				} else {
 					err = api.memcached.SaveRoBAnchorPayload(blockReq.Slot(),
-						blockReq.ProposerPubKey().String(),
+						blockReq.ProposerPubKeyAsStr(),
 						blockReq.BlockHash().String(),
 						chainID,
 						getPayload)
@@ -2616,8 +2625,11 @@ func (api *BatonAPI) handleDataProposerPayloadDelivered(w http.ResponseWriter, r
 	}
 
 	if args.Get("block_hash") != "" {
-		var hash boostTypes.Hash
-		err = hash.UnmarshalText([]byte(args.Get("block_hash")))
+		// TODO: old version below
+		//var hash boostTypes.Hash
+		//err = hash.UnmarshalText([]byte(args.Get("block_hash")))
+		var hash phase0.Hash32
+		err = hash.UnmarshalJSON([]byte(args.Get("block_hash")))
 		if err != nil {
 			api.RespondError(w, http.StatusBadRequest, "invalid block_hash argument")
 			return
@@ -2711,8 +2723,10 @@ func (api *BatonAPI) handleDataBuilderBidsReceived(w http.ResponseWriter, req *h
 	}
 
 	if args.Get("block_hash") != "" {
-		var hash boostTypes.Hash
-		err = hash.UnmarshalText([]byte(args.Get("block_hash")))
+		//var hash boostTypes.Hash
+		//err = hash.UnmarshalText([]byte(args.Get("block_hash")))
+		var hash phase0.Hash32
+		err = hash.UnmarshalJSON([]byte(args.Get("block_hash")))
 		if err != nil {
 			api.RespondError(w, http.StatusBadRequest, "invalid block_hash argument")
 			return
@@ -2806,8 +2820,10 @@ func (api *BatonAPI) handleDataValidatorRegistration(w http.ResponseWriter, req 
 		return
 	}
 
-	var pk boostTypes.PublicKey
-	err := pk.UnmarshalText([]byte(pkStr))
+	//var pk common.PublicKey
+	//err := pk.UnmarshalText([]byte(pkStr))
+	var pk bls.PublicKey
+	err := pk.Unmarshal([]byte(pkStr))
 	if err != nil {
 		api.RespondError(w, http.StatusBadRequest, "invalid pubkey")
 		return

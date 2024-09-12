@@ -1,7 +1,6 @@
 // Package beaconclient provides a beacon-node client
 package beaconclient
 
-/*
 import (
 	"errors"
 	"fmt"
@@ -423,4 +422,3 @@ func (c *MultiBeaconClient) GetWithdrawals(slot uint64) (withdrawalsResp *GetWit
 	c.log.WithField("slot", slot).WithError(err).Warn("failed to get withdrawals from any CL node")
 	return nil, err
 }
-*/

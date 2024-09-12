@@ -1,6 +1,5 @@
 package beaconclient
 
-/*
 import (
 	"bytes"
 	"encoding/json"
@@ -92,4 +91,3 @@ func fetchBeacon(method, url string, payload, dst any, timeout *time.Duration, h
 
 	return resp.StatusCode, nil
 }
-*/

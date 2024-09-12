@@ -2,7 +2,9 @@ package common
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -203,4 +205,17 @@ func PublicKeyToByteString(pk *bls.PublicKey) string {
 	pubKeyBytes := pk.Bytes()
 	pubKeyBytesAsStr := string(pubKeyBytes[:])
 	return pubKeyBytesAsStr
+}
+
+func MustB64Gunzip(s string) []byte {
+	b, _ := base64.StdEncoding.DecodeString(s)
+	gzreader, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		panic(err)
+	}
+	output, err := io.ReadAll(gzreader)
+	if err != nil {
+		panic(err)
+	}
+	return output
 }

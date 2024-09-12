@@ -387,6 +387,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	requestBodyBytes, err := json.Marshal(block)
 	require.NoError(t, err)
 
+	// note: mock db to set expected header from CreateTestChunkSubmission
+	// TODO: look at anchor unit test for test improvements
+
 	// new HTTP req
 
 	// capture the resp

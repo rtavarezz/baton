@@ -5,18 +5,19 @@
 // - Saving metrics
 // - Deleting old bids
 // - ...
+
 package housekeeper
 
 import (
 	"errors"
 	"fmt"
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"net/http"
 	_ "net/http/pprof"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/database"
@@ -204,25 +205,26 @@ func (hk *Housekeeper) updateProposerDuties(headSlot uint64) {
 	}
 
 	// Convert db entries to signed validator registration type
-	signedValidatorRegistrations := make(map[string]*types.SignedValidatorRegistration)
+	signedValidatorRegistrations := make(map[string]apiv1.SignedValidatorRegistration)
 	for _, regEntry := range validatorRegistrationEntries {
 		signedEntry, err := regEntry.ToSignedValidatorRegistration()
 		if err != nil {
 			log.WithError(err).Error("failed to convert validator registration entry to signed validator registration")
 			continue
 		}
-		signedValidatorRegistrations[regEntry.Pubkey] = signedEntry
+		signedValidatorRegistrations[regEntry.Pubkey] = *signedEntry
 	}
 
 	// Prepare proposer duties
 	proposerDuties := []common.BuilderGetValidatorsResponseEntry{}
 	for _, duty := range entries {
 		reg := signedValidatorRegistrations[duty.Pubkey]
-		if reg != nil {
+		var zeroReg apiv1.SignedValidatorRegistration
+		if reg != zeroReg {
 			proposerDuties = append(proposerDuties, common.BuilderGetValidatorsResponseEntry{
 				Slot:           duty.Slot,
 				ValidatorIndex: duty.ValidatorIndex,
-				Entry:          reg,
+				Entry:          &reg,
 			})
 		}
 	}
@@ -256,7 +258,7 @@ func (hk *Housekeeper) updateValidatorRegistrationsInRedis() {
 	timeStarted := time.Now()
 
 	for _, reg := range regs {
-		err = hk.redis.SetValidatorRegistrationTimestampIfNewer(types.PubkeyHex(reg.Pubkey), reg.Timestamp)
+		err = hk.redis.SetValidatorRegistrationTimestampIfNewer(common.PubkeyHex(reg.Pubkey), reg.Timestamp)
 		if err != nil {
 			hk.log.WithError(err).Error("failed to set validator registration")
 			continue

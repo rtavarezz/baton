@@ -8,12 +8,15 @@ import (
 	"github.com/AnomalyFi/hypersdk/codec"
 	"github.com/AnomalyFi/nodekit-seq/actions"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/flashbots/go-boost-utils/bls"
+	boostSsz "github.com/flashbots/go-boost-utils/ssz"
 	"math/big"
+	"os"
 	"strings"
 )
 
@@ -74,7 +77,6 @@ var (
 	TobGasReservations = 1000000
 )
 
-/*
 type EthNetworkDetails struct {
 	Name                     string
 	GenesisForkVersionHex    string
@@ -83,24 +85,22 @@ type EthNetworkDetails struct {
 	CapellaForkVersionHex    string
 	DenebForkVersionHex      string
 
-	DomainBuilder                 boostTypes.Domain
-	DomainBeaconProposerBellatrix boostTypes.Domain
-	DomainBeaconProposerCapella   boostTypes.Domain
-	DomainBeaconProposerDeneb     boostTypes.Domain
+	DomainBuilder                 phase0.Domain
+	DomainBeaconProposerBellatrix phase0.Domain
+	DomainBeaconProposerCapella   phase0.Domain
+	DomainBeaconProposerDeneb     phase0.Domain
 }
-*/
 
-/*
 func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error) {
 	var genesisForkVersion string
 	var genesisValidatorsRoot string
 	var bellatrixForkVersion string
 	var capellaForkVersion string
 	var denebForkVersion string
-	var domainBuilder boostTypes.Domain
-	var domainBeaconProposerBellatrix boostTypes.Domain
-	var domainBeaconProposerCapella boostTypes.Domain
-	var domainBeaconProposerDeneb boostTypes.Domain
+	var domainBuilder phase0.Domain
+	var domainBeaconProposerBellatrix phase0.Domain
+	var domainBeaconProposerCapella phase0.Domain
+	var domainBeaconProposerDeneb phase0.Domain
 
 	switch networkName {
 	case EthNetworkHolesky:
@@ -137,22 +137,22 @@ func NewEthNetworkDetails(networkName string) (ret *EthNetworkDetails, err error
 		return nil, fmt.Errorf("%w: %s", ErrUnknownNetwork, networkName)
 	}
 
-	domainBuilder, err = ComputeDomain(boostTypes.DomainTypeAppBuilder, genesisForkVersion, boostTypes.Root{}.String())
+	domainBuilder, err = ComputeDomain(boostSsz.DomainTypeAppBuilder, genesisForkVersion, phase0.Root{}.String())
 	if err != nil {
 		return nil, err
 	}
 
-	domainBeaconProposerBellatrix, err = ComputeDomain(boostTypes.DomainTypeBeaconProposer, bellatrixForkVersion, genesisValidatorsRoot)
+	domainBeaconProposerBellatrix, err = ComputeDomain(boostSsz.DomainTypeBeaconProposer, bellatrixForkVersion, genesisValidatorsRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	domainBeaconProposerCapella, err = ComputeDomain(boostTypes.DomainTypeBeaconProposer, capellaForkVersion, genesisValidatorsRoot)
+	domainBeaconProposerCapella, err = ComputeDomain(boostSsz.DomainTypeBeaconProposer, capellaForkVersion, genesisValidatorsRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	domainBeaconProposerDeneb, err = ComputeDomain(boostTypes.DomainTypeBeaconProposer, denebForkVersion, genesisValidatorsRoot)
+	domainBeaconProposerDeneb, err = ComputeDomain(boostSsz.DomainTypeBeaconProposer, denebForkVersion, genesisValidatorsRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +196,6 @@ func (e *EthNetworkDetails) String() string {
 		e.DomainBeaconProposerCapella,
 		e.DomainBeaconProposerDeneb)
 }
-*/
 
 type PubkeyHex string
 
@@ -376,10 +375,9 @@ type AnchorHeader struct {
 	BlockHash string       `json:"block_hash"`
 }
 
-/*
 type SignedBeaconBlock struct {
-	Bellatrix *boostTypes.SignedBeaconBlock
-	Capella   *consensuscapella.SignedBeaconBlock
+	Bellatrix *phase0.SignedBeaconBlock
+	Capella   *phase0.SignedBeaconBlock
 }
 
 func (s *SignedBeaconBlock) MarshalJSON() ([]byte, error) {
@@ -397,21 +395,20 @@ func (s *SignedBeaconBlock) Slot() uint64 {
 		return uint64(s.Capella.Message.Slot)
 	}
 	if s.Bellatrix != nil {
-		return s.Bellatrix.Message.Slot
+		return uint64(s.Bellatrix.Message.Slot)
 	}
 	return 0
 }
 
 func (s *SignedBeaconBlock) BlockHash() string {
 	if s.Capella != nil {
-		return s.Capella.Message.Body.ExecutionPayload.BlockHash.String()
+		return string(s.Capella.Message.Body.ETH1Data.BlockHash[:])
 	}
 	if s.Bellatrix != nil {
-		return s.Bellatrix.Message.Body.ExecutionPayload.BlockHash.String()
+		return string(s.Bellatrix.Message.Body.ETH1Data.BlockHash[:])
 	}
 	return ""
 }
-*/
 
 type AnchorGetHeaderResponse struct {
 	ExecPayloads    ExecHeadersInfo

@@ -1,6 +1,5 @@
 package beaconclient
 
-/*
 import (
 	"github.com/attestantio/go-eth2-client/spec/capella"
 	"github.com/flashbots/mev-boost-relay/common"
@@ -76,4 +75,3 @@ func (*MockMultiBeaconClient) GetWithdrawals(slot uint64) (spec *GetWithdrawalsR
 	resp.Data.Withdrawals = append(resp.Data.Withdrawals, &capella.Withdrawal{}) //nolint:exhaustruct
 	return resp, nil
 }
-*/

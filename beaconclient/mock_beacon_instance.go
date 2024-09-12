@@ -1,18 +1,15 @@
 package beaconclient
 
-/*
 import (
 	"sync"
 	"time"
 
-	"github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
 )
 
 type MockBeaconInstance struct {
-	mu           sync.RWMutex
-	validatorSet map[types.PubkeyHex]ValidatorResponseEntry
-
+	mu                     sync.RWMutex
+	validatorSet           map[common.PubkeyHex]ValidatorResponseEntry
 	MockSyncStatus         *SyncStatusPayloadData
 	MockSyncStatusErr      error
 	MockProposerDuties     *ProposerDutiesResponse
@@ -24,7 +21,7 @@ type MockBeaconInstance struct {
 
 func NewMockBeaconInstance() *MockBeaconInstance {
 	return &MockBeaconInstance{
-		validatorSet: make(map[types.PubkeyHex]ValidatorResponseEntry),
+		validatorSet: make(map[common.PubkeyHex]ValidatorResponseEntry),
 
 		MockSyncStatus: &SyncStatusPayloadData{
 			HeadSlot:  1,
@@ -45,17 +42,17 @@ func NewMockBeaconInstance() *MockBeaconInstance {
 
 func (c *MockBeaconInstance) AddValidator(entry ValidatorResponseEntry) {
 	c.mu.Lock()
-	c.validatorSet[types.NewPubkeyHex(entry.Validator.Pubkey)] = entry
+	c.validatorSet[common.NewPubkeyHex(entry.Validator.Pubkey)] = entry
 	c.mu.Unlock()
 }
 
-func (c *MockBeaconInstance) SetValidators(validatorSet map[types.PubkeyHex]ValidatorResponseEntry) {
+func (c *MockBeaconInstance) SetValidators(validatorSet map[common.PubkeyHex]ValidatorResponseEntry) {
 	c.mu.Lock()
 	c.validatorSet = validatorSet
 	c.mu.Unlock()
 }
 
-func (c *MockBeaconInstance) IsValidator(pubkey types.PubkeyHex) bool {
+func (c *MockBeaconInstance) IsValidator(pubkey common.PubkeyHex) bool {
 	c.mu.RLock()
 	_, found := c.validatorSet[pubkey]
 	c.mu.RUnlock()
@@ -135,4 +132,3 @@ func (c *MockBeaconInstance) GetRandao(slot uint64) (spec *GetRandaoResponse, er
 func (c *MockBeaconInstance) GetWithdrawals(slot uint64) (spec *GetWithdrawalsResponse, err error) {
 	return nil, nil
 }
-*/

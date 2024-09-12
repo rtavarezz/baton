@@ -15,7 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
+	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/stretchr/testify/require"
 	"log"
@@ -53,7 +53,7 @@ type CreateTestBlockSubmissionOpts struct {
 	Slot           uint64
 	ParentHash     string
 	BuilderPubkey  string
-	ProposerPubkey boostTypes.PublicKey
+	ProposerPubkey bls.PublicKey
 	IsToB          bool
 	robChainIndex  int // only used if isTob false
 	numTxs         int
@@ -76,9 +76,9 @@ func CreateTestChunkSubmission(
 	var err error
 
 	slot := opts.Slot
-	proposerPk := boostTypes.PublicKey{}
+	proposerPk := bls.PublicKey{}
 	parentHash := eth.Hash{}
-	builderPubkey := boostTypes.PublicKey{}
+	builderPubkey := bls.PublicKey{}
 	chainIndex := 1
 
 	numTxs := 1
@@ -88,8 +88,11 @@ func CreateTestChunkSubmission(
 		chainIndex = opts.robChainIndex
 
 		numTxs = opts.numTxs
-		copy(builderPubkey[:], opts.BuilderPubkey)
-
+		key, err := bls.PublicKeyFromBytes([]byte(opts.BuilderPubkey))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		builderPubkey = *key
 		if opts.ProposerPubkey.String() != "" {
 			proposerPk = opts.ProposerPubkey
 		}
