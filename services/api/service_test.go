@@ -5,6 +5,8 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -17,7 +19,6 @@ import (
 	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/types"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/database"
@@ -38,9 +39,9 @@ const (
 )
 
 var (
-	builderSigningDomain = types.Domain([32]byte{0, 0, 0, 1, 245, 165, 253, 66, 209, 106, 32, 48, 39, 152, 239, 110, 211, 9, 151, 155, 67, 0, 61, 35, 32, 217, 240, 232, 234, 152, 49, 169})
-	testAddress          = types.Address([20]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
-	testAddress2         = types.Address([20]byte{1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
+	builderSigningDomain = phase0.Domain([32]byte{0, 0, 0, 1, 245, 165, 253, 66, 209, 106, 32, 48, 39, 152, 239, 110, 211, 9, 151, 155, 67, 0, 61, 35, 32, 217, 240, 232, 234, 152, 49, 169})
+	testAddress          = eth.Address([20]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
+	testAddress2         = eth.Address([20]byte{1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
 )
 
 type testBackend struct {
@@ -224,7 +225,7 @@ func TestWebserverRootHandler(t *testing.T) {
 func TestStatus(t *testing.T) {
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 	path := "/eth/v1/builder/status"
-	rr := backend.request(http.MethodGet, path, common.ValidPayloadRegisterValidator)
+	rr := backend.request(http.MethodGet, path, apiv1.ValidatorRegistration{})
 	require.Equal(t, http.StatusOK, rr.Code)
 }
 
@@ -266,7 +267,7 @@ func TestRegisterValidator(t *testing.T) {
 	t.Run("not a known validator", func(t *testing.T) {
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 
-		rr := backend.request(http.MethodPost, path, []types.SignedValidatorRegistration{common.ValidPayloadRegisterValidator})
+		rr := backend.request(http.MethodPost, path, []apiv1.SignedValidatorRegistration{})
 		require.Equal(t, http.StatusBadRequest, rr.Code)
 	})
 
@@ -317,27 +318,11 @@ func TestGetHeader(t *testing.T) {
 	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
 	// request path
 	path := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(uint64(1), 10), parentHash, proposerPubkey)
-
+	require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", path)
 	rr := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodGet, path, nil)
 	backend.relay.getRouter().ServeHTTP(rr, httpReq)
 	require.Equal(t, http.StatusNoContent, rr.Code)
-	/*
-		params := url.Values{}
-		params.Add("slot", strconv.FormatUint(slot, 10))
-		params.Add("parent_hash", parentHash.String())
-		params.Add("pubkey", proposerPubkey)
-	*/
-
-	//req := httptest.NewRequest(http.MethodGet, path+"?"+params.Encode(), nil)
-
-	//api.handleGetHeader(rr, httpReq)
-
-	//require.Equal(t, http.StatusOK, rr.Code)
-
-	//var resp common.AnchorGetHeaderResponse
-	//err := json.Unmarshal(rr.Body.Bytes(), &resp)
-	//require.NoError(t, err)
 }
 
 // @TODO: Finish/fix handle test function below. Can either hard code which is copying most logic of actual function
@@ -363,8 +348,8 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	opts := CreateTestBlockSubmissionOpts{
 		Slot:           0,
 		ParentHash:     "",
-		BuilderPubkey:  "",
-		ProposerPubkey: boostTypes.PublicKey{},
+		BuilderPubkey:  bls.PublicKey{},
+		ProposerPubkey: bls.PublicKey{},
 		IsToB:          false,
 		robChainIndex:  0,
 		numTxs:         0,
@@ -374,17 +359,31 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	opts.numTxs = 1
 	opts.Slot = slot
 	opts.ParentHash = "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
-	opts.BuilderPubkey = "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890453"
 	var err error
-	opts.ProposerPubkey, err = boostTypes.HexToPubkey(proposerPubkey)
+	// convert below
+	secretKey, err := bls.GenerateRandomSecretKey()
 	require.NoError(t, err)
-
-	block, _, _, err := CreateTestChunkSubmission(t, uint64(2), &opts)
+	pKey, err := bls.PublicKeyFromSecretKey(secretKey)
 	require.NoError(t, err)
+	opts.ProposerPubkey = *pKey
+	bKey, err := bls.PublicKeyFromSecretKey(secretKey)
+	require.NoError(t, err)
+	opts.BuilderPubkey = *bKey
 
+	block, header, payload, err := CreateTestChunkSubmission(t, uint64(2), &opts)
+	require.NoError(t, err)
+	type Data struct {
+		Block   common.SubmitNewBlockRequest
+		Header  common.AnchorHeader
+		Payload common.AnchorPayload
+	}
+	anchor := Data{
+		Block:   *block,
+		Header:  *header,
+		Payload: *payload,
+	}
 	// marshal the req body
-	requestBodyBytes, err := json.Marshal(block)
+	requestBodyBytes, err := json.Marshal(anchor)
 	require.NoError(t, err)
 
 	// note: mock db to set expected header from CreateTestChunkSubmission
@@ -401,6 +400,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 }
 
+// TODO: fix me soon
 func TestBuilderApiGetValidators(t *testing.T) {
 	path := "/relay/v1/builder/validators"
 
@@ -408,7 +408,7 @@ func TestBuilderApiGetValidators(t *testing.T) {
 	duties := []common.BuilderGetValidatorsResponseEntry{
 		{
 			Slot:  1,
-			Entry: &common.ValidPayloadRegisterValidator,
+			Entry: &apiv1.SignedValidatorRegistration{},
 		},
 	}
 	responseBytes, err := json.Marshal(duties)
@@ -423,7 +423,7 @@ func TestBuilderApiGetValidators(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(resp))
 	require.Equal(t, uint64(1), resp[0].Slot)
-	require.Equal(t, common.ValidPayloadRegisterValidator, *resp[0].Entry)
+	require.Equal(t, apiv1.ValidatorRegistration{}, *resp[0].Entry)
 }
 
 func TestDataApiGetDataProposerPayloadDelivered(t *testing.T) {

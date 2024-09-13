@@ -52,7 +52,7 @@ func GetNextTestNonce() uint64 {
 type CreateTestBlockSubmissionOpts struct {
 	Slot           uint64
 	ParentHash     string
-	BuilderPubkey  string
+	BuilderPubkey  bls.PublicKey
 	ProposerPubkey bls.PublicKey
 	IsToB          bool
 	robChainIndex  int // only used if isTob false
@@ -75,7 +75,7 @@ func CreateTestChunkSubmission(
 	t.Helper()
 	var err error
 
-	slot := opts.Slot
+	slot := uint64(1)
 	proposerPk := bls.PublicKey{}
 	parentHash := eth.Hash{}
 	builderPubkey := bls.PublicKey{}
@@ -88,11 +88,9 @@ func CreateTestChunkSubmission(
 		chainIndex = opts.robChainIndex
 
 		numTxs = opts.numTxs
-		key, err := bls.PublicKeyFromBytes([]byte(opts.BuilderPubkey))
-		if err != nil {
-			return nil, nil, nil, err
+		if opts.BuilderPubkey.String() != "" {
+			builderPubkey = opts.BuilderPubkey
 		}
-		builderPubkey = *key
 		if opts.ProposerPubkey.String() != "" {
 			proposerPk = opts.ProposerPubkey
 		}

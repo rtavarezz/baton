@@ -1,5 +1,7 @@
 package common
 
+import "github.com/sirupsen/logrus"
+
 /*
 import (
 	"bytes"
@@ -120,3 +122,5 @@ func LoadFileContents(t *testing.T, filename string) []byte {
 	return fileContents
 }
 */
+// TestLog is used to log information in the test methods
+var TestLog = logrus.WithField("testing", true)
