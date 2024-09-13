@@ -363,13 +363,6 @@ func (b *BidTraceV2WithTimestampJSON) ToCSVRecord() []string {
 	}
 }
 
-// TODO: Verify that Transactions contains the submit new block hypersdk txs
-type ExecutionPayload struct {
-	// Array of transaction objects, each object is a byte list (DATA) representing
-	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
-	Transactions []hexutil.Bytes `json:"transactions"`
-}
-
 type AnchorHeader struct {
 	Header    *common.Hash `json:"header"`
 	BlockHash string       `json:"block_hash"`
@@ -440,15 +433,21 @@ type AnchorGetPayloadRequest struct {
 	SignedHeaders bls.Signature `json:"signed_headers"`
 }
 
+type AnchorGetPayloadResponse struct {
+	Slot            uint64           `json:"slot"`
+	ExecPayloads    ExecPayloadsInfo `json:"execpayloads"`
+	ExecPayloadsSig bls.Signature    `json:"execpayloads_sig"`
+}
+
 type ExecPayloadsInfo struct {
 	ToBPayload  *ExecutionPayload           `json:"tobpayload"`
 	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
 }
 
-type AnchorGetPayloadResponse struct {
-	Slot            uint64           `json:"slot"`
-	ExecPayloads    ExecPayloadsInfo `json:"execpayloads"`
-	ExecPayloadsSig bls.Signature    `json:"execpayloads_sig"`
+type ExecutionPayload struct {
+	// Array of transaction objects, each object is a byte list (DATA) representing
+	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	Transactions []hexutil.Bytes `json:"transactions"`
 }
 
 type BuilderSubmitBlockRequest struct {
@@ -611,9 +610,15 @@ type SequencerMsgRequest struct {
 }
 */
 
+// SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
+// Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
+type SubmitNewBlockRequest struct {
+	Chunk         BatonBlock
+	Signature     bls.Signature `json:"signature" ssz-size:"96"`
+	BuilderPubKey bls.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+}
+
 type BatonBlock struct {
-	// TODO: Remove me when sure
-	//Txs             []*chain.Transaction `json:"txs"`
 	Txs             []byte            `json:"txs"`
 	Slot            uint64            `json:"slot"`
 	ParentHash      common.Hash       `json:"parent_hash"`
@@ -621,14 +626,6 @@ type BatonBlock struct {
 	BlockHash       common.Hash       `json:"block_hash" ssz-size:"32"`
 	ProposerPubkey  bls.PublicKey     `json:"proposer_pubkey" ssz-size:"48"`
 	ProposerPayment codec.Address     `json:"proposer_payment" ssz-size:"48"`
-}
-
-// SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
-// Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
-type SubmitNewBlockRequest struct {
-	Chunk         BatonBlock
-	Signature     bls.Signature `json:"signature" ssz-size:"96"`
-	BuilderPubKey bls.PublicKey `json:"builder_pubkey" ssz-size:"48"`
 }
 
 /*

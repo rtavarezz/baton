@@ -23,9 +23,7 @@ import (
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/database"
 	"github.com/flashbots/mev-boost-relay/datastore"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/atomic"
 )
 
 const (
@@ -97,6 +95,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 		BlockBuilderAPI: true,
 		DataAPI:         true,
 		InternalAPI:     true,
+		mockMode:        true,
 	}
 
 	relay, err := NewBatonAPI(opts)
@@ -325,79 +324,92 @@ func TestGetHeader(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rr.Code)
 }
 
-// @TODO: Finish/fix handle test function below. Can either hard code which is copying most logic of actual function
-// or create a fake request to call the function which is the approach taken below.
-func TestHandleSubmitNewBlockRequest(t *testing.T) {
+func createBackendHelper(t *testing.T) *testBackend {
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
 		Data: beaconclient.GetGenesisResponseData{
 			GenesisTime: uint64(time.Now().UTC().Unix()),
 		},
 	}
-	logger := logrus.New()
-	logEntry := logrus.NewEntry(logger)
-	api := &BatonAPI{
-		headSlot: *atomic.NewUint64(0),
-		log:      logEntry,
-	}
+	return backend
+}
 
+// @TODO: Finish/fix handle test function below. Can either hard code which is copying most logic of actual function
+// or create a fake request to call the function which is the approach taken below.
+func TestHandleSubmitNewBlockRequest(t *testing.T) {
+	//logger := logrus.New()
+	//logEntry := logrus.NewEntry(logger)
+	slot := uint64(1)
+	var err error
+
+	// Build hypersdk registry
 	var cli = srpc.Parser{}
 	_, _ = cli.Registry()
-	slot := uint64(1)
-	api.headSlot.Store(slot)
-	opts := CreateTestBlockSubmissionOpts{
-		Slot:           0,
-		ParentHash:     "",
-		BuilderPubkey:  bls.PublicKey{},
-		ProposerPubkey: bls.PublicKey{},
+
+	// Build test builder keys
+	testBuilderSecretKey, err := bls.GenerateRandomSecretKey()
+	require.NoError(t, err)
+	testBuilderPublicKey, err := bls.PublicKeyFromSecretKey(testBuilderSecretKey)
+	require.NoError(t, err)
+
+	// Build test proposer keys
+	testProposerSecretKey, err := bls.GenerateRandomSecretKey()
+	require.NoError(t, err)
+	testProposerPublicKey, err := bls.PublicKeyFromSecretKey(testProposerSecretKey)
+	require.NoError(t, err)
+
+	// Default test block for use in tests
+	// Do not overwrite! Make your own copy for each test
+	defaultOpts := CreateTestBlockSubmissionOpts{
+		Slot:           slot,
+		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		BuilderPubkey:  *testBuilderPublicKey,
+		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
 		robChainIndex:  0,
-		numTxs:         0,
+		numTxs:         1,
 	}
-	// Initialize default values
-	opts.IsToB = true
-	opts.numTxs = 1
-	opts.Slot = slot
-	opts.ParentHash = "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
-	var err error
-	// convert below
-	secretKey, err := bls.GenerateRandomSecretKey()
-	require.NoError(t, err)
-	pKey, err := bls.PublicKeyFromSecretKey(secretKey)
-	require.NoError(t, err)
-	opts.ProposerPubkey = *pKey
-	bKey, err := bls.PublicKeyFromSecretKey(secretKey)
-	require.NoError(t, err)
-	opts.BuilderPubkey = *bKey
-
-	block, header, payload, err := CreateTestChunkSubmission(t, uint64(2), &opts)
-	require.NoError(t, err)
-	type Data struct {
-		Block   common.SubmitNewBlockRequest
-		Header  common.AnchorHeader
-		Payload common.AnchorPayload
-	}
-	anchor := Data{
-		Block:   *block,
-		Header:  *header,
-		Payload: *payload,
-	}
-	// marshal the req body
-	requestBodyBytes, err := json.Marshal(anchor)
+	defaultBlockValue := uint64(2)
+	defaultBlockReq, _, _, err := CreateTestChunkSubmission(t, defaultBlockValue, &defaultOpts)
 	require.NoError(t, err)
 
 	// note: mock db to set expected header from CreateTestChunkSubmission
 	// TODO: look at anchor unit test for test improvements
 
-	// new HTTP req
+	// Helper for processing block requests to the backend. Returns the status code of the request.
+	processBlockRequest := func(backend *testBackend, blockReq *common.SubmitNewBlockRequest) int {
+		// marshal the req body
+		requestBodyBytes, err := json.Marshal(blockReq)
+		require.NoError(t, err)
 
-	// capture the resp
-	rr := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/relay/v1/builder/submit", bytes.NewReader(requestBodyBytes))
-	httpReq.Header.Set("Content-Type", "application/json")
-	backend.relay.getRouter().ServeHTTP(rr, httpReq)
-	//require.Equal(t, http.StatusNoContent, rr.Code)
-	require.Equal(t, http.StatusOK, rr.Code)
+		// new HTTP req
+		httpReq := httptest.NewRequest(http.MethodPost, "/relay/v1/builder/submit", bytes.NewReader(requestBodyBytes))
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		// Capture the response
+		rr := httptest.NewRecorder()
+
+		// Process the request
+		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+
+		return rr.Code
+	}
+
+	t.Run("Run valid base case, just rob", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		// TODO: CHANGE ME LATER
+		justRoBBlock := defaultBlockReq
+
+		rrCode := processBlockRequest(backend, justRoBBlock)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("Run valid base case, just tob", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		rrCode := processBlockRequest(backend, defaultBlockReq)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
 }
 
 // TODO: fix me soon

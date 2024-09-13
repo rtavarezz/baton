@@ -153,6 +153,9 @@ type BatonAPIOpts struct {
 	DataAPI         bool
 	PprofAPI        bool
 	InternalAPI     bool
+
+	// Mock mode assists in testing and helps us skip difficult to test functionality (like simulation).
+	mockMode bool
 }
 
 // Data needed to issue a block validation request.
@@ -259,6 +262,9 @@ type BatonAPI struct {
 	// stores RoB chain IDs
 	robChainIDs    map[string]struct{}            `jjj:"rob_chain_i_ds"`
 	expectedHeader common.AnchorGetHeaderResponse `jjj:"expected_header"`
+
+	// Mock mode assists in testing and helps us skip difficult to test functionality (like simulation).
+	mockMode bool
 }
 
 func FillUpDefiAddresses(opts BatonAPIOpts) map[string]common2.Address {
@@ -352,6 +358,9 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		validatorRegC: make(chan apiv1.SignedValidatorRegistration, 450_000),
 		defiAddresses: FillUpDefiAddresses(opts),
 		robChainIDs:   make(map[string]struct{}),
+
+		// should only be true in testing
+		mockMode: opts.mockMode,
 	}
 
 	if os.Getenv("FORCE_GET_HEADER_204") == "1" {
@@ -403,6 +412,7 @@ func (api *BatonAPI) getRouter() http.Handler {
 	r.HandleFunc("/", api.handleRoot).Methods(http.MethodGet)
 	r.HandleFunc("/livez", api.handleLivez).Methods(http.MethodGet)
 	r.HandleFunc("/readyz", api.handleReadyz).Methods(http.MethodGet)
+	r.HandleFunc("/newslot", api.handleNewSlot).Methods(http.MethodGet)
 
 	// Proposer API
 	if api.opts.ProposerAPI {
@@ -2276,11 +2286,16 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	})
 
 	// Note this also validates slot validity
-	gasLimit, ok := api.getValidatorGasLimit(w, log, slot)
-	if !ok {
-		log.WithError(err).Info("fee recipient check failed")
-		api.RespondError(w, http.StatusBadRequest, "fee recipient check failed")
-		return
+	var gasLimit uint64
+	if !api.mockMode {
+		gasLimit, ok = api.getValidatorGasLimit(w, log, slot)
+		if !ok {
+			log.WithError(err).Info("fee recipient check failed")
+			api.RespondError(w, http.StatusBadRequest, "fee recipient check failed")
+			return
+		}
+	} else {
+		gasLimit = uint64(10000000)
 	}
 
 	var topBidValue *big.Int
@@ -2295,6 +2310,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, "value check failed")
 		return
 	}
+
+	// TODO: WE ARE FAILING HERE. REDIS IS NIL. WHY?????
 	if isToB {
 		topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
 	} else {
@@ -2388,25 +2405,30 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}()
 
-	// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
-	// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
-	gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, txs, log)
-	// @TODO: figure out exact gas limit later
-	if gasUsed != 0 && gasUsed > gasLimit {
-		errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
-		validErr = errors.New(errMsg)
-	}
+	if !api.mockMode {
+		// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
+		// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
+		gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, txs, log)
+		// @TODO: figure out exact gas limit later
+		if gasUsed != 0 && gasUsed > gasLimit {
+			errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
+			validErr = errors.New(errMsg)
+		}
 
-	simResultC <- &blockSimResult{reqErr == nil, false, reqErr, validErr}
-	if reqErr != nil {
-		log.WithError(err).Warn("could not simulate TOB txs")
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if validErr != nil {
-		log.WithError(validErr).Warn("validation error during TOB txs simulation")
-		api.RespondError(w, http.StatusBadRequest, validErr.Error())
-		return
+		simResultC <- &blockSimResult{reqErr == nil, false, reqErr, validErr}
+		if reqErr != nil {
+			log.WithError(err).Warn("could not simulate TOB txs")
+			api.RespondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if validErr != nil {
+			log.WithError(validErr).Warn("validation error during TOB txs simulation")
+			api.RespondError(w, http.StatusBadRequest, validErr.Error())
+			return
+		}
+	} else {
+		gasUsed = 0
+		simResultC <- &blockSimResult{true, false, nil, nil}
 	}
 
 	simulationDuration := time.Since(simStartTime).Microseconds()
@@ -2862,6 +2884,10 @@ func (api *BatonAPI) handleReadyz(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func (api *BatonAPI) handleNewSlot(w http.ResponseWriter, req *http.Request) {
+	//r.HandleFunc("/newslot", api.handleNewSlot).Methods(http.MethodGet) {
+}
+
 func FirstChainID(txs []*chain.Transaction) (string, error) {
 	if len(txs) == 0 {
 		return "", errors.New("getFirstChainID: no transactions found")
@@ -2893,11 +2919,12 @@ func (api *BatonAPI) checkBlockRequestIsToB(txs []*chain.Transaction) (bool, err
 		return false, err
 	}
 
-	for i := 0; i < len(txs); i++ {
+	// The last action in the txs list is a transfer action so we don't want to process it.
+	for i := 0; i < len(txs)-1; i++ {
 		for _, action := range txs[i].Actions {
 			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
 				if string(seqMsg.ChainId) != firstChainID {
-					return false, nil
+					return true, nil
 				}
 			} else {
 				return false, errors.New("checkBlockRequestIsToB tx is not sequencer message")
@@ -2905,5 +2932,5 @@ func (api *BatonAPI) checkBlockRequestIsToB(txs []*chain.Transaction) (bool, err
 		}
 	}
 
-	return true, nil
+	return false, nil
 }
