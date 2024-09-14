@@ -9,13 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/AnomalyFi/hypersdk/chain"
-	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/ava-labs/avalanchego/ids"
-	boostSsz "github.com/flashbots/go-boost-utils/ssz"
-	"github.com/flashbots/go-boost-utils/utils"
-	"github.com/flashbots/mev-boost-relay/beaconclient"
-	"github.com/go-redis/redis/v9"
 	"io"
 	"math/big"
 	"net/http"
@@ -26,6 +19,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/AnomalyFi/hypersdk/chain"
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/ava-labs/avalanchego/ids"
+	boostSsz "github.com/flashbots/go-boost-utils/ssz"
+	"github.com/flashbots/go-boost-utils/utils"
+	"github.com/flashbots/mev-boost-relay/beaconclient"
+	"github.com/go-redis/redis/v9"
 
 	"github.com/AnomalyFi/nodekit-seq/actions"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
@@ -830,7 +831,7 @@ func (api *BatonAPI) simulateBlock(
 			for _, action := range tx.Actions {
 				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
 					ethTxs = append(ethTxs, seqMsg.Data)
-					ns := string(seqMsg.ChainId)
+					ns := string(seqMsg.ChainID)
 					txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Data)
 				} else {
 					log.Error("simulateBlock: tx is not sequencer message")
@@ -2897,7 +2898,7 @@ func FirstChainID(txs []*chain.Transaction) (string, error) {
 		return "", errors.New("getFirstChainID: no actions in first tx")
 	}
 	if seqMsg, ok := seqActions[0].(*actions.SequencerMsg); ok {
-		return string(seqMsg.ChainId), nil
+		return string(seqMsg.ChainID), nil
 	} else {
 		return "", errors.New("could not convert seq actions to seqMsg")
 	}
@@ -2923,7 +2924,7 @@ func (api *BatonAPI) checkBlockRequestIsToB(txs []*chain.Transaction) (bool, err
 	for i := 0; i < len(txs)-1; i++ {
 		for _, action := range txs[i].Actions {
 			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-				if string(seqMsg.ChainId) != firstChainID {
+				if string(seqMsg.ChainID) != firstChainID {
 					return true, nil
 				}
 			} else {

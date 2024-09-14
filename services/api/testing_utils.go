@@ -3,6 +3,11 @@ package api
 import (
 	"encoding/hex"
 	"fmt"
+	"log"
+	"math/big"
+	"testing"
+	"time"
+
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
 	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
@@ -18,10 +23,6 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/stretchr/testify/require"
-	"log"
-	"math/big"
-	"testing"
-	"time"
 )
 
 const (
@@ -148,14 +149,14 @@ func GetTestChainId(i int) string {
 
 func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
 	seqMsg := actions.SequencerMsg{
-		ChainId:     []byte(chainID),
+		ChainID:     []byte(chainID),
 		Data:        ethTx,
 		FromAddress: TestProposerPayment,
 		RelayerID:   TestRelayerID,
 	}
 	//ids := make([]ids.ID, 32)
 	var id ids.ID
-	copy(id[:], seqMsg.ChainId)
+	copy(id[:], seqMsg.ChainID)
 	var base = chain.Base{
 		Timestamp: time.Now().UnixMilli(),
 		ChainID:   id,
