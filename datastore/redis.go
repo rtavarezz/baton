@@ -1544,7 +1544,15 @@ func (r *RedisCache) GetTopRoBBidValue(
 	parentString := parentHash.String()
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentString, proposerString, chainID)
+	fmt.Println("keyTopBidValue:", keyTopBidValue)
+	// TODO: keyTopBidValue returns correct info, yet exists returns 0 meaning redis isn't finding the key
+	exists := pipeliner.Exists(ctx, keyTopBidValue).Val()
+	if exists == 0 {
+		fmt.Println("keyTopBidValue not found in Redis")
+		return big.NewInt(0), nil
+	}
 	c := pipeliner.Get(ctx, keyTopBidValue)
+	//TODO: FAILS HERE since key is not found in redis
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
 		return big.NewInt(0), nil
