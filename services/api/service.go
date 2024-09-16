@@ -2300,6 +2300,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	var topBidValue *big.Int
+	var hasRoB, hasToB bool
 	tx := api.redis.NewTxPipeline()
 	bidIsTopBid := false
 
@@ -2314,20 +2315,49 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// TODO: WE ARE FAILING HERE. REDIS IS NIL. WHY?????
 	if isToB {
-		topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
+		hasToB, err = api.redis.HasTopToBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
+		if err != nil {
+			log.WithError(err).Info("could not query tob for blockReq, returned err")
+			api.RespondError(w, http.StatusBadRequest, "could not query tob for blockReq, failed")
+			return
+		}
+		if hasToB {
+			topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
+			if err != nil {
+				log.WithError(err).Info("could not get top tob bid val for blockReq, returned err")
+				api.RespondError(w, http.StatusBadRequest, "could not get top tob bid for blockReq, failed")
+				return
+			}
+			bidIsTopBid = value.Cmp(topBidValue) == 1
+			log = log.WithFields(logrus.Fields{
+				"topBidValue":    topBidValue.String(),
+				"newBidIsTopBid": bidIsTopBid,
+			})
+		} else {
+			bidIsTopBid = true
+		}
 	} else {
-		topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey(), chainID)
-	}
-	if err != nil {
-		log.WithError(err).Error("failed to get top bid value from redis")
-		api.RespondError(w, http.StatusBadRequest, "failed to get top bid value from redis")
-		return
-	} else {
-		bidIsTopBid = value.Cmp(topBidValue) == 1
-		log = log.WithFields(logrus.Fields{
-			"topBidValue":    topBidValue.String(),
-			"newBidIsTopBid": bidIsTopBid,
-		})
+		hasRoB, err = api.redis.HasTopRoBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey(), chainID)
+		if err != nil {
+			log.WithError(err).Info("could not query rob for blockReq, returned err")
+			api.RespondError(w, http.StatusBadRequest, "could not query rob for blockReq, failed")
+			return
+		}
+		if hasRoB {
+			topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey(), chainID)
+			if err != nil {
+				log.WithError(err).Info("could not get top rob bid val for blockReq, returned err")
+				api.RespondError(w, http.StatusBadRequest, "could not get top rob bid for blockReq, failed")
+				return
+			}
+			bidIsTopBid = value.Cmp(topBidValue) == 1
+			log = log.WithFields(logrus.Fields{
+				"topBidValue":    topBidValue.String(),
+				"newBidIsTopBid": bidIsTopBid,
+			})
+		} else {
+			bidIsTopBid = true
+		}
 	}
 
 	var validErr error
