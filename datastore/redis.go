@@ -859,7 +859,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	prevTime = time.Now()
 
 	// Load latest bids for a given slot+parent+proposer
-	builderBids, err := NewBuilderBidsFromRedis(
+	builderBids, err := NewToBBuilderBidsFromRedis(
 		ctx,
 		r,
 		pipeliner,
@@ -1031,7 +1031,7 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	prevTime = time.Now()
 
 	// Load latest bids for a given slot+parent+proposer
-	builderBids, err := NewBuilderBidsFromRedis(ctx, r, pipeline, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr())
+	builderBids, err := NewRoBBuilderBidsFromRedis(ctx, r, pipeline, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), chainID)
 	if err != nil {
 		return state, err
 	}
@@ -1356,7 +1356,7 @@ func (r *RedisCache) SaveBidAndUpdateTopBid(ctx context.Context, pipeliner redis
 
 func (r *RedisCache) _updateToBTopBid(ctx context.Context, pipeliner redis.Pipeliner, state SaveBidAndUpdateTopBidResponse, builderBids *BuilderBids, slot uint64, parentHash, proposerPubkey string, floorValue *big.Int) (resp SaveBidAndUpdateTopBidResponse, err error) {
 	if builderBids == nil {
-		builderBids, err = NewBuilderBidsFromRedis(ctx, r, pipeliner, slot, parentHash, proposerPubkey)
+		builderBids, err = NewToBBuilderBidsFromRedis(ctx, r, pipeliner, slot, parentHash, proposerPubkey)
 		if err != nil {
 			return state, err
 		}
@@ -1427,7 +1427,7 @@ func (r *RedisCache) _updateRoBTopBid(
 	chainID string,
 ) (resp SaveBidAndUpdateTopBidResponse, err error) {
 	if builderBids == nil {
-		builderBids, err = NewBuilderBidsFromRedis(ctx, r, pipeline, slot, parentHash, proposerPubkey)
+		builderBids, err = NewRoBBuilderBidsFromRedis(ctx, r, pipeline, slot, parentHash, proposerPubkey, chainID)
 		if err != nil {
 			return state, err
 		}
