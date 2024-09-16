@@ -5,8 +5,8 @@ go 1.21.12
 toolchain go1.22.5
 
 require (
-	github.com/AnomalyFi/hypersdk v0.9.5
-	github.com/AnomalyFi/nodekit-seq v0.9.13
+	github.com/AnomalyFi/hypersdk v0.9.6
+	github.com/AnomalyFi/nodekit-seq v0.9.16
 	github.com/NYTimes/gziphandler v1.1.1
 	github.com/alicebob/miniredis/v2 v2.31.0
 	github.com/attestantio/go-builder-client v0.4.2
