@@ -40,7 +40,7 @@ func TestGetPayloadDatabaseFallback(t *testing.T) {
 
 		// prepare mock database with execution payload entry
 		mockDB := &database.MockDB{
-			ExecPayloads: map[string]*database.ExecutionPayloadEntry{
+			ExecHeaders: map[string]*database.ExecutionPayloadEntry{
 				"1-a-b": {
 					Version: common.ForkVersionStringCapella,
 					Payload: string(payloadBytes),

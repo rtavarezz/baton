@@ -39,10 +39,10 @@ func (b *BuilderBids) getTopToBBid() (string, *big.Int) {
 	}
 	return topBidBuilderPubkey, topBidValue
 }
-func NewBuilderBidsFromRedis(ctx context.Context, r *RedisCache, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (*BuilderBids, error) {
+func NewBuilderBidsFromRedis(ctx context.Context, r *RedisCache, pipeline redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (*BuilderBids, error) {
 	keyBidValues := r.keyBlockBuilderLatestToBBidsValue(slot, parentHash, proposerPubkey)
-	c := pipeliner.HGetAll(ctx, keyBidValues)
-	_, err := pipeliner.Exec(ctx)
+	c := pipeline.HGetAll(ctx, keyBidValues)
+	_, err := pipeline.Exec(ctx)
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return nil, err
 	}

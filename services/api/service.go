@@ -1544,7 +1544,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	api.expectedHeader.ExecPayloads = resp
+	api.expectedHeader.ExecHeaders = resp
 	api.expectedHeader.BlockInfo = headerReq
 
 	api.RespondOK(w, api.expectedHeader)

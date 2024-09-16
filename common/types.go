@@ -366,6 +366,7 @@ func (b *BidTraceV2WithTimestampJSON) ToCSVRecord() []string {
 type AnchorHeader struct {
 	Header    *common.Hash `json:"header"`
 	BlockHash string       `json:"block_hash"`
+	Value     *big.Int     `json:"value"`
 }
 
 type SignedBeaconBlock struct {
@@ -404,9 +405,9 @@ func (s *SignedBeaconBlock) BlockHash() string {
 }
 
 type AnchorGetHeaderResponse struct {
-	ExecPayloads    ExecHeadersInfo
-	BlockInfo       AnchorBlockInfo
-	ExecPayloadsSig bls.Signature
+	ExecHeaders    ExecHeadersInfo `json:"exec_headers"`
+	BlockInfo      AnchorBlockInfo `json:"block_info"`
+	ExecHeadersSig []byte          `json:"exec_headers_sig"`
 }
 
 type AnchorBlockInfo struct {
