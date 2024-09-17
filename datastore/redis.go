@@ -1077,7 +1077,6 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	prevTime = nextTime
 
 	// 2. Save latest bid for this builder
-	// TODO: FAILS WITH THIS FUNC ONLY! WHY?
 	err = r.SaveRoBBuilderBid(ctx, pipeline, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), payload.BuilderPubkeyAsStr(), reqReceivedAt, getHeader.Header, chainID)
 	if err != nil {
 		return state, err
@@ -1354,7 +1353,16 @@ func (r *RedisCache) SaveBidAndUpdateTopBid(ctx context.Context, pipeliner redis
 // 	return state, err
 // }
 
-func (r *RedisCache) _updateToBTopBid(ctx context.Context, pipeliner redis.Pipeliner, state SaveBidAndUpdateTopBidResponse, builderBids *BuilderBids, slot uint64, parentHash, proposerPubkey string, floorValue *big.Int) (resp SaveBidAndUpdateTopBidResponse, err error) {
+func (r *RedisCache) _updateToBTopBid(
+	ctx context.Context,
+	pipeliner redis.Pipeliner,
+	state SaveBidAndUpdateTopBidResponse,
+	builderBids *BuilderBids,
+	slot uint64,
+	parentHash,
+	proposerPubkey string,
+	floorValue *big.Int,
+) (resp SaveBidAndUpdateTopBidResponse, err error) {
 	if builderBids == nil {
 		builderBids, err = NewToBBuilderBidsFromRedis(ctx, r, pipeliner, slot, parentHash, proposerPubkey)
 		if err != nil {
@@ -1458,7 +1466,6 @@ func (r *RedisCache) _updateRoBTopBid(
 	// Copy winning bid to top bid cache
 	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
 	c := pipeline.Copy(context.Background(), keyBidRoBSource, keyTopBid, 0, true)
-	// TODO: Figure out why this func Exec keeps failing and returning redis err
 	_, err = pipeline.Exec(ctx)
 	if err != nil {
 		return state, err
