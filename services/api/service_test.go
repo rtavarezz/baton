@@ -7,6 +7,7 @@ import (
 	"fmt"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -317,18 +318,24 @@ func TestGetHeader(t *testing.T) {
 	slot := uint64(1)
 	backend.relay.headSlot.Store(slot)
 
-	parentHash := eth.HexToHash("0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747")
+	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
 	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-
+	chainID := "test-chain-0"
 	//bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
 	//bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
-    redis := backend.GetRedis()
-
-    // Populate redis cache with expected headers
-    redis.
-    //bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
+		redis := backend.GetRedis()
+		header := common.AnchorHeader{
+			Header:    0x13e606c7b3d1faad7e908763ce3dedce4c6bb89b0c28ffb240d713c7b110b9747,
+			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
+			Value:     big.NewInt(2),
+		}
+		// Populate redis cache with expected headers
+		err := redis.SetRoBBid(slot, parentHash, proposerPubkey, chainID, header)
+		if err != nil {
+			t.Error(err)
+		}
 
 		rr := httptest.NewRecorder()
 
@@ -352,8 +359,7 @@ func createBackendHelper(t *testing.T) *testBackend {
 	return backend
 }
 
-// @TODO: Finish/fix handle test function below. Can either hard code which is copying most logic of actual function
-// or create a fake request to call the function which is the approach taken below.
+// @TODO: Create test cases below, cover ALL cases
 func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	//logger := logrus.New()
 	//logEntry := logrus.NewEntry(logger)
@@ -391,9 +397,6 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	defaultBlockReq, _, _, err := CreateTestChunkSubmission(t, defaultBlockValue, &defaultOpts)
 	require.NoError(t, err)
 
-	// note: mock db to set expected header from CreateTestChunkSubmission
-	// TODO: look at anchor unit test for test improvements
-
 	// Helper for processing block requests to the backend. Returns the status code of the request.
 	processBlockRequest := func(backend *testBackend, blockReq *common.SubmitNewBlockRequest) int {
 		// marshal the req body
@@ -413,7 +416,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		return rr.Code
 	}
 
-	t.Run("Run valid base case, just rob", func(t *testing.T) {
+	t.Run("Run valid base case, just RoB", func(t *testing.T) {
 		backend := createBackendHelper(t)
 
 		// TODO: CHANGE ME LATER
@@ -423,9 +426,13 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
-	t.Run("Run valid base case, just tob", func(t *testing.T) {
+	t.Run("Run valid base case, just ToB", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		rrCode := processBlockRequest(backend, defaultBlockReq)
+
+		// TODO: CHANGE ME LATER
+		justToBBlock := defaultBlockReq
+
+		rrCode := processBlockRequest(backend, justToBBlock)
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 }

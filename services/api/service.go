@@ -1659,12 +1659,12 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	// SEQ needs to keep it in byte form when signing(signatures).
 	// 1.) define SEQ signatures
 	// 2.) figure out how to pass header of HeaderInfo or if it's even needed
-	seqSig := payload.SignedHeaders
-	var header *common.ExecHeadersInfo
+	//signature := payload.SignedHeaders
+	//var header *common.ExecHeadersInfo
 	// can possibly use index of proposer to get the pubkey
 	// TODO: marshal the header then verify sig and pubkey
-	ok := VerifySignature(header, seqSig, proposerPubkey)
-	if ok != nil {
+	ok, err := common.VerifyHeaderSignature()
+	if err != nil {
 		if api.ffLogInvalidSignaturePayload {
 			txt, _ := json.Marshal(payload) //nolint:errchkjson
 			fmt.Println("payload_invalid_sig_capella: ", string(txt), "pubkey:", proposerPubkey.String())
@@ -1673,6 +1673,15 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
 		return
 	}
+	//if ok != nil {
+	//	//if api.ffLogInvalidSignaturePayload {
+	//	//	txt, _ := json.Marshal(payload) //nolint:errchkjson
+	//	//	fmt.Println("payload_invalid_sig_capella: ", string(txt), "pubkey:", proposerPubkey.String())
+	//	//}
+	//	//log.WithError(err).Warn("could not verify capella payload signature")
+	//	//api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
+	//	//return
+	//}
 
 	// Log about received payload (with a valid proposer signature)
 	log = log.WithField("timestampAfterSignatureVerify", time.Now().UTC().UnixMilli())

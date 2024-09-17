@@ -1,6 +1,7 @@
 package common
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -756,6 +757,10 @@ func GetExecPayloadSignature(payloads *ExecPayloadsInfo, secretKey *bls.SecretKe
 	// Step 2: Sign the hashed payloads using the secret key
 	signature := bls.Sign(secretKey, payloadHash[:])
 	return signature, nil
+}
+func (r *AnchorGetHeaderResponse) SetExecPayloadsSig(sig *bls.Signature) {
+	signatureAsBytes := sig.Bytes()
+	r.ExecHeadersSig = signatureAsBytes[:]
 }
 
 func SignAnchorGetHeaderResponse(response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {

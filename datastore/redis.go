@@ -1704,33 +1704,12 @@ func (r *RedisCache) NewTxPipeline() redis.Pipeliner { //nolint:ireturn
 }
 
 // For use in testing only
-func (r *RedisCache) SetToBTopBid() {
+// saving RoB bid to cache
+func (r *RedisCache) SetRoBBid(slot uint64, parentHash string, proposerPubkey string, chainID string, header common.AnchorHeader) error {
 	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	/*
-	   if len(builderBids.bidValues) == 0 {
-	     return state, nil
-	   }
-
-	   // Load floor value (if not passed in already)
-	   if floorValue == nil {
-	     floorValue, err = r.GetFloorRoBBidValue(ctx, pipeline, slot, parentHash, proposerPubkey, chainID)
-	     if err != nil {
-	       return state, err
-	     }
-	   }
-
-	   topBidBuilder := ""
-	   topBidBuilder, state.TopBidValue = builderBids.getTopBid()
-	   keyBidRoBSource := r.keyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, topBidBuilder, chainID)
-
-	   // If floor value is higher than this bid, use floor bid instead
-	   if floorValue.Cmp(state.TopBidValue) == 1 {
-	     state.TopBidValue = floorValue
-	     keyBidRoBSource = r.keyFloorRoBBid(slot, parentHash, proposerPubkey, chainID)
-	   }
-
-	   // Copy winning bid to top bid cache
-	   keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	   c := pipeline.Copy(context.Background(), keyBidRoBSource, keyTopBid, 0, true)
-	*/
+	err := r.client.Set(context.Background(), keyTopBid, header, 100).Err()
+	if err != nil {
+		return err
+	}
+	return nil
 }
