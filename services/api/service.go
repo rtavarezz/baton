@@ -2539,14 +2539,21 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		if !isToB {
 			api.robChainIDs[chainID] = struct{}{}
 		}
+		fmt.Println("Hello")
+		fmt.Println(api.robChainIDs)
 	}
 
 	defer func() {
 		totalDuration := time.Since(receivedAt).Microseconds()
 		txHashList := []string{}
 		// TODO: figure logic out or if this is needed
-		for _, tx := range blockReq.Txs() {
-			txHashList = append(txHashList, string(tx))
+		for _, tx := range txs {
+			digestBytes, err := tx.Digest()
+			if err != nil {
+				log.WithError(err).Error("couldn't get tx digest")
+				continue
+			}
+			txHashList = append(txHashList, string(digestBytes))
 		}
 		txHashes := strings.Join(txHashList, ",")
 

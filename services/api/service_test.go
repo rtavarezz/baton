@@ -63,6 +63,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 		Demotions:        map[string]bool{},
 		IncludedTobTxs:   map[string][]*database.IncludedTobTxEntry{},
 		TobSubmitProfile: map[string]*database.ToBSubmitProfileEntry{},
+		RobSubmitProfile: map[string]*database.RoBSubmitProfileEntry{},
 	}
 
 	ds, err := datastore.NewDatastore(redisCache, nil, db)

@@ -254,7 +254,7 @@ func (r *RedisCache) keyTopToBBidValue(slot uint64, parentHash, proposerPubkey s
 
 // keyTopBidValue returns the hashmap key for the time of the latest bid by a specific builder
 func (r *RedisCache) keyTopRoBBidValue(slot uint64, parentHash, proposerPubkey string, chainID string) string {
-	return fmt.Sprintf("tob,%s:%d_%s_%s_%s", r.prefixTopBidValue, slot, parentHash, proposerPubkey, chainID)
+	return fmt.Sprintf("rob,%s:%d_%s_%s_%s", r.prefixTopBidValue, slot, parentHash, proposerPubkey, chainID)
 }
 
 // keyFloorBid returns the key for the highest non-cancellable bid of a given slot+parentHash+proposerPubkey
@@ -1081,7 +1081,7 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	if err != nil {
 		return state, err
 	}
-	builderBids.bidValues[payload.BuilderPubKey.String()] = value
+	builderBids.bidValues[payload.BuilderPubkeyAsStr()] = value
 
 	// Record time needed to save bid
 	nextTime = time.Now().UTC()
@@ -1123,7 +1123,7 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	}
 
 	// Non-cancellable bid above floor should set new floor
-	keyBidSource := r.keyLatestRoBBidByBuilder(payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), payload.BuilderPubKey.String(), chainID)
+	keyBidSource := r.keyLatestRoBBidByBuilder(payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), payload.BuilderPubkeyAsStr(), chainID)
 	keyFloorBid := r.keyFloorRoBBid(payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), chainID)
 	c := pipeline.Copy(ctx, keyBidSource, keyFloorBid, 0, true)
 	_, err = pipeline.Exec(ctx)

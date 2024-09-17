@@ -8,10 +8,12 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/go-redis/redis/v9"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 	"math/big"
 	"sync"
 	"testing"
+	"time"
 )
 
 func setupTestRedis(t *testing.T) *RedisCache {
@@ -84,7 +86,7 @@ func TestRedisValidatorRegistration(t *testing.T) {
 	})
 }
 
-/*
+
 	func TestRedisKnownValidators(t *testing.T) {
 		cache := setupTestRedis(t)
 
