@@ -2,8 +2,6 @@ package datastore
 
 import (
 	"errors"
-	consensusspec "github.com/attestantio/go-eth2-client/spec"
-	"github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/common"
 	"os"
 	"testing"
@@ -18,55 +16,55 @@ var (
 )
 
 // TODO: Fix me
-func testBuilderSubmitBlockRequest(pubkey types.PublicKey, signature types.Signature, version consensusspec.DataVersion) common.BuilderSubmitBlockRequest {
-	/*
-		switch version {
-		case consensusspec.DataVersionBellatrix:
-			return common.BuilderSubmitBlockRequest{
-				Bellatrix: &types.BuilderSubmitBlockRequest{
-					Signature: signature,
-					Message: &types.BidTrace{
-						Slot:                 1,
-						ParentHash:           types.Hash{0x01},
-						BlockHash:            types.Hash{0x09},
-						BuilderPubkey:        pubkey,
-						ProposerPubkey:       types.PublicKey{0x03},
-						ProposerFeeRecipient: types.Address{0x04},
-						Value:                types.IntToU256(123),
-						GasLimit:             5002,
-						GasUsed:              5003,
-					},
-					ExecutionPayload: &types.ExecutionPayload{
-						ParentHash:    types.Hash{0x01},
-						FeeRecipient:  types.Address{0x02},
-						StateRoot:     types.Root{0x03},
-						ReceiptsRoot:  types.Root{0x04},
-						LogsBloom:     types.Bloom{0x05},
-						Random:        types.Hash{0x06},
-						BlockNumber:   5001,
-						GasLimit:      5002,
-						GasUsed:       5003,
-						Timestamp:     5004,
-						ExtraData:     []byte{0x07},
-						BaseFeePerGas: types.IntToU256(123),
-						BlockHash:     types.Hash{0x09},
-						Transactions:  []hexutil.Bytes{},
-					},
+//func testBuilderSubmitBlockRequest(pubkey types.PublicKey, signature types.Signature, version consensusspec.DataVersion) common.BuilderSubmitBlockRequest {
+/*
+	switch version {
+	case consensusspec.DataVersionBellatrix:
+		return common.BuilderSubmitBlockRequest{
+			Bellatrix: &types.BuilderSubmitBlockRequest{
+				Signature: signature,
+				Message: &types.BidTrace{
+					Slot:                 1,
+					ParentHash:           types.Hash{0x01},
+					BlockHash:            types.Hash{0x09},
+					BuilderPubkey:        pubkey,
+					ProposerPubkey:       types.PublicKey{0x03},
+					ProposerFeeRecipient: types.Address{0x04},
+					Value:                types.IntToU256(123),
+					GasLimit:             5002,
+					GasUsed:              5003,
 				},
-			}
-		case consensusspec.DataVersionDeneb:
-			fallthrough
-		case consensusspec.DataVersionUnknown, consensusspec.DataVersionPhase0, consensusspec.DataVersionAltair, consensusspec.DataVersionCapella:
-			fallthrough
-		default:
-			return common.BuilderSubmitBlockRequest{
-				Bellatrix: nil,
-				Capella:   nil,
-			}
+				ExecutionPayload: &types.ExecutionPayload{
+					ParentHash:    types.Hash{0x01},
+					FeeRecipient:  types.Address{0x02},
+					StateRoot:     types.Root{0x03},
+					ReceiptsRoot:  types.Root{0x04},
+					LogsBloom:     types.Bloom{0x05},
+					Random:        types.Hash{0x06},
+					BlockNumber:   5001,
+					GasLimit:      5002,
+					GasUsed:       5003,
+					Timestamp:     5004,
+					ExtraData:     []byte{0x07},
+					BaseFeePerGas: types.IntToU256(123),
+					BlockHash:     types.Hash{0x09},
+					Transactions:  []hexutil.Bytes{},
+				},
+			},
 		}
-	*/
-	return common.BuilderSubmitBlockRequest{}
-}
+	case consensusspec.DataVersionDeneb:
+		fallthrough
+	case consensusspec.DataVersionUnknown, consensusspec.DataVersionPhase0, consensusspec.DataVersionAltair, consensusspec.DataVersionCapella:
+		fallthrough
+	default:
+		return common.BuilderSubmitBlockRequest{
+			Bellatrix: nil,
+			Capella:   nil,
+		}
+	}
+*/
+//return common.BuilderSubmitBlockRequest{}
+//}
 
 func initMemcached(t *testing.T) (mem *Memcached, err error) {
 	t.Helper()
