@@ -1,22 +1,13 @@
 package common
 
-import "github.com/sirupsen/logrus"
-
-/*
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/base64"
-	"encoding/json"
-  "github.com/ethereum/go-ethereum/common"
-  "io"
-	"os"
-	"testing"
+	"time"
 
-	"github.com/flashbots/go-boost-utils/bls"
-	boostTypes "github.com/flashbots/go-boost-utils/types"
+	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-eth2-client/spec/bellatrix"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
 )
 
 // TestLog is used to log information in the test methods
@@ -30,36 +21,37 @@ func check(err error, args ...interface{}) {
 }
 
 // _HexToAddress converts a hexadecimal string to an Ethereum address
-func _HexToAddress(s string) (ret common.Address) {
-	check(ret.UnmarshalText([]byte(s)), " _HexToAddress: ", s)
+func _HexToAddress(s string) (ret bellatrix.ExecutionAddress) {
+	ret, err := utils.HexToAddress(s)
+	check(err, " _HexToAddress: ", s)
 	return ret
 }
 
 // _HexToPubkey converts a hexadecimal string to a BLS Public Key
-func _HexToPubkey(s string) (ret bls.PublicKey) {
-	//check(ret.UnmarshalText([]byte(s)), " _HexToPubkey: ", s)
-  pk, err := bls.PublicKeyFromBytes([]byte(s))
-  require.NoError(err)
-  check(pk," _HexToPubkey: ", s)
-	return
+func _HexToPubkey(s string) (ret phase0.BLSPubKey) {
+	ret, err := utils.HexToPubkey(s)
+	check(err, " _HexToPubkey: ", s)
+	return ret
 }
 
 // _HexToSignature converts a hexadecimal string to a BLS Signature
-func _HexToSignature(s string) (ret boostTypes.Signature) {
-	check(ret.UnmarshalText([]byte(s)), " _HexToSignature: ", s)
-	return
+func _HexToSignature(s string) (ret phase0.BLSSignature) {
+	ret, err := utils.HexToSignature(s)
+	check(err, " _HexToSignature: ", s)
+	return ret
 }
 
 // _HexToHash converts a hexadecimal string to a Hash
-func _HexToHash(s string) (ret boostTypes.Hash) {
-	check(ret.FromSlice([]byte(s)), " _HexToHash: ", s)
-	return
+func _HexToHash(s string) (ret phase0.Hash32) {
+	ret, err := utils.HexToHash(s)
+	check(err, " _HexToHash: ", s)
+	return ret
 }
 
-var ValidPayloadRegisterValidator = boostTypes.SignedValidatorRegistration{
-	Message: &boostTypes.RegisterValidatorRequestMessage{
+var ValidPayloadRegisterValidator = builderApiV1.SignedValidatorRegistration{
+	Message: &builderApiV1.ValidatorRegistration{
 		FeeRecipient: _HexToAddress("0xdb65fEd33dc262Fe09D9a2Ba8F80b329BA25f941"),
-		Timestamp:    1606824043,
+		Timestamp:    time.Unix(1606824043, 0),
 		GasLimit:     30000000,
 		Pubkey: _HexToPubkey(
 			"0x84e975405f8691ad7118527ee9ee4ed2e4e8bae973f6e29aa9ca9ee4aea83605ae3536d22acc9aa1af0545064eacf82e"),
@@ -67,60 +59,3 @@ var ValidPayloadRegisterValidator = boostTypes.SignedValidatorRegistration{
 	Signature: _HexToSignature(
 		"0xaf12df007a0c78abb5575067e5f8b089cfcc6227e4a91db7dd8cf517fe86fb944ead859f0781277d9b78c672e4a18c5d06368b603374673cf2007966cece9540f3a1b3f6f9e1bf421d779c4e8010368e6aac134649c7a009210780d401a778a5"),
 }
-
-func TestBuilderSubmitBlockRequest(sk *bls.SecretKey, bid *BidTraceV2) BuilderSubmitBlockRequest {
-	signature, err := boostTypes.SignMessage(bid, boostTypes.DomainBuilder, sk)
-	check(err, " SignMessage: ", bid, sk)
-
-	// TODO: Fill with sane values later
-	blockReq := NewSubmitNewBlockRequest()
-	execPayload := ExecutionPayload{}
-
-	return BuilderSubmitBlockRequest{ //nolint:exhaustruct
-		AnchorSignature:  signature,
-		AnchorMessage:    &blockReq,
-		ExecutionPayload: &execPayload}
-}
-
-func LoadGzippedBytes(t *testing.T, filename string) []byte {
-	t.Helper()
-	fi, err := os.Open(filename)
-	require.NoError(t, err)
-	defer fi.Close()
-	fz, err := gzip.NewReader(fi)
-	require.NoError(t, err)
-	defer fz.Close()
-	val, err := io.ReadAll(fz)
-	require.NoError(t, err)
-	return val
-}
-
-func LoadGzippedJSON(t *testing.T, filename string, dst any) {
-	t.Helper()
-	b := LoadGzippedBytes(t, filename)
-	err := json.Unmarshal(b, dst)
-	require.NoError(t, err)
-}
-
-func MustB64Gunzip(s string) []byte {
-	b, _ := base64.StdEncoding.DecodeString(s)
-	gzreader, err := gzip.NewReader(bytes.NewReader(b))
-	if err != nil {
-		panic(err)
-	}
-	output, err := io.ReadAll(gzreader)
-	if err != nil {
-		panic(err)
-	}
-	return output
-}
-
-func LoadFileContents(t *testing.T, filename string) []byte {
-	t.Helper()
-	fileContents, err := os.ReadFile(filename)
-	require.NoError(t, err)
-	return fileContents
-}
-*/
-// TestLog is used to log information in the test methods
-var TestLog = logrus.WithField("testing", true)

@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/flashbots/go-boost-utils/bls"
 	boostSsz "github.com/flashbots/go-boost-utils/ssz"
 	"math/big"
@@ -363,12 +363,6 @@ func (b *BidTraceV2WithTimestampJSON) ToCSVRecord() []string {
 	}
 }
 
-type AnchorHeader struct {
-	Header    *common.Hash `json:"header"`
-	BlockHash string       `json:"block_hash"`
-	Value     *big.Int     `json:"value"`
-}
-
 type SignedBeaconBlock struct {
 	Bellatrix *phase0.SignedBeaconBlock
 	Capella   *phase0.SignedBeaconBlock
@@ -404,213 +398,6 @@ func (s *SignedBeaconBlock) BlockHash() string {
 	return ""
 }
 
-type AnchorGetHeaderResponse struct {
-	ExecHeaders    ExecHeadersInfo `json:"exec_headers"`
-	BlockInfo      AnchorBlockInfo `json:"block_info"`
-	ExecHeadersSig []byte          `json:"exec_headers_sig"`
-}
-
-type AnchorBlockInfo struct {
-	// note: Message should be the anchor req
-	Slot uint64 `json:"slot"`
-	// nodeID of chunk producing validator.
-	Producer ids.NodeID `json:"producer"`
-	// hash of the anchor chunks (tob + robs)
-	ChunkHash      common.Hash   `json:"chunkhash"`
-	ProposerPubkey bls.PublicKey `json:"proposer_pubkey"`
-}
-
-// SEQ validator should sign this
-type ExecHeadersInfo struct {
-	// Make signature based off ToBHash + RoBHashes then we use this signature for Baton/Anchor to check against
-	ToBHash   *AnchorHeader            `json:"tobhash"`
-	RoBHashes map[string]*AnchorHeader `json:"robhashes"`
-}
-
-type AnchorGetPayloadRequest struct {
-	Slot          uint64        `json:"slot"`
-	ProposerIndex uint64        `json:"proposer_index"`
-	BlockHash     string        `json:"block_hash"`
-	SignedHeaders bls.Signature `json:"signed_headers"`
-}
-
-type AnchorGetPayloadResponse struct {
-	Slot            uint64           `json:"slot"`
-	ExecPayloads    ExecPayloadsInfo `json:"execpayloads"`
-	ExecPayloadsSig bls.Signature    `json:"execpayloads_sig"`
-}
-
-type ExecPayloadsInfo struct {
-	ToBPayload  *ExecutionPayload           `json:"tobpayload"`
-	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
-}
-
-type ExecutionPayload struct {
-	// Array of transaction objects, each object is a byte list (DATA) representing
-	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
-	Transactions []hexutil.Bytes `json:"transactions"`
-}
-
-type BuilderSubmitBlockRequest struct {
-	AnchorSignature  bls.Signature          `json:"signature" ssz-size:"96"`
-	AnchorMessage    *SubmitNewBlockRequest `json:"message"`
-	ExecutionPayload *ExecutionPayload      `json:"execution_payload"`
-}
-
-/*
-func BoostBidToBidTrace(bidTrace *boostTypes.BidTrace) *apiv1.BidTrace {
-	if bidTrace == nil {
-		return nil
-	}
-	return &apiv1.BidTrace{
-		BuilderPubkey:        phase0.BLSPubKey(bidTrace.BuilderPubkey),
-		Slot:                 bidTrace.Slot,
-		ProposerPubkey:       phase0.BLSPubKey(bidTrace.ProposerPubkey),
-		ProposerFeeRecipient: consensusbellatrix.ExecutionAddress(bidTrace.ProposerFeeRecipient),
-		BlockHash:            phase0.Hash32(bidTrace.BlockHash),
-		Value:                U256StrToUint256(bidTrace.Value),
-		ParentHash:           phase0.Hash32(bidTrace.ParentHash),
-		GasLimit:             bidTrace.GasLimit,
-		GasUsed:              bidTrace.GasUsed,
-	}
-}
-*/
-
-// type GetPayloadResponse struct {
-// 	Bellatrix *boostTypes.GetPayloadResponse
-// 	Capella   *api.VersionedExecutionPayload
-// }
-
-// func (p *GetPayloadResponse) UnmarshalJSON(data []byte) error {
-// 	capella := new(api.VersionedExecutionPayload)
-// 	err := json.Unmarshal(data, capella)
-// 	if err == nil && capella.Capella != nil {
-// 		p.Capella = capella
-// 		return nil
-// 	}
-// 	bellatrix := new(boostTypes.GetPayloadResponse)
-// 	err = json.Unmarshal(data, bellatrix)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	p.Bellatrix = bellatrix
-// 	return nil
-// }
-
-// func (p *GetPayloadResponse) MarshalJSON() ([]byte, error) {
-// 	if p.Bellatrix != nil {
-// 		return json.Marshal(p.Bellatrix)
-// 	}
-// 	if p.Capella != nil {
-// 		return json.Marshal(p.Capella)
-// 	}
-// 	return nil, ErrEmptyPayload
-// }
-// noting for handleGetHeader func
-// type GetHeaderResponse struct {
-// 	Bellatrix *boostTypes.GetHeaderResponse
-// 	Capella   *spec.VersionedSignedBuilderBid
-// }
-
-// func (p *GetHeaderResponse) UnmarshalJSON(data []byte) error {
-// 	capella := new(spec.VersionedSignedBuilderBid)
-// 	err := json.Unmarshal(data, capella)
-// 	if err == nil && capella.Capella != nil {
-// 		p.Capella = capella
-// 		return nil
-// 	}
-// 	bellatrix := new(boostTypes.GetHeaderResponse)
-// 	err = json.Unmarshal(data, bellatrix)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	p.Bellatrix = bellatrix
-// 	return nil
-// }
-
-// func (p *GetHeaderResponse) MarshalJSON() ([]byte, error) {
-// 	if p.Capella != nil {
-// 		return json.Marshal(p.Capella)
-// 	}
-// 	if p.Bellatrix != nil {
-// 		return json.Marshal(p.Bellatrix)
-// 	}
-// 	return nil, ErrEmptyPayload
-// }
-
-// func (p *GetHeaderResponse) Value() *big.Int {
-// 	if p.Capella != nil {
-// 		return p.Capella.Capella.Message.Value.ToBig()
-// 	}
-// 	if p.Bellatrix != nil {
-// 		return p.Bellatrix.Data.Message.Value.BigInt()
-// 	}
-// 	return nil
-// }
-
-// func (p *GetHeaderResponse) BlockHash() phase0.Hash32 {
-// 	if p.Capella != nil {
-// 		return p.Capella.Capella.Message.Header.BlockHash
-// 	}
-// 	if p.Bellatrix != nil {
-// 		return phase0.Hash32(p.Bellatrix.Data.Message.Header.BlockHash)
-// 	}
-// 	return phase0.Hash32{}
-// }
-
-// func (p *GetHeaderResponse) Empty() bool {
-// 	if p == nil {
-// 		return true
-// 	}
-// 	if p.Capella != nil {
-// 		return p.Capella.Capella == nil || p.Capella.Capella.Message == nil
-// 	}
-// 	if p.Bellatrix != nil {
-// 		return p.Bellatrix.Data == nil || p.Bellatrix.Data.Message == nil
-// 	}
-// 	return true
-// }
-
-func encodeTransactions(txs []*types.Transaction) [][]byte {
-	var enc = make([][]byte, len(txs))
-	for i, tx := range txs {
-		enc[i], _ = tx.MarshalBinary()
-	}
-	return enc
-}
-
-func DecodeTransactions(enc [][]byte) ([]*types.Transaction, error) {
-	var txs = make([]*types.Transaction, len(enc))
-	for i, encTx := range enc {
-		var tx types.Transaction
-		if err := tx.UnmarshalBinary(encTx); err != nil {
-			return nil, fmt.Errorf("invalid transaction %d: %v", i, err)
-		}
-		txs[i] = &tx
-	}
-	return txs, nil
-}
-
-// note: every tx(s) on Baton and anchor should be type SEQ Tx
-// note: don't have to use eth payloads, because we just need to abide by seq standards so seq/anchor/baton
-type ExecutionPayloadTransactions struct {
-	//the note above means that 'Transactions' needs to be []SEQTransaction from seq-sdk/types
-	Transactions []*chain.Transaction
-}
-
-/*
-// this struct submits to seq
-// rollup -> seq
-type SequencerMsgRequest struct {
-	// id of seq chains to submit txs too
-	ChainID string
-	// tx data itself
-	Data []byte
-	// address of rollup submitting tx(s)
-	FromAddress string
-}
-*/
-
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
 type SubmitNewBlockRequest struct {
@@ -628,41 +415,6 @@ type BatonBlock struct {
 	ProposerPubkey  bls.PublicKey     `json:"proposer_pubkey" ssz-size:"48"`
 	ProposerPayment codec.Address     `json:"proposer_payment" ssz-size:"48"`
 }
-
-/*
-// SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.
-// Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
-type SubmitNewBlockRequest struct {
-	// @TODO: Last tx should be the proposer tx.
-	// @TODO: Check last tx proposer address matches the proposer payment below. Last tx should use transfer action.
-	// @TODO: Use hypersdk method to marshal and unmarshal.
-	// See https://github.com/AnomalyFi/hypersdk/blob/main/chain/transaction.go#L377
-	// See parser in https://github.com/AnomalyFi/anchor/blob/seq-util/seq/seq.go#L33
-
-	// Txs []byte `json:"txs"`
-	Txs             []*chain.Transaction `json:"txs"`
-
-	Slot       uint64 `json:"slot"`
-	ParentHash string `json:"parent_hash"`
-
-	// TODO: Switch to the below because block number is L2-roll-up specific.
-	// HashMap[String, String], This contains a mapping of chainIds alongside the corresponding hex encoded block number which this bundle will be valid on.
-	// Corresponds to rollup blocks. When we simulate, we will simulate on this block.
-	BlockNumber map[string]string `json:"blocknumber"`
-
-	BlockHash common.Hash `json:"block_hash" ssz-size:"32"`
-
-	// TODO: Verify this matches the proposer's address.
-	ProposerPayment codec.Address
-
-	// Builder signing off on their payload.
-	// TODO: Verify using here. https://github.com/flashbots/mev-boost-relay/blob/main/services/api/service.go#L2055
-	Signature boostTypes.Signature `json:"signature" ssz-size:"96"`
-
-	BuilderPubkey  boostTypes.PublicKey `json:"builder_pubkey" ssz-size:"48"`
-	ProposerPubkey boostTypes.PublicKey `json:"proposer_pubkey" ssz-size:"48"`
-}
-*/
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
@@ -714,7 +466,7 @@ func (r *SubmitNewBlockRequest) ProposerPubKey() bls.PublicKey {
 func (r *SubmitNewBlockRequest) ProposerPubKeyAsStr() string {
 	pk := r.ProposerPubKey()
 	proposerPubKeyBytes := (&pk).Bytes()
-	proposerPubKeyBytesAsStr := string(proposerPubKeyBytes[:])
+	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
 	return proposerPubKeyBytesAsStr
 }
 
@@ -770,26 +522,13 @@ func (r *SubmitNewBlockRequest) BuilderPubkey() bls.PublicKey {
 func (r *SubmitNewBlockRequest) BuilderPubkeyAsStr() string {
 	pk := r.BuilderPubkey()
 	builderPubKeyBytes := (&pk).Bytes()
-	builderPubKeyBytesAsStr := string(builderPubKeyBytes[:])
+	builderPubKeyBytesAsStr := hex.EncodeToString(builderPubKeyBytes[:])
 	return builderPubKeyBytesAsStr
 }
 
 func (r *SubmitNewBlockRequest) Sig() bls.Signature {
 	return r.Signature
 }
-
-//TODO: Remove when determined not needed
-/*
-func (r *SubmitNewBlockRequest) DecodeTxs() ([]*chain.Transaction, error) {
-  scli := srpc.NewJSONRPCClient(uri, networkID, chainID)
-  parser    chain.Parser
-	actionRegistry, authRegistry := parser.Registry()
-  parser, err := scli.Parser(context.TODO())
-  if err != nil {
-    return nil, err
-  }
-}
-*/
 
 // callLog is the result of LOG opCode
 type CallLog struct {
@@ -827,6 +566,24 @@ type BlockValidationRequest struct {
 	Timestamp        uint64          `json:"timestamp"`        // Optional number. the timestamp to use for this bundle simulation
 }
 
+// Used in simulating bundle and getting gas used
+type FlashbotsCallBundleResult struct {
+	BundleGasPrice    string          `json:"bundleGasPrice"`
+	BundleHash        string          `json:"bundleHash"`
+	CoinbaseDiff      string          `json:"coinbaseDiff"`
+	EthSentToCoinbase string          `json:"ethSentToCoinbase"`
+	GasFees           string          `json:"gasFees"`
+	Results           []hexutil.Bytes `json:"results"`
+	StateBlockNumber  int64           `json:"stateBlockNumber"`
+	TotalGasUsed      int64           `json:"totalGasUsed"`
+}
+
+type AnchorHeader struct {
+	Header    *common.Hash `json:"header"`
+	BlockHash string       `json:"block_hash"`
+	Value     *big.Int     `json:"value"`
+}
+
 // TODO: REMOVE ME LATER. USE VERSION FROM WITHIN ANCHOR
 type AnchorPayload struct {
 	Slot   uint64      `json:"slot"`
@@ -840,26 +597,207 @@ type AnchorPayload struct {
 	GasLimit uint64 `json:"gaslimit" db:"gas_limit"`
 }
 
-// Used in simulating bundle and getting gas used
-type FlashbotsCallBundleResult struct {
-	BundleGasPrice    string          `json:"bundleGasPrice"`
-	BundleHash        string          `json:"bundleHash"`
-	CoinbaseDiff      string          `json:"coinbaseDiff"`
-	EthSentToCoinbase string          `json:"ethSentToCoinbase"`
-	GasFees           string          `json:"gasFees"`
-	Results           []hexutil.Bytes `json:"results"`
-	StateBlockNumber  int64           `json:"stateBlockNumber"`
-	TotalGasUsed      int64           `json:"totalGasUsed"`
+type AnchorGetHeaderResponse struct {
+	ExecHeaders    ExecHeadersInfo `json:"exec_headers"`
+	BlockInfo      AnchorBlockInfo `json:"block_info"`
+	ExecHeadersSig []byte          `json:"exec_headers_sig"`
 }
 
-type BidTrace2 struct {
-	Slot                 uint64
-	ParentHash           common.Hash   `ssz-size:"32"`
-	BlockHash            common.Hash   `ssz-size:"32"`
-	BuilderPubkey        bls.PublicKey `ssz-size:"48"`
-	ProposerPubkey       bls.PublicKey `ssz-size:"48"`
-	ProposerFeeRecipient codec.Address
-	GasLimit             uint64
-	GasUsed              uint64
-	Value                *big.Int `ssz-size:"32"`
+type AnchorBlockInfo struct {
+	// note: Message should be the anchor req
+	Slot uint64 `json:"slot"`
+	// nodeID of chunk producing validator.
+	Producer ids.NodeID `json:"producer"`
+	// hash of the anchor chunks (tob + robs)
+	ChunkHash      common.Hash   `json:"chunkhash"`
+	ProposerPubkey bls.PublicKey `json:"proposer_pubkey"`
+}
+
+// SEQ validator should sign this
+type ExecHeadersInfo struct {
+	// Make signature based off ToBHash + RoBHashes then we use this signature for Baton/Anchor to check against
+	ToBHash   *AnchorHeader            `json:"tobhash"`
+	RoBHashes map[string]*AnchorHeader `json:"robhashes"`
+}
+
+type AnchorGetPayloadRequest struct {
+	Slot          uint64 `json:"slot"`
+	ProposerIndex uint64 `json:"proposer_index"`
+	BlockHash     string `json:"block_hash"`
+	SignedHeaders []byte `json:"signed_headers"`
+}
+
+type AnchorGetPayloadResponse struct {
+	Slot            uint64           `json:"slot"`
+	ExecPayloads    ExecPayloadsInfo `json:"execpayloads"`
+	ExecPayloadsSig []byte           `json:"execpayloads_sig"`
+}
+
+type ExecPayloadsInfo struct {
+	ToBPayload  *ExecutionPayload           `json:"tobpayload"`
+	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
+}
+
+type ExecutionPayload struct {
+	// Array of transaction objects, each object is a byte list (DATA) representing
+	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	Transactions []hexutil.Bytes `json:"transactions"`
+}
+
+func (r *AnchorGetPayloadResponse) GetExecPayloadsSig() (*bls.Signature, error) {
+	signature, err := bls.SignatureFromBytes(r.ExecPayloadsSig)
+	if err != nil {
+		return nil, errors.New("invalid signed headers, err: " + err.Error())
+	}
+	return signature, nil
+}
+
+func (r *AnchorGetPayloadRequest) GetSignedHeaders() (*bls.Signature, error) {
+	signature, err := bls.SignatureFromBytes(r.SignedHeaders)
+	if err != nil {
+		return nil, errors.New("invalid signed headers, err: " + err.Error())
+	}
+	return signature, nil
+}
+
+func (r *AnchorGetPayloadResponse) SetExecPayloadsSig(sig *bls.Signature) {
+	signatureAsBytes := sig.Bytes()
+	r.ExecPayloadsSig = signatureAsBytes[:]
+}
+
+func (msg *AnchorGetPayloadResponse) IsEmpty() bool {
+	return msg.ExecPayloads.ToBPayload == nil && len(msg.ExecPayloads.RoBPayloads) == 0
+}
+
+func (msg *AnchorGetPayloadResponse) NumToBTxs() int {
+	if msg.ExecPayloads.ToBPayload == nil {
+		return 0
+	}
+	return len(msg.ExecPayloads.ToBPayload.Transactions)
+}
+
+func (msg *AnchorGetPayloadResponse) NumRoBTxs() int {
+	var numTxs int
+	for _, txs := range msg.ExecPayloads.RoBPayloads {
+		numTxs = numTxs + len(txs.Transactions)
+	}
+	return numTxs
+}
+
+func NewAnchorGetPayloadResponse(slot uint64, needsToB bool) AnchorGetPayloadResponse {
+	var tob *ExecutionPayload
+	if needsToB {
+		payload := NewExecutionPayload()
+		tob = &payload
+	}
+
+	execPayloads := ExecPayloadsInfo{
+		ToBPayload:  tob,
+		RoBPayloads: make(map[string]ExecutionPayload),
+	}
+
+	return AnchorGetPayloadResponse{
+		Slot:         slot,
+		ExecPayloads: execPayloads,
+	}
+}
+
+func NewExecutionPayload() ExecutionPayload {
+	return ExecutionPayload{
+		Transactions: make([]hexutil.Bytes, 0),
+	}
+}
+
+// VerifyHeaderSignature verifies that the getHeader ExecHeaders have been signed with the given public key
+func VerifyHeaderSignature(response *AnchorGetHeaderResponse, pubKey bls.PublicKey) (bool, error) {
+	payloadHash, err := hashExecHeaders(&response.ExecHeaders)
+	if err != nil {
+		return false, err
+	}
+
+	payloadSignatureBytes := response.ExecHeadersSig
+	pubKeyBytes := pubKey.Bytes()
+
+	return bls.VerifySignatureBytes(payloadHash[:], payloadSignatureBytes[:], pubKeyBytes[:])
+}
+
+// VerifyPayloadSignature verifies that the getHeader ExecHeaders have been signed with the given public key
+func VerifyPayloadSignature(response *AnchorGetPayloadResponse, pubKey bls.PublicKey) (bool, error) {
+	payloadHash, err := hashExecPayloads(&response.ExecPayloads)
+	if err != nil {
+		return false, err
+	}
+
+	payloadSignatureBytes := response.ExecPayloadsSig
+	pubKeyBytes := pubKey.Bytes()
+
+	return bls.VerifySignatureBytes(payloadHash[:], payloadSignatureBytes[:], pubKeyBytes[:])
+}
+
+func GetExecHeaderSignature(headers *ExecHeadersInfo, secretKey *bls.SecretKey) (*bls.Signature, error) {
+	// Step 1: Hash the ExecHeaders (ToBHash + RoBHashes) data
+	payloadHash, err := hashExecHeaders(headers)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 2: Sign the hashed headers using the secret key
+	signature := bls.Sign(secretKey, payloadHash[:])
+	return signature, nil
+}
+
+func GetExecPayloadSignature(payloads *ExecPayloadsInfo, secretKey *bls.SecretKey) (*bls.Signature, error) {
+	// Step 1: Hash the ExecHeaders (ToBHash + RoBHashes) data
+	payloadHash, err := hashExecPayloads(payloads)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 2: Sign the hashed payloads using the secret key
+	signature := bls.Sign(secretKey, payloadHash[:])
+	return signature, nil
+}
+
+func SignAnchorGetHeaderResponse(response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {
+	signature, err := GetExecHeaderSignature(&response.ExecHeaders, secretKey)
+	if err != nil {
+		return errors.New("failed to sign anchor header response, err: " + err.Error())
+	}
+
+	response.SetExecPayloadsSig(signature)
+	return nil
+}
+
+func SignAnchorGetPayloadResponse(response *AnchorGetPayloadResponse, secretKey *bls.SecretKey) error {
+	signature, err := GetExecPayloadSignature(&response.ExecPayloads, secretKey)
+	if err != nil {
+		return errors.New("failed to sign anchor header response, err: " + err.Error())
+	}
+
+	response.SetExecPayloadsSig(signature)
+	return nil
+}
+
+func hashExecHeaders(headers *ExecHeadersInfo) ([32]byte, error) {
+	// Use JSON serialization to hash the struct
+	payloadBytes, err := json.Marshal(*headers)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to serialize ExecHeaders: %w", err)
+	}
+
+	// Use sha256 to hash the serialized ExecHeaders data
+	hash := sha256.Sum256(payloadBytes)
+	return hash, nil
+}
+
+func hashExecPayloads(payloads *ExecPayloadsInfo) ([32]byte, error) {
+	// Use JSON serialization to hash the struct
+	payloadBytes, err := json.Marshal(*payloads)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("failed to serialize ExecHeaders: %w", err)
+	}
+
+	// Use sha256 to hash the serialized ExecHeaders data
+	hash := sha256.Sum256(payloadBytes)
+	return hash, nil
 }

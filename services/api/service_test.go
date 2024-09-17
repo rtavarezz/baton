@@ -117,6 +117,10 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	return &backend
 }
 
+func (be *testBackend) GetRedis() *datastore.RedisCache {
+	return be.redis
+}
+
 func (be *testBackend) requestBytes(method, path string, payload []byte, headers map[string]string) *httptest.ResponseRecorder {
 	var req *http.Request
 	var err error
@@ -310,19 +314,32 @@ func TestGetHeader(t *testing.T) {
 		},
 	}
 
-	// request params
-	//api := &BatonAPI{}
 	slot := uint64(1)
 	backend.relay.headSlot.Store(slot)
+
 	parentHash := eth.HexToHash("0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747")
 	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-	// request path
-	path := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(uint64(1), 10), parentHash, proposerPubkey)
-	require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", path)
-	rr := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodGet, path, nil)
-	backend.relay.getRouter().ServeHTTP(rr, httpReq)
-	require.Equal(t, http.StatusNoContent, rr.Code)
+
+	//bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
+	//bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
+
+	t.Run("Run valid base case, just tob", func(t *testing.T) {
+    redis := backend.GetRedis()
+
+    // Populate redis cache with expected headers
+    redis.
+    //bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
+
+		rr := httptest.NewRecorder()
+
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(uint64(1), 10), parentHash, proposerPubkey)
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
+
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
 }
 
 func createBackendHelper(t *testing.T) *testBackend {
@@ -471,123 +488,6 @@ func TestDataApiGetDataProposerPayloadDelivered(t *testing.T) {
 			require.Contains(t, rr.Body.String(), "invalid block_hash argument")
 		}
 	})
-}
-
-// TODO: This test probably not needed. Remove later when not needed.
-/*
-func TestBuilderSubmitBlockSSZ(t *testing.T) {
-	requestPayloadJSONBytes := common.LoadGzippedBytes(t, "../../testdata/submitBlockPayloadCapella_Goerli.json.gz")
-
-	req := new(common.BuilderSubmitBlockRequest)
-	err := json.Unmarshal(requestPayloadJSONBytes, &req)
-	require.NoError(t, err)
-
-	reqSSZ, err := req.Capella.MarshalSSZ()
-	require.NoError(t, err)
-	require.Equal(t, 352239, len(reqSSZ))
-
-	test := new(builderCapella.SubmitBlockRequest)
-	err = test.UnmarshalSSZ(reqSSZ)
-	require.NoError(t, err)
-}
-*/
-
-// TODO: Fix me.
-func TestBuilderSubmitBlock(t *testing.T) {
-	/*
-		path := "/relay/v1/builder/blocks"
-		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-
-		headSlot := uint64(32)
-		submissionSlot := headSlot + 1
-		submissionTimestamp := 1606824419
-
-		// Payload attributes
-		payloadJSONFilename := "../../testdata/submitBlockPayloadCapella_Goerli.json.gz"
-		parentHash := "0xbd3291854dc822b7ec585925cda0e18f06af28fa2886e15f52d52dd4b6f94ed6"
-		feeRec, err := types.HexToAddress("0x5cc0dde14e7256340cc820415a6022a7d1c93a35")
-		require.NoError(t, err)
-		withdrawalsRoot, err := hexutil.Decode("0xb15ed76298ff84a586b1d875df08b6676c98dfe9c7cd73fab88450348d8e70c8")
-		require.NoError(t, err)
-		prevRandao := "0x9962816e9d0a39fd4c80935338a741dc916d1545694e41eb5a505e1a3098f9e4"
-
-		// Setup the test relay backend
-		backend.relay.headSlot.Store(headSlot)
-		backend.relay.capellaEpoch = 0
-		backend.relay.denebEpoch = 1
-		backend.relay.proposerDutiesMap = make(map[uint64]*common.BuilderGetValidatorsResponseEntry)
-		backend.relay.proposerDutiesMap[headSlot+1] = &common.BuilderGetValidatorsResponseEntry{
-			Slot: headSlot,
-			Entry: &types.SignedValidatorRegistration{
-				Message: &types.RegisterValidatorRequestMessage{
-					FeeRecipient: feeRec,
-				},
-			},
-		}
-		backend.relay.payloadAttributes = make(map[string]payloadAttributesHelper)
-		backend.relay.payloadAttributes[parentHash] = payloadAttributesHelper{
-			slot:       submissionSlot,
-			parentHash: parentHash,
-			payloadAttributes: beaconclient.PayloadAttributes{
-				PrevRandao: prevRandao,
-			},
-			withdrawalsRoot: phase0.Root(withdrawalsRoot),
-		}
-
-		// Prepare the request payload
-		req := new(common.BuilderSubmitBlockRequest)
-		requestPayloadJSONBytes := common.LoadGzippedBytes(t, payloadJSONFilename)
-		require.NoError(t, err)
-		err = json.Unmarshal(requestPayloadJSONBytes, &req)
-		require.NoError(t, err)
-
-		// Update
-		req.Capella.Message.Slot = submissionSlot
-		req.Capella.ExecutionPayload.Timestamp = uint64(submissionTimestamp)
-
-		// Send JSON encoded request
-		reqJSONBytes, err := req.Capella.MarshalJSON()
-		require.NoError(t, err)
-		require.Equal(t, 704810, len(reqJSONBytes))
-		reqJSONBytes2, err := json.Marshal(req.Capella)
-		require.NoError(t, err)
-		require.Equal(t, reqJSONBytes, reqJSONBytes2)
-		rr := backend.requestBytes(http.MethodPost, path, reqJSONBytes, nil)
-		require.Contains(t, rr.Body.String(), "invalid signature")
-		require.Equal(t, http.StatusBadRequest, rr.Code)
-
-		// Send SSZ encoded request
-		reqSSZBytes, err := req.Capella.MarshalSSZ()
-		require.NoError(t, err)
-		require.Equal(t, 352239, len(reqSSZBytes))
-		rr = backend.requestBytes(http.MethodPost, path, reqSSZBytes, map[string]string{
-			"Content-Type": "application/octet-stream",
-		})
-		require.Contains(t, rr.Body.String(), "invalid signature")
-		require.Equal(t, http.StatusBadRequest, rr.Code)
-
-		// Send JSON+GZIP encoded request
-		headers := map[string]string{
-			"Content-Encoding": "gzip",
-		}
-		jsonGzip := gzipBytes(t, reqJSONBytes)
-		require.Equal(t, 207788, len(jsonGzip))
-		rr = backend.requestBytes(http.MethodPost, path, jsonGzip, headers)
-		require.Contains(t, rr.Body.String(), "invalid signature")
-		require.Equal(t, http.StatusBadRequest, rr.Code)
-
-		// Send SSZ+GZIP encoded request
-		headers = map[string]string{
-			"Content-Type":     "application/octet-stream",
-			"Content-Encoding": "gzip",
-		}
-
-		sszGzip := gzipBytes(t, reqSSZBytes)
-		require.Equal(t, 195923, len(sszGzip))
-		rr = backend.requestBytes(http.MethodPost, path, sszGzip, headers)
-		require.Contains(t, rr.Body.String(), "invalid signature")
-		require.Equal(t, http.StatusBadRequest, rr.Code)
-	*/
 }
 
 // @TODO: Fix me

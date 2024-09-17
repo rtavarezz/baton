@@ -11,9 +11,11 @@ type MockBlockSimulationRateLimiter struct {
 	tobSimulationError error
 }
 
+/*
 func (m *MockBlockSimulationRateLimiter) Send(context context.Context, payload *common.BuilderBlockValidationRequest, isHighPrio, fastTrack bool) (error, error) {
 	return nil, m.simulationError
 }
+*/
 
 func (m *MockBlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Context, blockReq *common.BlockValidationRequest) (uint64, error, error) {
 	return 0, nil, nil

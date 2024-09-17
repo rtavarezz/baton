@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"github.com/alicebob/miniredis/v2"
-	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/flashbots/go-boost-utils/bls"
+	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-eth2-client/spec/bellatrix"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/go-redis/redis/v9"
 	"github.com/holiman/uint256"
@@ -29,6 +30,7 @@ func setupTestRedis(t *testing.T) *RedisCache {
 	return redisService
 }
 
+/*
 func TestRedisValidatorRegistration(t *testing.T) {
 	cache := setupTestRedis(t)
 
@@ -86,7 +88,9 @@ func TestRedisValidatorRegistration(t *testing.T) {
 	})
 }
 
+*/
 
+/*
 	func TestRedisKnownValidators(t *testing.T) {
 		cache := setupTestRedis(t)
 
@@ -125,7 +129,9 @@ func TestRedisValidatorRegistration(t *testing.T) {
 			require.Equal(t, key2, knownVals[index2])
 		})
 	}
+*/
 
+/*
 	func TestRedisValidatorRegistrations(t *testing.T) {
 		cache := setupTestRedis(t)
 
@@ -160,32 +166,86 @@ func TestRedisValidatorRegistration(t *testing.T) {
 			require.Equal(t, uint64(0xffffffff), reg)
 		})
 	}
+*/
 
-	func TestRedisProposerDuties(t *testing.T) {
-		cache := setupTestRedis(t)
-		duties := []common.BuilderGetValidatorsResponseEntry{
-			{
-				Slot: 1,
-				Entry: &types.SignedValidatorRegistration{
-					Signature: types.Signature{},
-					Message: &types.RegisterValidatorRequestMessage{
-						FeeRecipient: types.Address{0x02},
-						GasLimit:     5000,
-						Timestamp:    0xffffffff,
-						Pubkey:       types.PublicKey{},
-					},
+func TestRedisValidatorRegistration(t *testing.T) {
+	cache := setupTestRedis(t)
+
+	t.Run("Can save and get validator registration from cache", func(t *testing.T) {
+		key := common.ValidPayloadRegisterValidator.Message.Pubkey
+		value := common.ValidPayloadRegisterValidator
+		pkHex := common.NewPubkeyHex(key.String())
+		err := cache.SetValidatorRegistrationTimestamp(pkHex, uint64(value.Message.Timestamp.Unix()))
+		require.NoError(t, err)
+		result, err := cache.GetValidatorRegistrationTimestamp(common.NewPubkeyHex(key.String()))
+		require.NoError(t, err)
+		require.Equal(t, result, uint64(value.Message.Timestamp.Unix()))
+	})
+
+	t.Run("Returns nil if validator registration is not in cache", func(t *testing.T) {
+		key := phase0.BLSPubKey{}
+		result, err := cache.GetValidatorRegistrationTimestamp(common.NewPubkeyHex(key.String()))
+		require.NoError(t, err)
+		require.Equal(t, uint64(0), result)
+	})
+
+	t.Run("test SetValidatorRegistrationTimestampIfNewer", func(t *testing.T) {
+		key := common.ValidPayloadRegisterValidator.Message.Pubkey
+		value := common.ValidPayloadRegisterValidator
+
+		pkHex := common.NewPubkeyHex(key.String())
+		timestamp := uint64(value.Message.Timestamp.Unix())
+
+		err := cache.SetValidatorRegistrationTimestampIfNewer(pkHex, timestamp)
+		require.NoError(t, err)
+
+		result, err := cache.GetValidatorRegistrationTimestamp(common.NewPubkeyHex(key.String()))
+		require.NoError(t, err)
+		require.Equal(t, result, timestamp)
+
+		// Try to set an older timestamp (should not work)
+		timestamp2 := timestamp - 10
+		err = cache.SetValidatorRegistrationTimestampIfNewer(pkHex, timestamp2)
+		require.NoError(t, err)
+		result, err = cache.GetValidatorRegistrationTimestamp(common.NewPubkeyHex(key.String()))
+		require.NoError(t, err)
+		require.Equal(t, result, timestamp)
+
+		// Try to set an older timestamp (should not work)
+		timestamp3 := timestamp + 10
+		err = cache.SetValidatorRegistrationTimestampIfNewer(pkHex, timestamp3)
+		require.NoError(t, err)
+		result, err = cache.GetValidatorRegistrationTimestamp(common.NewPubkeyHex(key.String()))
+		require.NoError(t, err)
+		require.Equal(t, result, timestamp3)
+	})
+}
+
+func TestRedisProposerDuties(t *testing.T) {
+	cache := setupTestRedis(t)
+	duties := []common.BuilderGetValidatorsResponseEntry{
+		{
+			Slot: 1,
+			Entry: &builderApiV1.SignedValidatorRegistration{
+				Signature: phase0.BLSSignature{},
+				Message: &builderApiV1.ValidatorRegistration{
+					FeeRecipient: bellatrix.ExecutionAddress{0x02},
+					GasLimit:     5000,
+					Timestamp:    time.Unix(0xffffffff, 0),
+					Pubkey:       phase0.BLSPubKey{},
 				},
 			},
-		}
-		err := cache.SetProposerDuties(duties)
-		require.NoError(t, err)
-
-		duties2, err := cache.GetProposerDuties()
-		require.NoError(t, err)
-
-		require.Equal(t, 1, len(duties2))
-		require.Equal(t, duties[0].Entry.Message.FeeRecipient, duties2[0].Entry.Message.FeeRecipient)
+		},
 	}
+	err := cache.SetProposerDuties(duties)
+	require.NoError(t, err)
+
+	duties2, err := cache.GetProposerDuties()
+	require.NoError(t, err)
+
+	require.Len(t, duties2, 1)
+	require.Equal(t, duties[0].Entry.Message.FeeRecipient, duties2[0].Entry.Message.FeeRecipient)
+}
 
 func TestBuilderBids(t *testing.T) {
 
@@ -319,7 +379,7 @@ func TestBuilderBids(t *testing.T) {
 	ensureBidFloor(20)
 
 }
-*/
+
 func TestRedisURIs(t *testing.T) {
 	t.Helper()
 	var err error
@@ -564,33 +624,6 @@ func _CheckAndSetLastSlotAndHashDeliveredForTesting(r *RedisCache, waitC chan bo
 //
 //	require.Equal(t, req, res)
 //}
-
-func TestSetHighestRobValue(t *testing.T) {
-	cache := setupTestRedis(t)
-
-	slot := uint64(123)
-	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
-
-	// Set a value
-	value := big.NewInt(123)
-	_, err := cache.client.TxPipelined(context.Background(), func(tx redis.Pipeliner) error {
-		v, err := cache.GetHighestRobValue(context.Background(), tx, slot, parentHash)
-		require.NoError(t, err)
-		require.Equal(t, v, big.NewInt(0))
-
-		err = cache.SetHighestRobValue(context.Background(), tx, value, slot, parentHash)
-		require.NoError(t, err)
-
-		// Get the value back
-		v, err = cache.GetHighestRobValue(context.Background(), tx, slot, parentHash)
-		require.NoError(t, err)
-		require.Equal(t, v, big.NewInt(123))
-
-		return nil
-	})
-
-	require.NoError(t, err)
-}
 
 //func TestSetTobTxs(t *testing.T) {
 //	cache := setupTestRedis(t)

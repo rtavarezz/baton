@@ -21,10 +21,12 @@ var NilResponse = struct{}{}
 
 var ZeroU256 = boostTypes.IntToU256(0)
 
+/*
 type BuilderBlockValidationRequest struct {
 	BuilderSubmitBlockRequest
 	RegisteredGasLimit uint64 `json:"registered_gas_limit,string"`
 }
+*/
 
 /*
 func (r *BuilderBlockValidationRequest) MarshalJSON() ([]byte, error) {

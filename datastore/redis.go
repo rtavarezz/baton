@@ -470,6 +470,7 @@ func (r *RedisCache) GetBestRoBBid(slot uint64, parentHash, proposerPubkey strin
 // TODO: We need to figure how to save multiple ToB/RoB domains to the database.
 // Currently it is just Get/Set functions for each
 
+/*
 func (r *RedisCache) GetHighestRob(slot uint64, parentHash string) (*common.BuilderSubmitBlockRequest, error) {
 	key := r.keyCacheGetHighestRob(slot, parentHash)
 	resp := new(common.BuilderSubmitBlockRequest)
@@ -513,6 +514,7 @@ func (r *RedisCache) GetHighestRobValue(ctx context.Context, tx redis.Pipeliner,
 	robBidValue.SetString(robBidValueStr, 10)
 	return robBidValue, nil
 }
+*/
 
 func (r *RedisCache) SetTobTx(ctx context.Context, tx redis.Pipeliner, slot uint64, parentHash string, txs [][]byte) error {
 	key := r.keyCacheGetTobTxs(slot, parentHash)
@@ -661,39 +663,6 @@ func (r *RedisCache) GetExecutionRoBAnchorPayload(
 
 	return resp, nil
 }
-
-/*
-// Here is how they save information
-func (r *RedisCache) SaveExecutionPayloadCapella(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, proposerPubkey, blockHash string, execPayload *capella.ExecutionPayload) (err error) {
-	key := r.keyExecPayloadCapella(slot, proposerPubkey, blockHash)
-	b, err := execPayload.MarshalSSZ()
-	if err != nil {
-		return err
-	}
-	return pipeliner.Set(ctx, key, b, expiryBidCache).Err()
-}
-
-func (r *RedisCache) GetExecutionPayloadCapella(slot uint64, proposerPubkey, blockHash string) (*common.VersionedExecutionPayload, error) {
-	resp := new(common.VersionedExecutionPayload)
-	capellaPayload := new(capella.ExecutionPayload)
-
-	key := r.keyExecPayloadCapella(slot, proposerPubkey, blockHash)
-	val, err := r.client.Get(context.Background(), key).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	err = capellaPayload.UnmarshalSSZ([]byte(val))
-	if err != nil {
-		return nil, err
-	}
-
-	resp.Capella = new(api.VersionedExecutionPayload)
-	resp.Capella.Capella = capellaPayload
-	resp.Capella.Version = consensusspec.DataVersionCapella
-	return resp, nil
-}
-*/
 
 func (r *RedisCache) SaveToBBidTrace(
 	ctx context.Context,
@@ -1732,4 +1701,36 @@ func (r *RedisCache) NewPipeline() redis.Pipeliner { //nolint:ireturn,nolintlint
 
 func (r *RedisCache) NewTxPipeline() redis.Pipeliner { //nolint:ireturn
 	return r.client.TxPipeline()
+}
+
+// For use in testing only
+func (r *RedisCache) SetToBTopBid() {
+	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
+	/*
+	   if len(builderBids.bidValues) == 0 {
+	     return state, nil
+	   }
+
+	   // Load floor value (if not passed in already)
+	   if floorValue == nil {
+	     floorValue, err = r.GetFloorRoBBidValue(ctx, pipeline, slot, parentHash, proposerPubkey, chainID)
+	     if err != nil {
+	       return state, err
+	     }
+	   }
+
+	   topBidBuilder := ""
+	   topBidBuilder, state.TopBidValue = builderBids.getTopBid()
+	   keyBidRoBSource := r.keyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, topBidBuilder, chainID)
+
+	   // If floor value is higher than this bid, use floor bid instead
+	   if floorValue.Cmp(state.TopBidValue) == 1 {
+	     state.TopBidValue = floorValue
+	     keyBidRoBSource = r.keyFloorRoBBid(slot, parentHash, proposerPubkey, chainID)
+	   }
+
+	   // Copy winning bid to top bid cache
+	   keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
+	   c := pipeline.Copy(context.Background(), keyBidRoBSource, keyTopBid, 0, true)
+	*/
 }

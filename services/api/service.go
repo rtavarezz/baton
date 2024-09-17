@@ -159,6 +159,7 @@ type BatonAPIOpts struct {
 	mockMode bool
 }
 
+/*
 // Data needed to issue a block validation request.
 type blockSimOptions struct {
 	isHighPrio bool
@@ -167,6 +168,8 @@ type blockSimOptions struct {
 	builder    *blockBuilderCacheEntry
 	req        *common.BuilderBlockValidationRequest
 }
+
+*/
 
 // Like the above but
 type blockSimOptions2 struct {
@@ -2099,52 +2102,6 @@ func (api *BatonAPI) checkTobTxsStateInterference(txs []*types.Transaction, log 
 func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, common.TobGasReservations)
 }
-
-type redisUpdateBidOpts struct {
-	w                    http.ResponseWriter
-	tx                   redis.Pipeliner
-	log                  *logrus.Entry
-	cancellationsEnabled bool
-	receivedAt           time.Time
-	floorBidValue        *big.Int
-	payload              *common.BuilderSubmitBlockRequest
-}
-
-/*
-func (api *BatonAPI) updateRedisBid(opts redisUpdateBidOpts) (*datastore.SaveBidAndUpdateTopBidResponse, *common.GetPayloadResponse, bool) {
-	// Prepare the response data
-	getHeaderResponse, err := common.BuildGetHeaderResponse(opts.payload, api.blsSk, api.publicKey, api.opts.EthNetDetails.DomainBuilder)
-	if err != nil {
-		opts.log.WithError(err).Error("could not sign builder bid")
-		api.RespondError(opts.w, http.StatusBadRequest, err.Error())
-		return nil, nil, false
-	}
-
-	getPayloadResponse, err := common.BuildGetPayloadResponse(opts.payload)
-	if err != nil {
-		opts.log.WithError(err).Error("could not build getPayload response")
-		api.RespondError(opts.w, http.StatusBadRequest, err.Error())
-		return nil, nil, false
-	}
-
-	bidTrace := common.BidTraceV2{
-		BidTrace:    *opts.payload.Message(),
-		BlockNumber: opts.payload.BlockNumber(),
-		NumTx:       uint64(opts.payload.NumTx()),
-	}
-
-	//
-	// Save to Redis
-	//
-	updateBidResult, err := api.redis.SaveBidAndUpdateTopBid(context.Background(), opts.tx, &bidTrace, opts.payload, getPayloadResponse, getHeaderResponse, opts.receivedAt, opts.cancellationsEnabled, opts.floorBidValue)
-	if err != nil {
-		opts.log.WithError(err).Error("could not save bid and update top bids")
-		api.RespondError(opts.w, http.StatusInternalServerError, "failed saving and updating bid")
-		return nil, nil, false
-	}
-	return &updateBidResult, getPayloadResponse, true
-}
-*/
 
 // This method used for both ToB and for RoB.
 // TODO: Builders need to register themeselves on Baton before submitting blocks

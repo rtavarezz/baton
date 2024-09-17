@@ -22,7 +22,6 @@ var (
 	ErrRequestClosed    = errors.New("request context closed")
 	ErrSimulationFailed = errors.New("simulation failed")
 	ErrJSONDecodeFailed = errors.New("json error")
-	ErrNoCapellaPayload = errors.New("capella payload is nil")
 
 	maxConcurrentBlocks = int64(cli.GetEnvInt("BLOCKSIM_MAX_CONCURRENT", 4)) // 0 for no maximum
 	simRequestTimeout   = time.Duration(cli.GetEnvInt("BLOCKSIM_TIMEOUT_MS", 10000)) * time.Millisecond
@@ -91,50 +90,6 @@ func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Conte
 
 	return gasUsed, requestErr, validationErr
 }
-
-/*
-func (b *BlockSimulationRateLimiter) Send(context context.Context, payload *common.BuilderBlockValidationRequest, isHighPrio, fastTrack bool) (requestErr, validationErr error) {
-	b.cv.L.Lock()
-	cnt := atomic.AddInt64(&b.counter, 1)
-	if maxConcurrentBlocks > 0 && cnt > maxConcurrentBlocks {
-		b.cv.Wait()
-	}
-	b.cv.L.Unlock()
-
-	defer func() {
-		b.cv.L.Lock()
-		atomic.AddInt64(&b.counter, -1)
-		b.cv.Signal()
-		b.cv.L.Unlock()
-	}()
-
-	if err := context.Err(); err != nil {
-		return fmt.Errorf("%w, %w", ErrRequestClosed, err), nil
-	}
-
-	var simReq *jsonrpc.JSONRPCRequest
-	if payload.Capella == nil {
-		return ErrNoCapellaPayload, nil
-	}
-	// TODO: add deneb support.
-
-	// Prepare headers
-	headers := http.Header{}
-	headers.Add("X-Request-ID", fmt.Sprintf("%d/%s", payload.Slot(), payload.BlockHash()))
-	if isHighPrio {
-		headers.Add("X-High-Priority", "true")
-	}
-	if fastTrack {
-		headers.Add("X-Fast-Track", "true")
-	}
-
-	// Create and fire off JSON-RPC request
-	// TODO: figure out what flashbots func includes
-	simReq = jsonrpc.NewJSONRPCRequest("1", "flashbots_validateBuilderSubmissionV2", payload)
-	_, requestErr, validationErr = SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, headers)
-	return requestErr, validationErr
-}
-*/
 
 // CurrentCounter returns the number of waiting and active requests
 func (b *BlockSimulationRateLimiter) CurrentCounter() int64 {
