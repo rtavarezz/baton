@@ -600,7 +600,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		rrCode := processBlockRequest(backend, baseRobReq)
 		require.Equal(t, http.StatusOK, rrCode)
 
-		numRoBs := 1
+		numRoBs := 100
 		robReqs := make([]*common.SubmitNewBlockRequest, 0, numRoBs) // all are higher bids than the base one
 		for i := 0; i < numRoBs; i++ {
 			req, _, _ := CreateTestChunkSubmission(t, baseValue+uint64(i), &opts)
