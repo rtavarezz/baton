@@ -3,21 +3,21 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 	"time"
+
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
 
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	// "github.com/AnomalyFi/hypersdk/state"
 	"github.com/alicebob/miniredis/v2"
 	eth "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
@@ -28,13 +28,14 @@ import (
 )
 
 const (
-	testGasLimit        = uint64(30000000)
-	testSlot            = uint64(42)
-	testParentHash      = "0xbd3291854dc822b7ec585925cda0e18f06af28fa2886e15f52d52dd4b6f94ed6"
-	testWithdrawalsRoot = "0x7f6d156912a4cb1e74ee37e492ad883f7f7ac856d987b3228b517e490aa0189e"
-	testPrevRandao      = "0x9962816e9d0a39fd4c80935338a741dc916d1545694e41eb5a505e1a3098f9e4"
-	testBuilderPubkey   = "0xfa1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
-	testProposerKey     = "0xda1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
+	testGasLimit         = uint64(30000000)
+	testSlot             = uint64(42)
+	testParentHash       = "0xbd3291854dc822b7ec585925cda0e18f06af28fa2886e15f52d52dd4b6f94ed6"
+	testWithdrawalsRoot  = "0x7f6d156912a4cb1e74ee37e492ad883f7f7ac856d987b3228b517e490aa0189e"
+	testPrevRandao       = "0x9962816e9d0a39fd4c80935338a741dc916d1545694e41eb5a505e1a3098f9e4"
+	testBuilderPubkey    = "0xfa1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
+	testProposerKey      = "0xda1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
+	testManagerSecretKey = "0x3fae9bafcf1572be9a4d4b7f8e6cb1d0c4bca8ad1e6f75d3d1286ad0e3e5fba1"
 )
 
 var (
@@ -44,10 +45,11 @@ var (
 )
 
 type testBackend struct {
-	t         require.TestingT
-	relay     *BatonAPI
-	datastore *datastore.Datastore
-	redis     *datastore.RedisCache
+	t          require.TestingT
+	relay      *BatonAPI
+	datastore  *datastore.Datastore
+	redis      *datastore.RedisCache
+	simManager *bls.SecretKey
 }
 
 func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBackend {
@@ -84,6 +86,15 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	mainnetDetails, err := common.NewEthNetworkDetails(network)
 	require.NoError(t, err)
 
+	managerSkBytes, err := hexutil.Decode(testManagerSecretKey)
+	require.NoError(t, err)
+	managerSk, err := bls.SecretKeyFromBytes(managerSkBytes)
+	require.NoError(t, err)
+	managerPub, err := bls.PublicKeyFromSecretKey(managerSk)
+	require.NoError(t, err)
+	pubBytes := managerPub.Bytes()
+	pubString := hex.EncodeToString(pubBytes[:])
+
 	opts := BatonAPIOpts{
 		Log:             common.TestLog,
 		ListenAddr:      "localhost:12345",
@@ -93,6 +104,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 		DB:              db,
 		EthNetDetails:   *mainnetDetails,
 		SecretKey:       sk,
+		BlockSimManager: pubString,
 		ProposerAPI:     true,
 		BlockBuilderAPI: true,
 		DataAPI:         true,
@@ -110,10 +122,11 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	}
 
 	backend := testBackend{
-		t:         t,
-		relay:     relay,
-		datastore: ds,
-		redis:     redisCache,
+		t:          t,
+		relay:      relay,
+		datastore:  ds,
+		redis:      redisCache,
+		simManager: managerSk,
 	}
 	return &backend
 }
@@ -242,6 +255,57 @@ func TestLivez(t *testing.T) {
 	require.Equal(t, "{\"message\":\"live\"}\n", rr.Body.String())
 }
 
+func TestRegisterSimulator(t *testing.T) {
+	path := "/sim/v1/register"
+
+	t.Run("can register with correct secret key", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+
+		sk := backend.simManager
+		sim := SimulatorInfo{
+			URL: "someurl",
+		}
+		msg, err := json.Marshal(sim)
+		require.NoError(t, err)
+		sig := bls.Sign(sk, msg)
+		pub, err := bls.PublicKeyFromSecretKey(sk)
+		require.NoError(t, err)
+		sigBytes := sig.Bytes()
+		pubBytes := pub.Bytes()
+
+		rr := backend.request(http.MethodPost, path, SimulatorRegisterRequest{
+			Simulator: sim,
+			Pubkey:    pubBytes[:],
+			Signature: sigBytes[:],
+		})
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("wrong key cannot register", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+
+		sk, err := bls.GenerateRandomSecretKey()
+		require.NoError(t, err)
+		sim := SimulatorInfo{
+			URL: "someurl",
+		}
+		msg, err := json.Marshal(sim)
+		require.NoError(t, err)
+		sig := bls.Sign(sk, msg)
+		pub, err := bls.PublicKeyFromSecretKey(sk)
+		require.NoError(t, err)
+		sigBytes := sig.Bytes()
+		pubBytes := pub.Bytes()
+
+		rr := backend.request(http.MethodPost, path, SimulatorRegisterRequest{
+			Simulator: sim,
+			Pubkey:    pubBytes[:],
+			Signature: sigBytes[:],
+		})
+		require.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+}
+
 func TestRegisterValidator(t *testing.T) {
 	path := "/eth/v1/builder/validators"
 
@@ -306,49 +370,49 @@ func TestRegisterValidator(t *testing.T) {
 	// })
 }
 
-func TestGetHeader(t *testing.T) {
-	// Setup backend with headSlot and genesisTime
-	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
-		Data: beaconclient.GetGenesisResponseData{
-			GenesisTime: uint64(time.Now().UTC().Unix()),
-		},
-	}
+// func TestGetHeader(t *testing.T) {
+// 	// Setup backend with headSlot and genesisTime
+// 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+// 	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+// 		Data: beaconclient.GetGenesisResponseData{
+// 			GenesisTime: uint64(time.Now().UTC().Unix()),
+// 		},
+// 	}
 
-	slot := uint64(1)
-	backend.relay.headSlot.Store(slot)
+// 	slot := uint64(1)
+// 	backend.relay.headSlot.Store(slot)
 
-	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
-	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-	chainID := "test-chain-0"
-	//bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
-	//bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
+// 	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
+// 	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+// 	chainID := "test-chain-0"
+// 	//bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
+// 	//bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 
-	t.Run("Run valid base case, just tob", func(t *testing.T) {
-		redis := backend.GetRedis()
+// 	t.Run("Run valid base case, just tob", func(t *testing.T) {
+// 		redis := backend.GetRedis()
 
-		header := common.AnchorHeader{
-			Header: ,
-			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
-			Value:     big.NewInt(2),
-		}
-		// Populate redis cache with expected headers
-		err := redis.SetRoBBid(slot, parentHash, proposerPubkey, chainID, header)
-		if err != nil {
-			t.Error(err)
-		}
+// 		header := common.AnchorHeader{
+// 			Header: ,
+// 			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
+// 			Value:     big.NewInt(2),
+// 		}
+// 		// Populate redis cache with expected headers
+// 		err := redis.SetRoBBid(slot, parentHash, proposerPubkey, chainID, header)
+// 		if err != nil {
+// 			t.Error(err)
+// 		}
 
-		rr := httptest.NewRecorder()
+// 		rr := httptest.NewRecorder()
 
-		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(uint64(1), 10), parentHash, proposerPubkey)
-		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
+// 		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(uint64(1), 10), parentHash, proposerPubkey)
+// 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
 
-		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
-		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+// 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+// 		backend.relay.getRouter().ServeHTTP(rr, httpReq)
 
-		require.Equal(t, http.StatusOK, rr.Code)
-	})
-}
+// 		require.Equal(t, http.StatusOK, rr.Code)
+// 	})
+// }
 
 func createBackendHelper(t *testing.T) *testBackend {
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)

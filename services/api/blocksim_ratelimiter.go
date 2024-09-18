@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/log"
 	"io"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/log"
+
+	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/go-utils/jsonrpc"
 	"github.com/flashbots/mev-boost-relay/common"
@@ -29,29 +32,83 @@ var (
 
 type IBlockSimRateLimiter interface {
 	//Send(context context.Context, payload *common.BuilderBlockValidationRequest, isHighPrio, fastTrack bool) (error, error)
-	SimBlockAndGetGasUsed(context context.Context, blockReq *common.BlockValidationRequest) (uint64, error, error)
+	SimBlockAndGetGasUsedForChain(context context.Context, chainID string, req *common.BlockValidationRequest) (uint64, error, error)
+	RegisterSimulator(req *SimulatorRegisterRequest) (bool, error)
 	CurrentCounter() int64
 }
 
 type BlockSimulationRateLimiter struct {
-	cv          *sync.Cond
-	counter     int64
-	blockSimURL string
-	client      http.Client
+	cv      *sync.Cond
+	counter int64
+
+	blockSimURLs map[string]string // chainID -> builder url
+	client       http.Client
+
+	manager *bls.PublicKey
 }
 
-func NewBlockSimulationRateLimiter(blockSimURL string) *BlockSimulationRateLimiter {
+func NewBlockSimulationRateLimiter(manager *bls.PublicKey) *BlockSimulationRateLimiter {
 	return &BlockSimulationRateLimiter{
-		cv:          sync.NewCond(&sync.Mutex{}),
-		counter:     0,
-		blockSimURL: blockSimURL,
+		cv:           sync.NewCond(&sync.Mutex{}),
+		counter:      0,
+		manager:      manager,
+		blockSimURLs: make(map[string]string),
 		client: http.Client{ //nolint:exhaustruct
 			Timeout: simRequestTimeout,
 		},
 	}
 }
 
-func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Context, request *common.BlockValidationRequest) (uint64, error, error) {
+type SimulatorInfo struct {
+	URL string `json:"url"`
+}
+
+type SimulatorRegisterRequest struct {
+	Simulator SimulatorInfo `json:"simulator"`
+	Pubkey    []byte        `json:"pubkey"`
+	Signature []byte        `json:"signature"`
+}
+
+type SimulatorRegisterResponse struct {
+	Success bool `json:"success"`
+}
+
+func (b *BlockSimulationRateLimiter) RegisterSimulator(req *SimulatorRegisterRequest) (bool, error) {
+	pubkey, err := bls.PublicKeyFromBytes(req.Pubkey)
+	if err != nil {
+		return false, err
+	}
+	if !pubkey.Equal(b.manager) {
+		return false, fmt.Errorf("unpriviliged request from %s", hexutil.Encode(req.Pubkey))
+	}
+
+	sig, err := bls.SignatureFromBytes(req.Signature)
+	if err != nil {
+		return false, err
+	}
+
+	msg, err := json.Marshal(req.Simulator)
+	if err != nil {
+		return false, err
+	}
+
+	verified, err := bls.VerifySignature(sig, pubkey, msg)
+	if err != nil {
+		return false, err
+	}
+
+	return verified, nil
+}
+
+func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsedForChain(context context.Context, chainID string, req *common.BlockValidationRequest) (uint64, error, error) {
+	if _, ok := b.blockSimURLs[chainID]; !ok {
+		return 0, fmt.Errorf("unsupported chain %s", chainID), nil
+	}
+
+	return b.simBlockAndGetGasUsed(context, b.blockSimURLs[chainID], req)
+}
+
+func (b *BlockSimulationRateLimiter) simBlockAndGetGasUsed(context context.Context, simUrl string, request *common.BlockValidationRequest) (uint64, error, error) {
 	b.cv.L.Lock()
 	cnt := atomic.AddInt64(&b.counter, 1)
 	if maxConcurrentBlocks > 0 && cnt > maxConcurrentBlocks {
@@ -75,7 +132,7 @@ func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsed(context context.Conte
 
 	// Create and fire off JSON-RPC request
 	simReq = jsonrpc.NewJSONRPCRequest("1", "eth_callBundle", request)
-	resp, requestErr, validationErr := SendJSONRPCRequest(&b.client, *simReq, b.blockSimURL, nil)
+	resp, requestErr, validationErr := SendJSONRPCRequest(&b.client, *simReq, simUrl, nil)
 
 	// read out gas used to simulate bundle
 	var callBundleResult common.FlashbotsCallBundleResult
