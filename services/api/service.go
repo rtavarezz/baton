@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,6 +73,9 @@ var (
 	pathGetHeader         = "/eth/v1/builder/header/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{pubkey:0x[a-fA-F0-9]+}"
 	pathGetPayload        = "/eth/v1/builder/blinded_blocks"
 
+	// Block Simulator API
+	pathRegisterSimulator = "/sim/v1/regsiter"
+
 	// Block builder API
 	pathBuilderGetValidators  = "/relay/v1/builder/validators"
 	pathSubmitNewBlockRequest = "/relay/v1/builder/submit"
@@ -134,8 +138,9 @@ var chainID ids.ID
 type BatonAPIOpts struct {
 	Log *logrus.Entry
 
-	ListenAddr  string
-	BlockSimURL string
+	ListenAddr      string
+	BlockSimURL     string
+	BlockSimManager string // bls pubkey of the sim manager
 
 	BeaconClient beaconclient.IMultiBeaconClient
 	Datastore    *datastore.Datastore
@@ -344,6 +349,15 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		}
 	}
 
+	managerPkBytes, err := hex.DecodeString(opts.BlockSimManager)
+	if err != nil {
+		return nil, err
+	}
+	simManager, err := bls.PublicKeyFromBytes(managerPkBytes)
+	if err != nil {
+		return nil, err
+	}
+
 	api = &BatonAPI{
 		opts:         opts,
 		log:          opts.Log,
@@ -356,8 +370,8 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		db:           opts.DB,
 
 		proposerDutiesResponse: &[]byte{},
-		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.BlockSimURL),
-		tracer:                 NewTracer(opts.BlockSimURL),
+		blockSimRateLimiter:    NewBlockSimulationRateLimiter(simManager),
+		tracer:                 NewTracer(opts.BlockSimURL), // TODO: check what the tracer does, since it depends on opts.BlockSimURL
 
 		validatorRegC: make(chan apiv1.SignedValidatorRegistration, 450_000),
 		defiAddresses: FillUpDefiAddresses(opts),
@@ -435,6 +449,9 @@ func (api *BatonAPI) getRouter() http.Handler {
 
 		// Handles both ToB and RoB submissions
 		r.HandleFunc(pathSubmitNewBlockRequest, api.handleSubmitNewBlockRequest).Methods(http.MethodPost)
+
+		// Handles sim registeration
+		r.HandleFunc(pathRegisterSimulator, api.handleRegisterSimlator).Methods(http.MethodPost)
 	}
 
 	// Data API
@@ -806,10 +823,6 @@ func (api *BatonAPI) simulateBlock(
 	log *logrus.Entry,
 ) (gasUsed uint64, requestErr, validationErr error) {
 	t := time.Now()
-
-	ethTxs := make([]hexutil.Bytes, 0)
-	// @TODO: we have ethTxs grouped but how do we simulate these ethTxs? Should we update simulateBlockTxs?
-	// that way we simulate block ethTxs and the block itself all in this function?
 	txsByNamespace := make(map[string][]hexutil.Bytes)
 
 	for i, tx := range origTxs {
@@ -819,21 +832,21 @@ func (api *BatonAPI) simulateBlock(
 			if len(tx.Actions) != 1 {
 				return 0, errors.New("simulateBlock: transfer action had multiple ethTxs"), nil
 			}
-			for _, action := range tx.Actions {
-				if seqMsg, ok := action.(*actions.Transfer); ok {
-					ethTxs = append(ethTxs, seqMsg.Memo)
-					ns := "proposer_tx"
-					txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Memo)
-				} else {
-					log.Error("simulateBlock: tx is not sequencer message")
-					return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
-				}
-			}
+			// TODO: may remove this as transfer.Memo are not eth type txs
+			// for _, action := range tx.Actions {
+			// 	if seqMsg, ok := action.(*actions.Transfer); ok {
+			// 		ethTxs = append(ethTxs, seqMsg.Memo)
+			// 		ns := "proposer_tx"
+			// 		txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Memo)
+			// 	} else {
+			// 		log.Error("simulateBlock: tx is not sequencer message")
+			// 		return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
+			// 	}
+			// }
 			// otherwise, not proposer tx(last tx) and do loop for this case
 		} else {
 			for _, action := range tx.Actions {
 				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-					ethTxs = append(ethTxs, seqMsg.Data)
 					ns := string(seqMsg.ChainID)
 					txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Data)
 				} else {
@@ -844,47 +857,77 @@ func (api *BatonAPI) simulateBlock(
 		}
 	}
 
-	blockNumber := req.BlockNumber()
+	// TODO: might need to gauge the sum of time used for simulation even if they are simulated concurrently
+	var wg sync.WaitGroup
+	blockNumber := *req.BlockNumber()
 	if blockNumber == nil {
 		log.Error("simulateBlock: BlockNumber is nil")
 		return 0, errors.New("simulateBlock: BlockNumber is nil"), nil
 	}
-	// Extract the block number from the map
-	var blockNumberStr string
-	for _, v := range *blockNumber {
-		blockNumberStr = v
-		break
+	var simResL sync.Mutex
+	simRes := make(map[string]struct {
+		gasUsed       uint64
+		requestErr    error
+		validationErr error
+	}, len(blockNumber))
+	for chainID, ethTxs := range txsByNamespace {
+		wg.Add(1)
+		go func(chainID string, txs []hexutil.Bytes) {
+			defer wg.Done()
+
+			blockReq := common.BlockValidationRequest{
+				Txs:              ethTxs,
+				BlockNumber:      blockNumber[chainID],
+				StateBlockNumber: "latest",
+				Timestamp:        uint64(time.Now().UnixMilli()),
+			}
+
+			gasUsed, requestErr, validationErr = api.blockSimRateLimiter.SimBlockAndGetGasUsedForChain(ctx, chainID, &blockReq)
+			log = log.WithFields(logrus.Fields{
+				"durationMs": time.Since(t).Milliseconds(),
+				"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
+			})
+
+			simResL.Lock()
+			defer simResL.Unlock()
+			simRes[chainID] = struct {
+				gasUsed       uint64
+				requestErr    error
+				validationErr error
+			}{
+				gasUsed:       gasUsed,
+				requestErr:    requestErr,
+				validationErr: validationErr,
+			}
+		}(chainID, ethTxs)
 	}
-	blockReq := common.BlockValidationRequest{
-		Txs:              ethTxs,
-		BlockNumber:      blockNumberStr,
-		StateBlockNumber: "latest",
-		Timestamp:        uint64(time.Now().UnixMilli()),
+	wg.Wait()
+
+	gasUsed = 0
+	for chainID := range txsByNamespace {
+		r := simRes[chainID]
+		if validationErr != nil {
+			if api.ffIgnorableValidationErrors {
+				// Operators chooses to ignore certain validation errors
+				ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
+				if ignoreError {
+					log.WithError(validationErr).Warn("block validation failed with ignorable error")
+					return uint64(0), nil, nil
+				}
+			}
+			log.WithError(validationErr).Warn("block validation failed")
+			return 0, nil, validationErr
+		}
+		if requestErr != nil {
+			log.WithError(requestErr).Warn("block validation failed: request error")
+			return 0, requestErr, nil
+		}
+
+		gasUsed += r.gasUsed
 	}
 
-	gasUsed, requestErr, validationErr = api.blockSimRateLimiter.SimBlockAndGetGasUsed(ctx, &blockReq)
-	log = log.WithFields(logrus.Fields{
-		"durationMs": time.Since(t).Milliseconds(),
-		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
-	})
-	if validationErr != nil {
-		if api.ffIgnorableValidationErrors {
-			// Operators chooses to ignore certain validation errors
-			ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
-			if ignoreError {
-				log.WithError(validationErr).Warn("block validation failed with ignorable error")
-				return uint64(0), nil, nil
-			}
-		}
-		log.WithError(validationErr).Warn("block validation failed")
-		return 0, nil, validationErr
-	}
-	if requestErr != nil {
-		log.WithError(requestErr).Warn("block validation failed: request error")
-		return 0, requestErr, nil
-	}
-	log.Info("block validation successful")
-	return 0, nil, nil
+	// TODO: do we return the sum of used gas?
+	return gasUsed, nil, nil
 }
 
 /*
@@ -2110,6 +2153,46 @@ func (api *BatonAPI) checkTobTxsStateInterference(txs []*types.Transaction, log 
 
 func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, common.TobGasReservations)
+}
+
+func (api *BatonAPI) handleRegisterSimlator(w http.ResponseWriter, req *http.Request) {
+	receivedAt := time.Now().UTC()
+
+	log := api.log.WithField("method", "registerSimulator")
+	log.Info("Received request")
+	log = api.log.WithFields(logrus.Fields{
+		"method":                "registerSimulator",
+		"contentLength":         req.ContentLength,
+		"timestampRequestStart": receivedAt.UnixMilli(),
+	})
+	var r io.Reader = req.Body
+	limitReader := io.LimitReader(r, 10*1024*1024) // 10 MB
+	payloadBytes, err := io.ReadAll(limitReader)
+	if err != nil {
+		log.WithError(err).Warn("could not read payload")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var registerReq SimulatorRegisterRequest
+	err = json.Unmarshal(payloadBytes, &registerReq)
+	if err != nil {
+		log.WithError(err).Warn("could unmarshal payload to sim register request")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	registered, err := api.blockSimRateLimiter.RegisterSimulator(&registerReq)
+	if err != nil || !registered {
+		log.WithError(err).Warn("unable to register simulator")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := SimulatorRegisterResponse{
+		Success: true,
+	}
+
+	api.RespondOK(w, resp)
 }
 
 // This method used for both ToB and for RoB.

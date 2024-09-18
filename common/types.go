@@ -6,6 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
+	"os"
+	"strings"
+
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
 	"github.com/AnomalyFi/nodekit-seq/actions"
@@ -16,9 +20,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
 	boostSsz "github.com/flashbots/go-boost-utils/ssz"
-	"math/big"
-	"os"
-	"strings"
 )
 
 var (
@@ -456,6 +457,7 @@ func (r *SubmitNewBlockRequest) BlockHash() common.Hash {
 	return r.Chunk.BlockHash
 }
 
+// TODO: can just return map without pointer, map is always passed by reference
 func (r *SubmitNewBlockRequest) BlockNumber() *map[string]string {
 	return &r.Chunk.BlockNumber
 }
