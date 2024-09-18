@@ -326,8 +326,9 @@ func TestGetHeader(t *testing.T) {
 
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
 		redis := backend.GetRedis()
+
 		header := common.AnchorHeader{
-			Header:    0x13e606c7b3d1faad7e908763ce3dedce4c6bb89b0c28ffb240d713c7b110b9747,
+			Header: ,
 			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
 			Value:     big.NewInt(2),
 		}

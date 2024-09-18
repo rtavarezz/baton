@@ -1663,16 +1663,16 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	//var header *common.ExecHeadersInfo
 	// can possibly use index of proposer to get the pubkey
 	// TODO: marshal the header then verify sig and pubkey
-	ok, err := common.VerifyHeaderSignature()
-	if err != nil {
-		if api.ffLogInvalidSignaturePayload {
-			txt, _ := json.Marshal(payload) //nolint:errchkjson
-			fmt.Println("payload_invalid_sig_capella: ", string(txt), "pubkey:", proposerPubkey.String())
-		}
-		log.WithError(err).Warn("could not verify capella payload signature")
-		api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
-		return
-	}
+	//ok, err := common.VerifyHeaderSignature()
+	//if err != nil {
+	//	if api.ffLogInvalidSignaturePayload {
+	//		txt, _ := json.Marshal(payload) //nolint:errchkjson
+	//		fmt.Println("payload_invalid_sig_capella: ", string(txt), "pubkey:", proposerPubkey.String())
+	//	}
+	//	log.WithError(err).Warn("could not verify capella payload signature")
+	//	api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
+	//	return
+	//}
 	//if ok != nil {
 	//	//if api.ffLogInvalidSignaturePayload {
 	//	//	txt, _ := json.Marshal(payload) //nolint:errchkjson

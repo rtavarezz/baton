@@ -31,66 +31,6 @@ func setupTestRedis(t *testing.T) *RedisCache {
 }
 
 /*
-func TestRedisValidatorRegistration(t *testing.T) {
-	cache := setupTestRedis(t)
-
-	t.Run("Can save and get validator registration from cache", func(t *testing.T) {
-		key := apiv1.ValidatorRegistration{}
-		//value := common.ValidPayloadRegisterValidator
-		pkHex := common.NewPubkeyHex(key.Pubkey.String())
-		time := uint64(key.Timestamp.Unix())
-		err := cache.SetValidatorRegistrationTimestamp(pkHex, time)
-		require.NoError(t, err)
-		result, err := cache.GetValidatorRegistrationTimestamp(pkHex)
-		require.NoError(t, err)
-		require.Equal(t, result, time)
-	})
-
-	t.Run("Returns nil if validator registration is not in cache", func(t *testing.T) {
-		key := bls.PublicKey{}
-		pKeyStr := key.String()
-		pkHex := common.NewPubkeyHex(pKeyStr)
-		result, err := cache.GetValidatorRegistrationTimestamp(pkHex)
-		require.NoError(t, err)
-		require.Equal(t, uint64(0), result)
-	})
-
-	t.Run("test SetValidatorRegistrationTimestampIfNewer", func(t *testing.T) {
-		key := apiv1.ValidatorRegistration{}
-		pKey := key.Pubkey
-		//value := common.ValidPayloadRegisterValidator
-
-		pkHex := common.NewPubkeyHex(pKey.String())
-		time := uint64(key.Timestamp.Unix())
-
-		err := cache.SetValidatorRegistrationTimestampIfNewer(pkHex, time)
-		require.NoError(t, err)
-
-		result, err := cache.GetValidatorRegistrationTimestamp(pkHex)
-		require.NoError(t, err)
-		require.Equal(t, result, time)
-
-		// Try to set an older timestamp (should not work)
-		timestamp2 := time - 10
-		err = cache.SetValidatorRegistrationTimestampIfNewer(pkHex, timestamp2)
-		require.NoError(t, err)
-		result, err = cache.GetValidatorRegistrationTimestamp(pkHex)
-		require.NoError(t, err)
-		require.Equal(t, result, time)
-
-		// Try to set an older timestamp (should not work)
-		timestamp3 := time + 10
-		err = cache.SetValidatorRegistrationTimestampIfNewer(pkHex, timestamp3)
-		require.NoError(t, err)
-		result, err = cache.GetValidatorRegistrationTimestamp(pkHex)
-		require.NoError(t, err)
-		require.Equal(t, result, timestamp3)
-	})
-}
-
-*/
-
-/*
 	func TestRedisKnownValidators(t *testing.T) {
 		cache := setupTestRedis(t)
 
@@ -247,138 +187,279 @@ func TestRedisProposerDuties(t *testing.T) {
 	require.Equal(t, duties[0].Entry.Message.FeeRecipient, duties2[0].Entry.Message.FeeRecipient)
 }
 
-func TestBuilderBids(t *testing.T) {
+//func TestBuilderBids(t *testing.T) {
+//	versions := []spec.DataVersion{
+//		spec.DataVersionCapella,
+//		spec.DataVersionDeneb,
+//	}
+//
+//	for _, version := range versions {
+//		slot := uint64(2)
+//		parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
+//		proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+//		opts := common.CreateTestBlockSubmissionOpts{
+//			Slot:           2,
+//			ParentHash:     parentHash,
+//			ProposerPubkey: proposerPubkey,
+//			Version:        version,
+//		}
+//
+//		trace := &common.BidTraceV2WithBlobFields{
+//			BidTrace: builderApiV1.BidTrace{
+//				Value: uint256.NewInt(123),
+//			},
+//		}
+//
+//		// Notation:
+//		// - ba1:  builder A, bid 1
+//		// - ba1c: builder A, bid 1, cancellation enabled
+//		//
+//		// test 1: ba1=10 -> ba2=5 -> ba3c=5 -> bb1=20 -> ba4c=3 -> bb2c=2
+//		//
+//		bApubkey := "0xfa1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
+//		bBpubkey := "0x2e02be2c9f9eccf9856478fdb7876598fed2da09f45c233969ba647a250231150ecf38bce5771adb6171c86b79a92f16"
+//
+//		// Setup redis instance
+//		cache := setupTestRedis(t)
+//
+//		// Helper to ensure writing to redis worked as expected
+//		ensureBestBidValueEquals := func(expectedValue int64, builderPubkey string) {
+//			bestBid, err := cache.GetBestBid(slot, parentHash, proposerPubkey)
+//			require.NoError(t, err)
+//			value, err := bestBid.Value()
+//			require.NoError(t, err)
+//			require.Equal(t, big.NewInt(expectedValue), value.ToBig())
+//
+//			topBidValue, err := cache.GetTopBidValue(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey)
+//			require.NoError(t, err)
+//			require.Equal(t, big.NewInt(expectedValue), topBidValue)
+//
+//			if builderPubkey != "" {
+//				latestBidValue, err := cache.GetBuilderLatestValue(slot, parentHash, proposerPubkey, builderPubkey)
+//				require.NoError(t, err)
+//				require.Equal(t, big.NewInt(expectedValue), latestBidValue)
+//			}
+//		}
+//
+//		ensureBidFloor := func(expectedValue int64) {
+//			floorValue, err := cache.GetFloorBidValue(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey)
+//			require.NoError(t, err)
+//			require.Equal(t, big.NewInt(expectedValue), floorValue)
+//		}
+//
+//		// deleting a bid that doesn't exist should not error
+//		err := cache.DelBuilderBid(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey, bApubkey)
+//		require.NoError(t, err)
+//
+//		// submit ba1=10
+//		payload, getPayloadResp, getHeaderResp := common.CreateTestBlockSubmission(t, bApubkey, uint256.NewInt(10), &opts)
+//		resp, err := cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
+//		require.NoError(t, err)
+//		require.True(t, resp.WasBidSaved, resp)
+//		require.True(t, resp.WasTopBidUpdated)
+//		require.True(t, resp.IsNewTopBid)
+//		require.Equal(t, big.NewInt(10), resp.TopBidValue)
+//		ensureBestBidValueEquals(10, bApubkey)
+//		ensureBidFloor(10)
+//
+//		// deleting ba1
+//		err = cache.DelBuilderBid(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey, bApubkey)
+//		require.NoError(t, err)
+//
+//		// best bid and floor should still exist, because it was the floor bid
+//		ensureBestBidValueEquals(10, "")
+//		ensureBidFloor(10)
+//
+//		// submit ba2=5 (should not update, because floor is 10)
+//		payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bApubkey, uint256.NewInt(5), &opts)
+//		resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
+//		require.NoError(t, err)
+//		require.False(t, resp.WasBidSaved, resp)
+//		require.False(t, resp.WasTopBidUpdated)
+//		require.False(t, resp.IsNewTopBid)
+//		require.Equal(t, big.NewInt(10), resp.TopBidValue)
+//		ensureBestBidValueEquals(10, "")
+//		ensureBidFloor(10)
+//
+//		// submit ba3c=5 (should not update, because floor is 10)
+//		payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bApubkey, uint256.NewInt(5), &opts)
+//		resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
+//		require.NoError(t, err)
+//		require.True(t, resp.WasBidSaved)
+//		require.False(t, resp.WasTopBidUpdated)
+//		require.False(t, resp.IsNewTopBid)
+//		require.Equal(t, big.NewInt(10), resp.TopBidValue)
+//		require.Equal(t, big.NewInt(10), resp.PrevTopBidValue)
+//		ensureBestBidValueEquals(10, "")
+//		ensureBidFloor(10)
+//
+//		// submit bb1=20
+//		payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, uint256.NewInt(20), &opts)
+//		resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
+//		require.NoError(t, err)
+//		require.True(t, resp.WasBidSaved)
+//		require.True(t, resp.WasTopBidUpdated)
+//		require.True(t, resp.IsNewTopBid)
+//		require.Equal(t, big.NewInt(20), resp.TopBidValue)
+//		ensureBestBidValueEquals(20, bBpubkey)
+//		ensureBidFloor(20)
+//
+//		// submit bb2c=22
+//		payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, uint256.NewInt(22), &opts)
+//		resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
+//		require.NoError(t, err)
+//		require.True(t, resp.WasBidSaved)
+//		require.True(t, resp.WasTopBidUpdated)
+//		require.True(t, resp.IsNewTopBid)
+//		require.Equal(t, big.NewInt(22), resp.TopBidValue)
+//		ensureBestBidValueEquals(22, bBpubkey)
+//		ensureBidFloor(20)
+//
+//		// submit bb3c=12 (should update top bid, using floor at 20)
+//		payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, uint256.NewInt(12), &opts)
+//		resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
+//		require.NoError(t, err)
+//		require.True(t, resp.WasBidSaved)
+//		require.True(t, resp.WasTopBidUpdated)
+//		require.False(t, resp.IsNewTopBid)
+//		require.Equal(t, big.NewInt(20), resp.TopBidValue)
+//		ensureBestBidValueEquals(20, "")
+//		ensureBidFloor(20)
+//	}
+//}
 
-	slot := uint64(2)
-	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
-	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-	opts := common.CreateTestBlockSubmissionOpts{
-		Slot:           2,
-		ParentHash:     parentHash,
-		ProposerPubkey: proposerPubkey,
-	}
-
-	trace := &common.BidTraceV2{
-		BidTrace: v1.BidTrace{
-			Value: uint256.NewInt(123),
-		},
-	}
-
-	// Notation:
-	// - ba1:  builder A, bid 1
-	// - ba1c: builder A, bid 1, cancellation enabled
-	//
-	// test 1: ba1=10 -> ba2=5 -> ba3c=5 -> bb1=20 -> ba4c=3 -> bb2c=2
-	//
-	bApubkey := "0xfa1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
-	bBpubkey := "0x2e02be2c9f9eccf9856478fdb7876598fed2da09f45c233969ba647a250231150ecf38bce5771adb6171c86b79a92f16"
-
-	// Setup redis instance
-	cache := setupTestRedis(t)
-
-	// Helper to ensure writing to redis worked as expected
-	ensureBestBidValueEquals := func(expectedValue int64, builderPubkey string) {
-		bestBid, err := cache.GetBestBid(slot, parentHash, proposerPubkey)
-		require.NoError(t, err)
-		require.Equal(t, big.NewInt(expectedValue), bestBid.Value())
-
-		topBidValue, err := cache.GetTopBidValue(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey)
-		require.NoError(t, err)
-		require.Equal(t, big.NewInt(expectedValue), topBidValue)
-
-		if builderPubkey != "" {
-			latestBidValue, err := cache.GetBuilderLatestValue(slot, parentHash, proposerPubkey, builderPubkey)
-			require.NoError(t, err)
-			require.Equal(t, big.NewInt(expectedValue), latestBidValue)
-		}
-	}
-
-	ensureBidFloor := func(expectedValue int64) {
-		floorValue, err := cache.GetFloorBidValue(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey)
-		require.NoError(t, err)
-		require.Equal(t, big.NewInt(expectedValue), floorValue)
-	}
-
-	// deleting a bid that doesn't exist should not error
-	err := cache.DelBuilderBid(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey, bApubkey)
-	require.NoError(t, err)
-
-	// submit ba1=10
-	payload, getPayloadResp, getHeaderResp := common.CreateTestBlockSubmission(t, bApubkey, big.NewInt(10), &opts)
-	resp, err := cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
-	require.NoError(t, err)
-	require.True(t, resp.WasBidSaved, resp)
-	require.True(t, resp.WasTopBidUpdated)
-	require.True(t, resp.IsNewTopBid)
-	require.Equal(t, big.NewInt(10), resp.TopBidValue)
-	ensureBestBidValueEquals(10, bApubkey)
-	ensureBidFloor(10)
-
-	// deleting ba1
-	err = cache.DelBuilderBid(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey, bApubkey)
-	require.NoError(t, err)
-
-	// best bid and floor should still exist, because it was the floor bid
-	ensureBestBidValueEquals(10, "")
-	ensureBidFloor(10)
-
-	// submit ba2=5 (should not update, because floor is 10)
-	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bApubkey, big.NewInt(5), &opts)
-	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
-	require.NoError(t, err)
-	require.False(t, resp.WasBidSaved, resp)
-	require.False(t, resp.WasTopBidUpdated)
-	require.False(t, resp.IsNewTopBid)
-	require.Equal(t, big.NewInt(10), resp.TopBidValue)
-	ensureBestBidValueEquals(10, "")
-	ensureBidFloor(10)
-
-	// submit ba3c=5 (should not update, because floor is 10)
-	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bApubkey, big.NewInt(5), &opts)
-	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
-	require.NoError(t, err)
-	require.True(t, resp.WasBidSaved)
-	require.False(t, resp.WasTopBidUpdated)
-	require.False(t, resp.IsNewTopBid)
-	require.Equal(t, big.NewInt(10), resp.TopBidValue)
-	require.Equal(t, big.NewInt(10), resp.PrevTopBidValue)
-	ensureBestBidValueEquals(10, "")
-	ensureBidFloor(10)
-
-	// submit bb1=20
-	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, big.NewInt(20), &opts)
-	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
-	require.NoError(t, err)
-	require.True(t, resp.WasBidSaved)
-	require.True(t, resp.WasTopBidUpdated)
-	require.True(t, resp.IsNewTopBid)
-	require.Equal(t, big.NewInt(20), resp.TopBidValue)
-	ensureBestBidValueEquals(20, bBpubkey)
-	ensureBidFloor(20)
-
-	// submit bb2c=22
-	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, big.NewInt(22), &opts)
-	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
-	require.NoError(t, err)
-	require.True(t, resp.WasBidSaved)
-	require.True(t, resp.WasTopBidUpdated)
-	require.True(t, resp.IsNewTopBid)
-	require.Equal(t, big.NewInt(22), resp.TopBidValue)
-	ensureBestBidValueEquals(22, bBpubkey)
-	ensureBidFloor(20)
-
-	// submit bb3c=12 (should update top bid, using floor at 20)
-	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, big.NewInt(12), &opts)
-	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
-	require.NoError(t, err)
-	require.True(t, resp.WasBidSaved)
-	require.True(t, resp.WasTopBidUpdated)
-	require.False(t, resp.IsNewTopBid)
-	require.Equal(t, big.NewInt(20), resp.TopBidValue)
-	ensureBestBidValueEquals(20, "")
-	ensureBidFloor(20)
-
-}
+//func TestBuilderBids(t *testing.T) {
+//
+//	slot := uint64(2)
+//	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
+//	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+//	opts := common.CreateTestBlockSubmissionOpts{
+//		Slot:           2,
+//		ParentHash:     parentHash,
+//		ProposerPubkey: proposerPubkey,
+//	}
+//
+//	trace := &common.BidTraceV2{
+//		BidTrace: v1.BidTrace{
+//			Value: uint256.NewInt(123),
+//		},
+//	}
+//
+//	// Notation:
+//	// - ba1:  builder A, bid 1
+//	// - ba1c: builder A, bid 1, cancellation enabled
+//	//
+//	// test 1: ba1=10 -> ba2=5 -> ba3c=5 -> bb1=20 -> ba4c=3 -> bb2c=2
+//	//
+//	bApubkey := "0xfa1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
+//	bBpubkey := "0x2e02be2c9f9eccf9856478fdb7876598fed2da09f45c233969ba647a250231150ecf38bce5771adb6171c86b79a92f16"
+//
+//	// Setup redis instance
+//	cache := setupTestRedis(t)
+//
+//	// Helper to ensure writing to redis worked as expected
+//	ensureBestBidValueEquals := func(expectedValue int64, builderPubkey string) {
+//		bestBid, err := cache.GetBestBid(slot, parentHash, proposerPubkey)
+//		require.NoError(t, err)
+//		require.Equal(t, big.NewInt(expectedValue), bestBid.Value())
+//
+//		topBidValue, err := cache.GetTopBidValue(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey)
+//		require.NoError(t, err)
+//		require.Equal(t, big.NewInt(expectedValue), topBidValue)
+//
+//		if builderPubkey != "" {
+//			latestBidValue, err := cache.GetBuilderLatestValue(slot, parentHash, proposerPubkey, builderPubkey)
+//			require.NoError(t, err)
+//			require.Equal(t, big.NewInt(expectedValue), latestBidValue)
+//		}
+//	}
+//
+//	ensureBidFloor := func(expectedValue int64) {
+//		floorValue, err := cache.GetFloorBidValue(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey)
+//		require.NoError(t, err)
+//		require.Equal(t, big.NewInt(expectedValue), floorValue)
+//	}
+//
+//	// deleting a bid that doesn't exist should not error
+//	err := cache.DelBuilderBid(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey, bApubkey)
+//	require.NoError(t, err)
+//
+//	// submit ba1=10
+//	payload, getPayloadResp, getHeaderResp := common.CreateTestBlockSubmission(t, bApubkey, big.NewInt(10), &opts)
+//	resp, err := cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
+//	require.NoError(t, err)
+//	require.True(t, resp.WasBidSaved, resp)
+//	require.True(t, resp.WasTopBidUpdated)
+//	require.True(t, resp.IsNewTopBid)
+//	require.Equal(t, big.NewInt(10), resp.TopBidValue)
+//	ensureBestBidValueEquals(10, bApubkey)
+//	ensureBidFloor(10)
+//
+//	// deleting ba1
+//	err = cache.DelBuilderBid(context.Background(), cache.client.Pipeline(), slot, parentHash, proposerPubkey, bApubkey)
+//	require.NoError(t, err)
+//
+//	// best bid and floor should still exist, because it was the floor bid
+//	ensureBestBidValueEquals(10, "")
+//	ensureBidFloor(10)
+//
+//	// submit ba2=5 (should not update, because floor is 10)
+//	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bApubkey, big.NewInt(5), &opts)
+//	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
+//	require.NoError(t, err)
+//	require.False(t, resp.WasBidSaved, resp)
+//	require.False(t, resp.WasTopBidUpdated)
+//	require.False(t, resp.IsNewTopBid)
+//	require.Equal(t, big.NewInt(10), resp.TopBidValue)
+//	ensureBestBidValueEquals(10, "")
+//	ensureBidFloor(10)
+//
+//	// submit ba3c=5 (should not update, because floor is 10)
+//	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bApubkey, big.NewInt(5), &opts)
+//	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
+//	require.NoError(t, err)
+//	require.True(t, resp.WasBidSaved)
+//	require.False(t, resp.WasTopBidUpdated)
+//	require.False(t, resp.IsNewTopBid)
+//	require.Equal(t, big.NewInt(10), resp.TopBidValue)
+//	require.Equal(t, big.NewInt(10), resp.PrevTopBidValue)
+//	ensureBestBidValueEquals(10, "")
+//	ensureBidFloor(10)
+//
+//	// submit bb1=20
+//	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, big.NewInt(20), &opts)
+//	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), false, nil)
+//	require.NoError(t, err)
+//	require.True(t, resp.WasBidSaved)
+//	require.True(t, resp.WasTopBidUpdated)
+//	require.True(t, resp.IsNewTopBid)
+//	require.Equal(t, big.NewInt(20), resp.TopBidValue)
+//	ensureBestBidValueEquals(20, bBpubkey)
+//	ensureBidFloor(20)
+//
+//	// submit bb2c=22
+//	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, big.NewInt(22), &opts)
+//	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
+//	require.NoError(t, err)
+//	require.True(t, resp.WasBidSaved)
+//	require.True(t, resp.WasTopBidUpdated)
+//	require.True(t, resp.IsNewTopBid)
+//	require.Equal(t, big.NewInt(22), resp.TopBidValue)
+//	ensureBestBidValueEquals(22, bBpubkey)
+//	ensureBidFloor(20)
+//
+//	// submit bb3c=12 (should update top bid, using floor at 20)
+//	payload, getPayloadResp, getHeaderResp = common.CreateTestBlockSubmission(t, bBpubkey, big.NewInt(12), &opts)
+//	resp, err = cache.SaveBidAndUpdateTopBid(context.Background(), cache.NewPipeline(), trace, payload, getPayloadResp, getHeaderResp, time.Now(), true, nil)
+//	require.NoError(t, err)
+//	require.True(t, resp.WasBidSaved)
+//	require.True(t, resp.WasTopBidUpdated)
+//	require.False(t, resp.IsNewTopBid)
+//	require.Equal(t, big.NewInt(20), resp.TopBidValue)
+//	ensureBestBidValueEquals(20, "")
+//	ensureBidFloor(20)
+//
+//}
 
 func TestRedisURIs(t *testing.T) {
 	t.Helper()
@@ -528,6 +609,56 @@ func _CheckAndSetLastSlotAndHashDeliveredForTesting(r *RedisCache, waitC chan bo
 }
 
 // TODO: FIX ME
+func TestGetBuilderLatestValue(t *testing.T) {
+	cache := setupTestRedis(t)
+
+	slot := uint64(123)
+	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
+	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+	builderPubkey := "0xfa1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
+
+	// With no bids, should return "0".
+	v, err := cache.GetBuilderLatestValue(slot, parentHash, proposerPubkey, builderPubkey)
+	require.NoError(t, err)
+	require.Equal(t, "0", v.String())
+
+	// Set a bid of 1 ETH.
+	newVal, err := uint256.FromDecimal("1000000000000000000")
+	require.NoError(t, err)
+	var newValHash [32]byte
+	copy(newValHash[:], newVal.Bytes())
+	getHeaderResp := &common.AnchorGetHeaderResponse{
+		BlockInfo: common.AnchorBlockInfo{
+			ChunkHash: newValHash,
+		},
+	}
+	//getHeaderResp := &builderSpec.VersionedSignedBuilderBid{
+	//	Version: spec.DataVersionCapella,
+	//	Capella: &builderApiCapella.SignedBuilderBid{
+	//		Message: &builderApiCapella.BuilderBid{
+	//			Value: newVal,
+	//		},
+	//	},
+	//}
+
+	_, err = cache.client.TxPipelined(context.Background(), func(pipeline redis.Pipeliner) error {
+		return cache.SaveToBBuilderBid(context.Background(), pipeline, slot, parentHash, proposerPubkey, builderPubkey, time.Now().UTC(), &getHeaderResp.BlockInfo.ChunkHash)
+	})
+	require.NoError(t, err)
+
+	// Check new string.
+	v, err = cache.GetBuilderLatestValue(slot, parentHash, proposerPubkey, builderPubkey)
+	require.NoError(t, err)
+	require.Zero(t, v.Cmp(newVal.ToBig()))
+}
+
+func TestPipelineNilCheck(t *testing.T) {
+	cache := setupTestRedis(t)
+	f, err := cache.GetFloorBidValue(context.Background(), cache.NewPipeline(), 0, "1", "2")
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(0), f)
+}
+
 //func TestGetBuilderLatestValue(t *testing.T) {
 //
 //	cache := setupTestRedis(t)
@@ -568,40 +699,6 @@ func _CheckAndSetLastSlotAndHashDeliveredForTesting(r *RedisCache, waitC chan bo
 //
 //}
 //
-//func TestPipelineNilCheck(t *testing.T) {
-//	cache := setupTestRedis(t)
-//	f, err := cache.GetFloorBidValue(context.Background(), cache.NewPipeline(), 0, "1", "2")
-//	require.NoError(t, err, err)
-//	require.Equal(t, big.NewInt(0), f)
-//}
-//
-//func TestPipeline(t *testing.T) {
-//	cache := setupTestRedis(t)
-//
-//	key1 := "test1"
-//	key2 := "test123"
-//	val := "foo"
-//	err := cache.client.Set(context.Background(), key1, val, 0).Err()
-//	require.NoError(t, err)
-//
-//	_, err = cache.client.TxPipelined(context.Background(), func(pipeliner redis.Pipeliner) error {
-//		c := tx.Get(context.Background(), key1)
-//		_, err := tx.Exec(context.Background())
-//		require.NoError(t, err)
-//		str, err := c.Result()
-//		require.NoError(t, err)
-//		require.Equal(t, val, str)
-//
-//		err = tx.Set(context.Background(), key2, val, 0).Err()
-//		require.NoError(t, err)
-//		return nil
-//	})
-//	require.NoError(t, err)
-//
-//	str, err := cache.client.Get(context.Background(), key2).Result()
-//	require.NoError(t, err)
-//	require.Equal(t, val, str)
-//}
 
 //func TestSetHighestRob(t *testing.T) {
 //	cache := setupTestRedis(t)

@@ -727,11 +727,17 @@ func (r *RedisCache) SaveToBBuilderBid(
 	proposerPubkey,
 	builderPubkey string,
 	receivedAt time.Time,
-	headerResp *eth.Hash,
+	headerResp *common.AnchorHeader,
 ) (err error) {
+	// need to convert headerResp to bytes so that it holds all info from header
+	// instead of passing in the hash only(AnchorHeader.Header)
+	headerRespBytes, err := json.Marshal(headerResp)
+	if err != nil {
+		return err
+	}
 	// save the actual bid
 	keyLatestBid := r.keyLatestToBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey)
-	err = r.SetObjPipelined(ctx, pipeliner, keyLatestBid, headerResp.Bytes(), expiryBidCache)
+	err = r.SetObjPipelined(ctx, pipeliner, keyLatestBid, headerRespBytes, expiryBidCache)
 	if err != nil {
 		return err
 	}
@@ -749,7 +755,7 @@ func (r *RedisCache) SaveToBBuilderBid(
 
 	// set the value last, because that's iterated over when updating the best bid, and the payload has to be available
 	keyLatestBidsValue := r.keyBlockBuilderLatestToBBidsValue(slot, parentHash, proposerPubkey)
-	err = pipeliner.HSet(ctx, keyLatestBidsValue, builderPubkey, headerResp.Bytes()).Err()
+	err = pipeliner.HSet(ctx, keyLatestBidsValue, builderPubkey, headerRespBytes).Err()
 	if err != nil {
 		return err
 	}
@@ -764,12 +770,18 @@ func (r *RedisCache) SaveRoBBuilderBid(
 	proposerPubkey,
 	builderPubkey string,
 	receivedAt time.Time,
-	headerResp *eth.Hash,
+	headerResp *common.AnchorHeader,
 	chainID string,
 ) (err error) {
+	// need to convert headerResp to bytes so that it holds all info from header
+	// instead of passing in the hash only(AnchorHeader.Header)
+	headerRespBytes, err := json.Marshal(headerResp)
+	if err != nil {
+		return err
+	}
 	// save the actual bid
 	keyLatestBid := r.keyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey, chainID)
-	err = r.SetObjPipelined(ctx, pipeline, keyLatestBid, headerResp.Bytes(), expiryBidCache)
+	err = r.SetObjPipelined(ctx, pipeline, keyLatestBid, headerRespBytes, expiryBidCache)
 	if err != nil {
 		return err
 	}
@@ -788,7 +800,7 @@ func (r *RedisCache) SaveRoBBuilderBid(
 	// set the value last, because that's iterated over when updating the best bid, and the payload has to be available
 	keyLatestBidsValue := r.keyBlockBuilderLatestRoBBidsValue(slot, parentHash, proposerPubkey, chainID)
 	// note
-	err = pipeline.HSet(ctx, keyLatestBidsValue, builderPubkey, headerResp.Bytes()).Err()
+	err = pipeline.HSet(ctx, keyLatestBidsValue, builderPubkey, headerRespBytes).Err()
 	if err != nil {
 		return err
 	}
@@ -814,7 +826,7 @@ type SaveBidAndUpdateTopBidResponse struct {
 
 func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	ctx context.Context,
-	pipeliner redis.Pipeliner,
+	pipeline redis.Pipeliner,
 	payload *common.SubmitNewBlockRequest,
 	value *big.Int,
 	getPayload *common.AnchorPayload,
@@ -831,7 +843,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	builderBids, err := NewToBBuilderBidsFromRedis(
 		ctx,
 		r,
-		pipeliner,
+		pipeline,
 		payload.Slot(),
 		payload.ParentHash().String(),
 		payload.ProposerPubKeyAsStr())
@@ -843,7 +855,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	if floorValue == nil {
 		floorValue, err = r.GetFloorToBBidValue(
 			ctx,
-			pipeliner,
+			pipeline,
 			payload.Slot(),
 			payload.ParentHash().String(),
 			payload.ProposerPubKeyAsStr())
@@ -876,10 +888,11 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	// 1. Save the execution payload
 	err = r.SaveExecutionToBAnchorPayload(
 		ctx,
-		pipeliner,
+		pipeline,
 		payload.Slot(),
 		payload.ProposerPubKeyAsStr(),
-		payload.BlockHash().String(), getPayload)
+		payload.BlockHash().String(),
+		getPayload)
 	if err != nil {
 		return state, err
 	}
@@ -892,13 +905,13 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	// 2. Save latest bid for this builder
 	err = r.SaveToBBuilderBid(
 		ctx,
-		pipeliner,
+		pipeline,
 		payload.Slot(),
 		payload.ParentHash().String(),
 		payload.ProposerPubKeyAsStr(),
 		payload.BuilderPubkeyAsStr(),
 		reqReceivedAt,
-		getHeader.Header)
+		getHeader)
 	if err != nil {
 		return state, err
 	}
@@ -910,7 +923,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	prevTime = nextTime
 
 	// 3. Save the bid trace
-	err = r.SaveToBBidTrace(ctx, pipeliner, trace)
+	err = r.SaveToBBidTrace(ctx, pipeline, trace)
 	if err != nil {
 		return state, err
 	}
@@ -926,7 +939,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		return state, nil
 	}
 
-	state, err = r._updateToBTopBid(ctx, pipeliner, state, builderBids, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), floorValue)
+	state, err = r._updateToBTopBid(ctx, pipeline, state, builderBids, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), floorValue)
 	if err != nil {
 		return state, err
 	}
@@ -950,8 +963,8 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		payload.ProposerPubKeyAsStr(),
 		payload.BuilderPubkeyAsStr())
 	keyFloorBid := r.keyFloorToBBid(payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr())
-	c := pipeliner.Copy(ctx, keyBidSource, keyFloorBid, 0, true)
-	_, err = pipeliner.Exec(ctx)
+	c := pipeline.Copy(ctx, keyBidSource, keyFloorBid, 0, true)
+	_, err = pipeline.Exec(ctx)
 	if err != nil {
 		return state, err
 	}
@@ -962,19 +975,19 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	} else if wasCopied == 0 {
 		return state, fmt.Errorf("could not copy floor bid from %s to %s", keyBidSource, keyFloorBid) //nolint:goerr113
 	}
-	err = pipeliner.Expire(ctx, keyFloorBid, expiryBidCache).Err()
+	err = pipeline.Expire(ctx, keyFloorBid, expiryBidCache).Err()
 	if err != nil {
 		return state, err
 	}
 
 	keyFloorBidValue := r.keyFloorToBBidValue(payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr())
-	err = pipeliner.Set(ctx, keyFloorBidValue, value.String(), expiryBidCache).Err()
+	err = pipeline.Set(ctx, keyFloorBidValue, value.String(), expiryBidCache).Err()
 	if err != nil {
 		return state, err
 	}
 
 	// Execute setting the floor bid
-	_, err = pipeliner.Exec(ctx)
+	_, err = pipeline.Exec(ctx)
 
 	// Record time needed to update floor
 	nextTime = time.Now().UTC()
@@ -1035,7 +1048,14 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	// Time to save things in Redis
 	//
 	// 1. Save the execution payload
-	err = r.SaveExecutionRoBAnchorPayload(ctx, pipeline, payload.Slot(), payload.ProposerPubKeyAsStr(), payload.BlockHash().String(), getPayload, chainID)
+	err = r.SaveExecutionRoBAnchorPayload(
+		ctx,
+		pipeline,
+		payload.Slot(),
+		payload.ProposerPubKeyAsStr(),
+		payload.BlockHash().String(),
+		getPayload,
+		chainID)
 	if err != nil {
 		return state, err
 	}
@@ -1046,7 +1066,16 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	prevTime = nextTime
 
 	// 2. Save latest bid for this builder
-	err = r.SaveRoBBuilderBid(ctx, pipeline, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), payload.BuilderPubkeyAsStr(), reqReceivedAt, getHeader.Header, chainID)
+	err = r.SaveRoBBuilderBid(
+		ctx,
+		pipeline,
+		payload.Slot(),
+		payload.ParentHash().String(),
+		payload.ProposerPubKeyAsStr(),
+		payload.BuilderPubkeyAsStr(),
+		reqReceivedAt,
+		getHeader,
+		chainID)
 	if err != nil {
 		return state, err
 	}
@@ -1074,7 +1103,16 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 		return state, nil
 	}
 
-	state, err = r._updateRoBTopBid(ctx, pipeline, state, builderBids, payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), floorValue, chainID)
+	state, err = r._updateRoBTopBid(
+		ctx,
+		pipeline,
+		state,
+		builderBids,
+		payload.Slot(),
+		payload.ParentHash().String(),
+		payload.ProposerPubKeyAsStr(),
+		floorValue,
+		chainID)
 	if err != nil {
 		return state, err
 	}
@@ -1092,7 +1130,12 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	}
 
 	// Non-cancellable bid above floor should set new floor
-	keyBidSource := r.keyLatestRoBBidByBuilder(payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), payload.BuilderPubkeyAsStr(), chainID)
+	keyBidSource := r.keyLatestRoBBidByBuilder(
+		payload.Slot(),
+		payload.ParentHash().String(),
+		payload.ProposerPubKeyAsStr(),
+		payload.BuilderPubkeyAsStr(),
+		chainID)
 	keyFloorBid := r.keyFloorRoBBid(payload.Slot(), payload.ParentHash().String(), payload.ProposerPubKeyAsStr(), chainID)
 	c := pipeline.Copy(ctx, keyBidSource, keyFloorBid, 0, true)
 	_, err = pipeline.Exec(ctx)
