@@ -34,12 +34,13 @@ import (
 const (
 	testGasLimit         = uint64(30000000)
 	testSlot             = uint64(42)
-	testParentHash       = "0xbd3291854dc822b7ec585925cda0e18f06af28fa2886e15f52d52dd4b6f94ed6"
 	testWithdrawalsRoot  = "0x7f6d156912a4cb1e74ee37e492ad883f7f7ac856d987b3228b517e490aa0189e"
 	testPrevRandao       = "0x9962816e9d0a39fd4c80935338a741dc916d1545694e41eb5a505e1a3098f9e4"
-	testBuilderPubkey    = "0xfa1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
-	testProposerKey      = "0xda1ed37c3553d0ce1e9349b2c5063cf6e394d231c8d3e0df75e9462257c081543086109ffddaacc0aa76f33dc9661c83"
 	testManagerSecretKey = "0x3fae9bafcf1572be9a4d4b7f8e6cb1d0c4bca8ad1e6f75d3d1286ad0e3e5fba1"
+	testParentHash       = "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
+	testProposerPubkey   = "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+	testBuilderPubKey    = "0x6ae7109d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90891234"
+	testChainID          = "test-chain-0"
 )
 
 var (
@@ -375,11 +376,6 @@ func TestRegisterValidator(t *testing.T) {
 }
 
 // @TODO: Create test cases below, cover ALL cases
-func TestGetPayload(t *testing.T) {
-
-}
-
-// @TODO: Create test cases below, cover ALL cases
 func TestGetHeader(t *testing.T) {
 	// Setup backend with headSlot and genesisTime
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
@@ -391,12 +387,8 @@ func TestGetHeader(t *testing.T) {
 	slot := uint64(1)
 	backend.relay.headSlot.Store(slot)
 
-	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
-	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-	builderPubKey := "0x6ae7109d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90891234"
-	chainID := "test-chain-0"
 	robIDs := backend.relay.GetRoBChainIDs()
-	(*robIDs)[chainID] = struct{}{}
+	(*robIDs)[testChainID] = struct{}{}
 
 	// TODO: change to ToB base case
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
@@ -412,17 +404,17 @@ func TestGetHeader(t *testing.T) {
 			Value:     big.NewInt(2),
 		}
 		// Populate redis cache with expected headers
-		err = redis.SetRoBBid(slot, parentHash, proposerPubkey, chainID, header)
+		err = redis.SetRoBBid(slot, testParentHash, testProposerPubkey, testChainID, header)
 		if err != nil {
 			t.Error(err)
 		}
-		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubKey, chainID)
+		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey, testChainID)
 
 		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header.Value.String(), 0).Err()
 
 		rr := httptest.NewRecorder()
 
-		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), parentHash, proposerPubkey)
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), testParentHash, testProposerPubkey)
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
 
 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
@@ -445,17 +437,17 @@ func TestGetHeader(t *testing.T) {
 			Value:     big.NewInt(2),
 		}
 		// Populate redis cache with expected headers
-		err = redis.SetRoBBid(slot, parentHash, proposerPubkey, chainID, header)
+		err = redis.SetRoBBid(slot, testParentHash, testProposerPubkey, testChainID, header)
 		if err != nil {
 			t.Error(err)
 		}
-		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubKey, chainID)
+		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey, testChainID)
 
 		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header.Value.String(), 0).Err()
 
 		rr := httptest.NewRecorder()
 
-		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), parentHash, proposerPubkey)
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), testParentHash, testProposerPubkey)
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
 
 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
@@ -589,6 +581,43 @@ func TestBuilderApiGetValidators(t *testing.T) {
 	require.Equal(t, 1, len(resp))
 	require.Equal(t, uint64(1), resp[0].Slot)
 	require.Equal(t, apiv1.ValidatorRegistration{}, *resp[0].Entry)
+}
+
+func TestGetPayload(t *testing.T) {
+	// Setup backend with headSlot and genesisTime
+	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+		Data: beaconclient.GetGenesisResponseData{
+			GenesisTime: uint64(time.Now().UTC().Unix()),
+		},
+	}
+	slot := uint64(1)
+	backend.relay.headSlot.Store(slot)
+	requestPath := "/eth/v1/builder/blinded_blocks"
+
+	robIDs := backend.relay.GetRoBChainIDs()
+	(*robIDs)[testChainID] = struct{}{}
+
+	headerHash, err := common.GenerateRandomHash()
+	if err != nil {
+		t.Error(err)
+	}
+
+	t.Run("Run valid base case, just tob", func(t *testing.T) {
+		//redis := backend.GetRedis()
+
+		payloadReq := common.AnchorGetPayloadRequest{
+			Slot:          uint64(1),
+			ProposerIndex: uint64(2),
+			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
+			HeadersHash: headerHash.String(),
+			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
+			SignedHeaders: nil,
+		}
+
+		rr := backend.request(http.MethodPost, requestPath, payloadReq)
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
 }
 
 func TestDataApiGetDataProposerPayloadDelivered(t *testing.T) {
