@@ -4,7 +4,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -269,8 +268,8 @@ type BatonAPI struct {
 	// stores DeFi contract addresses rquired for state interference checks
 	defiAddresses map[string]common2.Address `jjj:"defi_addresses"`
 	// stores RoB chain IDs
-	robChainIDs    map[string]struct{}            `jjj:"rob_chain_i_ds"`
-	expectedHeader common.AnchorGetHeaderResponse `jjj:"expected_header"`
+	robChainIDs    map[string]struct{}             `jjj:"rob_chain_i_ds"`
+	expectedHeader *common.AnchorGetHeaderResponse `jjj:"expected_header"`
 
 	// Mock mode assists in testing and helps us skip difficult to test functionality (like simulation).
 	mockMode bool
@@ -1534,7 +1533,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var resp common.ExecHeadersInfo
+	var headers common.ExecHeadersInfo
 	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 	if err != nil {
 		log.WithError(err).Error("could not get bid for ToB")
@@ -1556,8 +1555,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	resp.ToBHash = bid
-	combined := resp.ToBHash.Header.Bytes()
+	headers.ToBHash = bid
 
 	for chainID := range api.robChainIDs {
 		bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
@@ -1572,28 +1570,46 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		resp.RoBHashes[chainID] = bid
-		combined = append(combined, bid.Header.Bytes()...)
+		headers.RoBHashes[chainID] = bid
 	}
 
-	// Hash the concatenated result to get a third hash
-	chunkHashBytes := sha256.Sum256(combined)
-
 	// Convert the result to a common.Hash
-	var headerReq common.AnchorBlockInfo
-	headerReq.ChunkHash = common2.BytesToHash(chunkHashBytes[:])
-	headerReq.Slot = slot
+	var blockInfo common.AnchorBlockInfo
+	blockInfo.Slot = slot
 
-	if resp.ToBHash == nil && len(resp.RoBHashes) == 0 {
+	if headers.ToBHash == nil && len(headers.RoBHashes) == 0 {
 		log.Info("handleGetHeader: no chunks, nothing to do")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	api.expectedHeader.ExecHeaders = resp
-	api.expectedHeader.BlockInfo = headerReq
+	headersHash, err := common.HashExecHeaders(&headers)
+	if err != nil {
+		logMsg := "handleGetHeader: could not hash exec headers, err: " + err.Error()
+		log.Error(logMsg)
+		api.RespondError(w, http.StatusBadRequest, logMsg)
+		return
+	}
 
-	api.RespondOK(w, api.expectedHeader)
+	resp := common.AnchorGetHeaderResponse{
+		ExecHeaders: headers,
+		BlockInfo:   blockInfo,
+		// Hash of the exec headers. Needs to be sent in AnchorGetPayloadRequest msg.
+		HeadersHash: headersHash,
+	}
+
+	err = common.SignAnchorGetHeaderResponse(&resp, api.blsSk)
+	if err != nil {
+		logMsg := "handleGetHeader: could not sign exec headers, err: " + err.Error()
+		log.Error(logMsg)
+		api.RespondError(w, http.StatusBadRequest, logMsg)
+		return
+	}
+
+	// This sets the expected header we will compare against when we receive getPayloadRequest()
+	api.expectedHeader = &resp
+
+	api.RespondOK(w, resp)
 }
 
 func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
@@ -1635,7 +1651,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			return
 		}
 
-		log.WithError(err).Error("could not read body of request from the beacon node")
+		log.WithError(err).Error("could not read body of request for handleGetPayload()")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1689,42 +1705,46 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithField("proposerPubkey", proposerPubkey.String())
 
 	// Create a BLS pubkey from the hex pubkey
-	//pk, err := boostTypes.HexToPubkey(proposerPubkey.String())
-	_, err = utils.HexToPubkey(proposerPubkey.String())
+	pk, err := utils.HexToPubkey(proposerPubkey.String())
+	//_, err = utils.HexToPubkey(proposerPubkey.String())
 	if err != nil {
 		log.WithError(err).Warn("could not convert pubkey to types.PublicKey")
 		api.RespondError(w, http.StatusBadRequest, "could not convert pubkey to types.PublicKey")
 		return
 	}
 
-	// Validate proposer signature
-	// TODO: figure out how to use AnchorPayloadRequest to verify signature.
-	// SEQ needs to keep it in byte form when signing(signatures).
-	// 1.) define SEQ signatures
-	// 2.) figure out how to pass header of HeaderInfo or if it's even needed
-	//signature := payload.SignedHeaders
-	//var header *common.ExecHeadersInfo
-	// can possibly use index of proposer to get the pubkey
-	// TODO: marshal the header then verify sig and pubkey
-	//ok, err := common.VerifyHeaderSignature()
-	//if err != nil {
-	//	if api.ffLogInvalidSignaturePayload {
-	//		txt, _ := json.Marshal(payload) //nolint:errchkjson
-	//		fmt.Println("payload_invalid_sig_capella: ", string(txt), "pubkey:", proposerPubkey.String())
-	//	}
-	//	log.WithError(err).Warn("could not verify capella payload signature")
-	//	api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
-	//	return
-	//}
-	//if ok != nil {
-	//	//if api.ffLogInvalidSignaturePayload {
-	//	//	txt, _ := json.Marshal(payload) //nolint:errchkjson
-	//	//	fmt.Println("payload_invalid_sig_capella: ", string(txt), "pubkey:", proposerPubkey.String())
-	//	//}
-	//	//log.WithError(err).Warn("could not verify capella payload signature")
-	//	//api.RespondError(w, http.StatusBadRequest, "could not verify payload signature")
-	//	//return
-	//}
+	blsPubKey, err := ConvertPhase0ToBLSPubKey(pk)
+	if err != nil {
+		log.WithError(err).Warn("could not convert phase0.Pubkey to bls.PublicKey")
+		api.RespondError(w, http.StatusBadRequest, "could not convert phase0.Pubkey to bls.PublicKey")
+		return
+	}
+
+	if payload.SignedHeaders == nil || len(payload.SignedHeaders) != 48 {
+		log.WithError(err).Warn("payload request failed because signed headers were bad")
+		api.RespondError(w, http.StatusBadRequest, "payload request failed because signed headers were bad")
+		return
+	}
+
+	if api.expectedHeader == nil {
+		log.WithError(err).Warn("payload request could not find expected headers (Was getHeaders() called?)")
+		api.RespondError(w, http.StatusBadRequest, "payload request could not find expected headers (Was getHeaders() called?)")
+		return
+	}
+
+	ok, err := common.VerifySignedHeaders(&api.expectedHeader.ExecHeaders, payload, *blsPubKey)
+	if err != nil {
+		logMsg := "payload request failed because error occurred during signed header verification, err: " + err.Error()
+		log.WithError(err).Warn(logMsg)
+		api.RespondError(w, http.StatusBadRequest, logMsg)
+		return
+	}
+	if !ok {
+		logMsg := "payload request failed because signed header verification contained mismatch"
+		log.WithError(err).Warn(logMsg)
+		api.RespondError(w, http.StatusBadRequest, logMsg)
+		return
+	}
 
 	// Log about received payload (with a valid proposer signature)
 	log = log.WithField("timestampAfterSignatureVerify", time.Now().UTC().UnixMilli())
@@ -1739,7 +1759,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 		// we only need to get the bidtrace for one of the involved blocks.
 		if getPayloadResp.ExecPayloads.ToBPayload != nil {
-			bidTrace, err = api.redis.GetToBBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash)
+			bidTrace, err = api.redis.GetToBBidTrace(payload.Slot, proposerPubkey.String(), payload.HeadersHash)
 			if err != nil {
 				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 				return
@@ -1755,7 +1775,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			for k, _ := range getPayloadResp.ExecPayloads.RoBPayloads {
 				robFirstChainID = k
 			}
-			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, proposerPubkey.String(), payload.BlockHash, robFirstChainID)
+			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, proposerPubkey.String(), payload.HeadersHash, robFirstChainID)
 			if err != nil {
 				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 				return
@@ -1782,13 +1802,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	var tobAnchorPayload *common.AnchorPayload
 	var payloadWasFound bool
 
-	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
+	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.HeadersHash)
 	if err != nil || tobAnchorPayload == nil {
 		log.WithError(err).Warn("failed getting execution payload (1/2)")
 		time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 		// Try again
-		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash)
+		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.HeadersHash)
 		if err != nil || tobAnchorPayload == nil {
 			// Still not found! Error out now.
 			// TODO: Is the below still needed?
@@ -1815,17 +1835,19 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		} else {
 			payloadWasFound = true
 		}
+	} else {
+		payloadWasFound = true
 	}
 
-	robPayloads := map[string]*common.AnchorPayload{}
+	robPayloads := make(map[string]*common.AnchorPayload)
 	for chainID, _ := range api.robChainIDs {
-		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash, chainID)
+		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.HeadersHash, chainID)
 		if err != nil || robAnchorPayload == nil {
 			log.WithError(err).Warn("failed getting execution payload (1/2)")
 			time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 			// Try again
-			robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.BlockHash, chainID)
+			robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.HeadersHash, chainID)
 			if err != nil || robAnchorPayload == nil {
 				// Still not found! Error out now.
 				// TODO: Is the below still needed?
@@ -1851,7 +1873,11 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 				//return
 			} else {
 				payloadWasFound = true
+				robPayloads[chainID] = robAnchorPayload
 			}
+		} else {
+			payloadWasFound = true
+			robPayloads[chainID] = robAnchorPayload
 		}
 	}
 
@@ -1865,7 +1891,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithField("timestampAfterLoadResponse", time.Now().UTC().UnixMilli())
 
 	// Check whether getPayload has already been called -- TODO: do we need to allow multiple submissions of one blinded block?
-	err = api.redis.CheckAndSetLastSlotAndHashDelivered(payload.Slot, payload.BlockHash)
+	err = api.redis.CheckAndSetLastSlotAndHashDelivered(payload.Slot, payload.HeadersHash)
 	log = log.WithField("timestampAfterAlreadyDeliveredCheck", time.Now().UTC().UnixMilli())
 	if err != nil {
 		if errors.Is(err, datastore.ErrAnotherPayloadAlreadyDeliveredForSlot) {
@@ -1903,46 +1929,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("sent too late - %d ms into slot", msIntoSlot))
 
 		go func() {
-			err := api.db.InsertTooLateGetPayload(payload.Slot, proposerPubkey.String(), payload.BlockHash, slotStartTimestamp, uint64(receivedAt.UnixMilli()), uint64(decodeTime.UnixMilli()), uint64(msIntoSlot))
+			err := api.db.InsertTooLateGetPayload(payload.Slot, proposerPubkey.String(), payload.HeadersHash, slotStartTimestamp, uint64(receivedAt.UnixMilli()), uint64(decodeTime.UnixMilli()), uint64(msIntoSlot))
 			if err != nil {
 				log.WithError(err).Error("failed to insert payload too late into db")
 			}
 		}()
 		return
 	}
-
-	// TODO: Verify not needed. Looks to be Eth 2.0 related.
-	// TODO: make our own version for the EqExecutionPayloadToHeader
-	// Check that ExecutionPayloadHeader fields (sent by the proposer) match our known ExecutionPayload
-	/*
-		err = EqExecutionPayloadToHeader(payload, &getPayloadResp)
-		if err != nil {
-			log.WithError(err).Warn("ExecutionPayloadHeader not matching known ExecutionPayload")
-			api.RespondError(w, http.StatusBadRequest, "invalid execution payload header")
-			return
-		}
-	*/
-
-	// @TODO: below prob not needed?
-	/*
-		// Publish the signed beacon block via beacon-node
-		timeBeforePublish := time.Now().UTC().UnixMilli()
-		log = log.WithField("timestampBeforePublishing", timeBeforePublish)
-		signedBeaconBlock := common.SignedBlindedBeaconBlockToBeaconBlock(payload, getPayloadResp)
-		code, err := api.beaconClient.PublishBlock(signedBeaconBlock) // errors are logged inside
-		if err != nil || code != http.StatusOK {
-			log.WithError(err).WithField("code", code).Error("failed to publish block")
-			api.RespondError(w, http.StatusBadRequest, "failed to publish block")
-			return
-		}
-		timeAfterPublish := time.Now().UTC().UnixMilli()
-		msNeededForPublishing = uint64(timeAfterPublish - timeBeforePublish)
-		log = log.WithField("timestampAfterPublishing", timeAfterPublish)
-		log.WithField("msNeededForPublishing", msNeededForPublishing).Info("block published through beacon node")
-
-		// give the beacon network some time to propagate the block
-		time.Sleep(time.Duration(getPayloadResponseDelayMs) * time.Millisecond)
-	*/
 
 	// fill in rest of the payload response
 	getPayloadResp.Slot = payload.Slot
@@ -1962,10 +1955,17 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		getPayloadResp.ExecPayloads.RoBPayloads[chainID] = robChunkExecPayload
 	}
 
+	err = common.SignAnchorGetPayloadResponse(&getPayloadResp, api.blsSk)
+	if err != nil {
+		log.Warn("payload request failed because response could not be signed")
+		api.RespondError(w, http.StatusBadRequest, "payload request failed because response could not be signed")
+		return
+	}
+
 	// respond to the HTTP request
 	api.RespondOK(w, getPayloadResp)
 	log = log.WithFields(logrus.Fields{
-		"blockHash": payload.BlockHash,
+		"blockHash": payload.HeadersHash,
 	})
 	log.Info("execution payload delivered")
 }
@@ -2431,7 +2431,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	getPayload, err := BuildPayload(&blockReq, txs)
+	getPayload, err := BuildPayload(&blockReq, blockReq.Txs())
 	if err != nil {
 		log.WithError(err).Warn("failed to build payload")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
