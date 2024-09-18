@@ -256,7 +256,7 @@ func TestLivez(t *testing.T) {
 }
 
 func TestRegisterSimulator(t *testing.T) {
-	path := "/sim/v1/regsiter"
+	path := "/sim/v1/register"
 
 	t.Run("can register with correct secret key", func(t *testing.T) {
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)

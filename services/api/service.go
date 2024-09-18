@@ -74,7 +74,7 @@ var (
 	pathGetPayload        = "/eth/v1/builder/blinded_blocks"
 
 	// Block Simulator API
-	pathRegisterSimulator = "/sim/v1/regsiter"
+	pathRegisterSimulator = "/sim/v1/register"
 
 	// Block builder API
 	pathBuilderGetValidators  = "/relay/v1/builder/validators"
@@ -876,7 +876,7 @@ func (api *BatonAPI) simulateBlock(
 			defer wg.Done()
 
 			blockReq := common.BlockValidationRequest{
-				Txs:              ethTxs,
+				Txs:              txs,
 				BlockNumber:      blockNumber[chainID],
 				StateBlockNumber: "latest",
 				Timestamp:        uint64(time.Now().UnixMilli()),
