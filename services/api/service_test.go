@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"golang.org/x/exp/rand"
 
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	// "github.com/AnomalyFi/hypersdk/state"
@@ -500,10 +502,10 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		IsToB:          false,
 		robChainIndex:  0,
 		numTxs:         1,
+		withTransferTx: true,
 	}
 	defaultBlockValue := uint64(2)
-	defaultBlockReq, _, _, err := CreateTestChunkSubmission(t, defaultBlockValue, &defaultOpts)
-	require.NoError(t, err)
+	defaultBlockReq, _, _ := CreateTestChunkSubmission(t, defaultBlockValue, &defaultOpts)
 
 	// Helper for processing block requests to the backend. Returns the status code of the request.
 	processBlockRequest := func(backend *testBackend, blockReq *common.SubmitNewBlockRequest) int {
@@ -554,6 +556,78 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		rrCode := processBlockRequest(backend, justToBBlock)
 		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("Run invalid RoB without transfer tx", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          false,
+			robChainIndex:  0,
+			numTxs:         1,
+			withTransferTx: false,
+		}
+
+		robReq, _, _ := CreateTestChunkSubmission(t, 100, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, robReq)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("Run valid RoBs for race condition", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          false,
+			robChainIndex:  0,
+			numTxs:         1,
+			withTransferTx: true,
+		}
+
+		baseValue := uint64(100)
+		baseRobReq, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, baseRobReq)
+		require.Equal(t, http.StatusOK, rrCode)
+
+		numRoBs := 1
+		robReqs := make([]*common.SubmitNewBlockRequest, 0, numRoBs) // all are higher bids than the base one
+		for i := 0; i < numRoBs; i++ {
+			req, _, _ := CreateTestChunkSubmission(t, baseValue+uint64(i), &opts)
+			robReqs = append(robReqs, req)
+		}
+		highestBid := robReqs[len(robReqs)-1] // save the highest bid
+		// shuffle bids
+		for i := range robReqs {
+			j := rand.Intn(i + 1)
+			robReqs[i], robReqs[j] = robReqs[j], robReqs[i]
+		}
+
+		// concurrently bids
+		var wg sync.WaitGroup
+		for _, req := range robReqs {
+			wg.Add(1)
+			go func(req *common.SubmitNewBlockRequest) {
+				defer wg.Done()
+				rrCode := processBlockRequest(backend, req)
+				require.Equal(t, http.StatusOK, rrCode)
+			}(req)
+		}
+		wg.Wait()
+
+		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), GetTestChainId(opts.robChainIndex))
+		require.NoError(t, err)
+		require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
 	})
 }
 

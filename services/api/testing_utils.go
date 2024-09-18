@@ -59,9 +59,25 @@ type CreateTestBlockSubmissionOpts struct {
 	robChainIndex  int // only used if isTob false
 	numTxs         int
 
+	withTransferTx bool
+
 	//relaySk        bls.SecretKey
 	//relayPk        types.PublicKey
 	//domain         types.Domain
+}
+
+func (opts *CreateTestBlockSubmissionOpts) BuilderPubkeyAsStr() string {
+	pk := opts.BuilderPubkey
+	builderPubKeyBytes := (&pk).Bytes()
+	builderPubKeyBytesAsStr := hex.EncodeToString(builderPubKeyBytes[:])
+	return builderPubKeyBytesAsStr
+}
+
+func (opts *CreateTestBlockSubmissionOpts) ProposerPubKeyAsStr() string {
+	pk := opts.ProposerPubkey
+	proposerPubKeyBytes := (&pk).Bytes()
+	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
+	return proposerPubKeyBytesAsStr
 }
 
 // @TODO: Expand for ToB
@@ -72,7 +88,7 @@ func CreateTestChunkSubmission(
 ) (*common.SubmitNewBlockRequest,
 	*common.AnchorHeader,
 	*common.AnchorPayload,
-	error) {
+) {
 	t.Helper()
 	var err error
 
@@ -115,8 +131,10 @@ func CreateTestChunkSubmission(
 		txs = append(txs, tx)
 	}
 
-	transferAction := CreateTestProposerTransfer(chainID, value)
-	txs = append(txs, transferAction)
+	if opts.withTransferTx {
+		transferAction := CreateTestProposerTransfer(chainID, value)
+		txs = append(txs, transferAction)
+	}
 
 	blockReq := common.NewSubmitNewBlockRequest()
 	blockReq.BuilderPubKey = builderPubkey
@@ -128,9 +146,7 @@ func CreateTestChunkSubmission(
 	//txsBytes, err := json.Marshal(txs)
 	//var signer ed25519.PrivateKey
 	txsBytes, err := chain.MarshalTxs(txs)
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	require.NoError(t, err)
 
 	blockReq.Chunk.Txs = txsBytes
 
@@ -140,7 +156,7 @@ func CreateTestChunkSubmission(
 	anchorPayload, err := BuildPayload(&blockReq, blockReq.Txs())
 	require.NoError(t, err)
 
-	return &blockReq, &anchorHeader, anchorPayload, nil
+	return &blockReq, &anchorHeader, anchorPayload
 }
 
 func GetTestChainId(i int) string {
