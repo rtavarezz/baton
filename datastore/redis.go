@@ -208,7 +208,7 @@ func (r *RedisCache) keyLatestToBBidByBuilder(slot uint64, parentHash, proposerP
 	return fmt.Sprintf("tob,%s:%d_%s_%s/%s", r.prefixBlockBuilderLatestBids, slot, parentHash, proposerPubkey, builderPubkey)
 }
 
-func (r *RedisCache) keyLatestRoBBidByBuilder(slot uint64, parentHash, proposerPubkey, builderPubkey string, chainID string) string {
+func (r *RedisCache) KeyLatestRoBBidByBuilder(slot uint64, parentHash, proposerPubkey, builderPubkey string, chainID string) string {
 	return fmt.Sprintf("rob,%s:%d_%s_%s/%s_%s", r.prefixBlockBuilderLatestBids, slot, parentHash, proposerPubkey, builderPubkey, chainID)
 }
 
@@ -780,7 +780,7 @@ func (r *RedisCache) SaveRoBBuilderBid(
 		return err
 	}
 	// save the actual bid
-	keyLatestBid := r.keyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey, chainID)
+	keyLatestBid := r.KeyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey, chainID)
 	err = r.SetObjPipelined(ctx, pipeline, keyLatestBid, headerRespBytes, expiryBidCache)
 	if err != nil {
 		return err
@@ -1130,7 +1130,7 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	}
 
 	// Non-cancellable bid above floor should set new floor
-	keyBidSource := r.keyLatestRoBBidByBuilder(
+	keyBidSource := r.KeyLatestRoBBidByBuilder(
 		payload.Slot(),
 		payload.ParentHash().String(),
 		payload.ProposerPubKeyAsStr(),
@@ -1467,7 +1467,7 @@ func (r *RedisCache) _updateRoBTopBid(
 
 	topBidBuilder := ""
 	topBidBuilder, state.TopBidValue = builderBids.getTopBid()
-	keyBidRoBSource := r.keyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, topBidBuilder, chainID)
+	keyBidRoBSource := r.KeyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, topBidBuilder, chainID)
 
 	// If floor value is higher than this bid, use floor bid instead
 	if floorValue.Cmp(state.TopBidValue) == 1 {
@@ -1750,9 +1750,17 @@ func (r *RedisCache) NewTxPipeline() redis.Pipeliner { //nolint:ireturn
 // saving RoB bid to cache
 func (r *RedisCache) SetRoBBid(slot uint64, parentHash string, proposerPubkey string, chainID string, header common.AnchorHeader) error {
 	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	err := r.client.Set(context.Background(), keyTopBid, header, 100).Err()
+	headerBytes, err := json.Marshal(header)
+	if err != nil {
+		return err
+	}
+	err = r.client.Set(context.Background(), keyTopBid, headerBytes, 100).Err()
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (r *RedisCache) GetClient() *redis.Client {
+	return r.client
 }

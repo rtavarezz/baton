@@ -3,10 +3,14 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -370,49 +374,96 @@ func TestRegisterValidator(t *testing.T) {
 	// })
 }
 
-// func TestGetHeader(t *testing.T) {
-// 	// Setup backend with headSlot and genesisTime
-// 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-// 	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
-// 		Data: beaconclient.GetGenesisResponseData{
-// 			GenesisTime: uint64(time.Now().UTC().Unix()),
-// 		},
-// 	}
+// @TODO: Create test cases below, cover ALL cases
+func TestGetPayload(t *testing.T) {
 
-// 	slot := uint64(1)
-// 	backend.relay.headSlot.Store(slot)
+}
 
-// 	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
-// 	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
-// 	chainID := "test-chain-0"
-// 	//bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
-// 	//bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
+// @TODO: Create test cases below, cover ALL cases
+func TestGetHeader(t *testing.T) {
+	// Setup backend with headSlot and genesisTime
+	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+		Data: beaconclient.GetGenesisResponseData{
+			GenesisTime: uint64(time.Now().UTC().Unix()),
+		},
+	}
+	slot := uint64(1)
+	backend.relay.headSlot.Store(slot)
 
-// 	t.Run("Run valid base case, just tob", func(t *testing.T) {
-// 		redis := backend.GetRedis()
+	parentHash := "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
+	proposerPubkey := "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+	builderPubKey := "0x6ae7109d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90891234"
+	chainID := "test-chain-0"
+	robIDs := backend.relay.GetRoBChainIDs()
+	(*robIDs)[chainID] = struct{}{}
 
-// 		header := common.AnchorHeader{
-// 			Header: ,
-// 			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
-// 			Value:     big.NewInt(2),
-// 		}
-// 		// Populate redis cache with expected headers
-// 		err := redis.SetRoBBid(slot, parentHash, proposerPubkey, chainID, header)
-// 		if err != nil {
-// 			t.Error(err)
-// 		}
+	// TODO: change to ToB base case
+	t.Run("Run valid base case, just tob", func(t *testing.T) {
+		redis := backend.GetRedis()
+		headerHash, err := common.GenerateRandomHash()
+		if err != nil {
+			t.Error(err)
+		}
 
-// 		rr := httptest.NewRecorder()
+		header := common.AnchorHeader{
+			Header:    &headerHash,
+			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
+			Value:     big.NewInt(2),
+		}
+		// Populate redis cache with expected headers
+		err = redis.SetRoBBid(slot, parentHash, proposerPubkey, chainID, header)
+		if err != nil {
+			t.Error(err)
+		}
+		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubKey, chainID)
 
-// 		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(uint64(1), 10), parentHash, proposerPubkey)
-// 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
+		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header.Value.String(), 0).Err()
 
-// 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
-// 		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+		rr := httptest.NewRecorder()
 
-// 		require.Equal(t, http.StatusOK, rr.Code)
-// 	})
-// }
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), parentHash, proposerPubkey)
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
+
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	// note: base RoB case
+	t.Run("Run valid base case, just rob", func(t *testing.T) {
+		redis := backend.GetRedis()
+		headerHash, err := common.GenerateRandomHash()
+		if err != nil {
+			t.Error(err)
+		}
+
+		header := common.AnchorHeader{
+			Header:    &headerHash,
+			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
+			Value:     big.NewInt(2),
+		}
+		// Populate redis cache with expected headers
+		err = redis.SetRoBBid(slot, parentHash, proposerPubkey, chainID, header)
+		if err != nil {
+			t.Error(err)
+		}
+		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubKey, chainID)
+
+		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header.Value.String(), 0).Err()
+
+		rr := httptest.NewRecorder()
+
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), parentHash, proposerPubkey)
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
+
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+}
 
 func createBackendHelper(t *testing.T) *testBackend {
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
@@ -491,6 +542,18 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
+	t.Run("Run valid base case, just ToB", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		// TODO: CHANGE ME LATER
+		justToBBlock := defaultBlockReq
+
+		rrCode := processBlockRequest(backend, justToBBlock)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	// TODO: Add test cases below(as many as you can think of) using this format
+	// note: copy and alter the CreateTestChunkSubmission for each case
 	t.Run("Run valid base case, just ToB", func(t *testing.T) {
 		backend := createBackendHelper(t)
 

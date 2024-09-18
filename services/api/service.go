@@ -1527,35 +1527,35 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Only allow requests for the current slot until a certain cutoff time
-	if getHeaderRequestCutoffMs > 0 && msIntoSlot > 0 && msIntoSlot > int64(getHeaderRequestCutoffMs) {
-		log.Info("getHeader sent too late")
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
+	//if getHeaderRequestCutoffMs > 0 && msIntoSlot > 0 && msIntoSlot > int64(getHeaderRequestCutoffMs) {
+	//	log.Info("getHeader sent too late")
+	//	w.WriteHeader(http.StatusNoContent)
+	//	return
+	//}
 
-	var headers common.ExecHeadersInfo
+	headers := common.NewExecutionHeader()
+	var hasToB bool
+	var hasRoB bool
 	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 	if err != nil {
 		log.WithError(err).Error("could not get bid for ToB")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
+	} else {
+		hasToB = bid != nil
 	}
 
-	// think of more cases for hash if possible
-	if bid == nil || bid.Header == nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
+	if hasToB && bid.Header.Big().Cmp(big.NewInt(0)) == 0 {
+		log.Info("handleGetHeader ToB was removed due to header comparison")
+		hasToB = false
 	}
-	if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
-		w.WriteHeader(http.StatusNoContent)
-		return
+	if hasToB && len(bid.BlockHash) == 0 {
+		log.Warning("handleGetHeader ToB was removed due to empty block hash")
+		hasToB = false
 	}
-	if len(bid.BlockHash) != 0 {
-		w.WriteHeader(http.StatusNoContent)
-		return
+	if hasToB {
+		headers.ToBHash = bid
 	}
-
-	headers.ToBHash = bid
 
 	for chainID := range api.robChainIDs {
 		bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
@@ -1571,6 +1571,12 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		headers.RoBHashes[chainID] = bid
+		hasRoB = true
+	}
+	if !hasToB && !hasRoB {
+		log.Info("handleGetHeader: no valid rob or tob were found")
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
 
 	// Convert the result to a common.Hash
@@ -1967,6 +1973,8 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithFields(logrus.Fields{
 		"blockHash": payload.HeadersHash,
 	})
+	api.robChainIDs = make(map[string]struct{})
+	api.expectedHeader = nil
 	log.Info("execution payload delivered")
 }
 
@@ -3020,4 +3028,8 @@ func (api *BatonAPI) checkBlockRequestIsToB(txs []*chain.Transaction) (bool, err
 	}
 
 	return false, nil
+}
+
+func (api *BatonAPI) GetRoBChainIDs() *map[string]struct{} {
+	return &api.robChainIDs
 }

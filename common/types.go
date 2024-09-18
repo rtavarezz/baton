@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/exp/rand"
 	"math/big"
 	"os"
 	"strings"
@@ -715,6 +716,12 @@ func NewExecutionPayload() ExecutionPayload {
 	}
 }
 
+func NewExecutionHeader() ExecHeadersInfo {
+	return ExecHeadersInfo{
+		RoBHashes: make(map[string]*AnchorHeader),
+	}
+}
+
 // VerifyHeaderSignature verifies that the getHeader ExecHeaders have been signed with the given public key
 func VerifyHeaderSignature(response *AnchorGetHeaderResponse, pubKey bls.PublicKey) (bool, error) {
 	payloadHash, err := HashExecHeaders(&response.ExecHeaders)
@@ -730,7 +737,7 @@ func VerifyHeaderSignature(response *AnchorGetHeaderResponse, pubKey bls.PublicK
 
 // VerifyPayloadSignature verifies that the getHeader ExecHeaders have been signed with the given public key
 func VerifyPayloadSignature(response *AnchorGetPayloadResponse, pubKey bls.PublicKey) (bool, error) {
-	payloadHash, err := hashExecPayloads(&response.ExecPayloads)
+	payloadHash, err := HashExecPayloads(&response.ExecPayloads)
 	if err != nil {
 		return false, err
 	}
@@ -755,7 +762,7 @@ func GetExecHeaderSignature(headers *ExecHeadersInfo, secretKey *bls.SecretKey) 
 
 func GetExecPayloadSignature(payloads *ExecPayloadsInfo, secretKey *bls.SecretKey) (*bls.Signature, error) {
 	// Step 1: Hash the ExecHeaders (ToBHash + RoBHashes) data
-	payloadHash, err := hashExecPayloads(payloads)
+	payloadHash, err := HashExecPayloads(payloads)
 	if err != nil {
 		return nil, err
 	}
@@ -828,4 +835,18 @@ func VerifySignedHeaders(
 	pubKeyBytes := pubKey.Bytes()
 
 	return bls.VerifySignatureBytes(payloadHash[:], payloadSignatureBytes[:], pubKeyBytes[:])
+}
+
+func GenerateRandomHash() (common.Hash, error) {
+	// Create a 32-byte array (since common.Hash is [32]byte)
+	var hashBytes [32]byte
+
+	// Fill the array with random bytes
+	_, err := rand.Read(hashBytes[:])
+	if err != nil {
+		return common.Hash{}, err
+	}
+
+	// Convert the random bytes to a common.Hash and return it
+	return common.BytesToHash(hashBytes[:]), nil
 }
