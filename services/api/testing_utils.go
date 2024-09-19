@@ -118,13 +118,23 @@ func CreateTestChunkSubmission(
 	}
 
 	txs := []*chain.Transaction{}
-	chainID := GetTestChainId(chainIndex)
+	var chainIDs []string
+	// single chain id
+	var chainID string
+	if opts.IsToB {
+		// ToB case: add however many test chain ids you want for ToB
+		chainIDs = GetTestChainId(opts, 4)
+	} else {
+		// RoB case: uses rob chain index only
+		chainIDs = GetTestChainId(opts, chainIndex)
+	}
 
 	for i := 0; i < numTxs; i++ {
 		nonce := GetNextTestNonce()
 		val := big.NewInt(int64(100 * i))
 		gasLimit := uint64(10000000 + i)
 		gasPrice := big.NewInt(int64(10000 + i))
+		chainID = chainIDs[i%len(chainIDs)]
 
 		ethTx := CreateTestEthTransactionAsTxBytes(nonce, *val, gasLimit, *gasPrice, "")
 		tx := CreateHypersdkTx(chainID, ethTx)
@@ -159,8 +169,18 @@ func CreateTestChunkSubmission(
 	return &blockReq, &anchorHeader, anchorPayload
 }
 
-func GetTestChainId(i int) string {
-	return fmt.Sprintf("test-chain-%d", i)
+//	func GetTestRoBChainId(i int) string {
+//		return fmt.Sprintf("test-chain-%d", i)
+//	}
+func GetTestChainId(opts *CreateTestBlockSubmissionOpts, c int) []string {
+	if opts.IsToB {
+		testChainIDs := make([]string, c)
+		for i := 0; i < c; i++ {
+			testChainIDs[i] = fmt.Sprintf("test-chain-%d", i)
+		}
+		return testChainIDs
+	}
+	return []string{fmt.Sprintf("test-chain-%d", c)}
 }
 
 func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {

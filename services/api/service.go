@@ -2310,7 +2310,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 	if isToB {
-		if len(blockReq.Txs()) > common.MaxTobTxs+1 {
+		// TODO: pass blockReq.Txs which will always be size 800+ after marshal or use txs type hypersdk below
+		if len(txs) > common.MaxTobTxs+1 {
 			msg := fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(blockReq.Txs()))
 			log.WithError(err).Info(msg)
 			api.Respond(w, http.StatusBadRequest, msg)
@@ -2370,8 +2371,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 
-	// TODO: WE ARE FAILING HERE. REDIS IS NIL. WHY?????
 	if isToB {
+		// TODO: fix since it fails here for base tob case due to other TODO comment inside HasTopToBBidValue
 		hasToB, err = api.redis.HasTopToBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
 		if err != nil {
 			log.WithError(err).Info("could not query tob for blockReq, returned err")

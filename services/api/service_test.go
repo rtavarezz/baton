@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -390,6 +391,7 @@ func TestGetHeader(t *testing.T) {
 	backend.relay.headSlot.Store(slot)
 
 	robIDs := backend.relay.GetRoBChainIDs()
+
 	(*robIDs)[testChainID] = struct{}{}
 
 	// TODO: change to ToB base case
@@ -536,25 +538,26 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
-	t.Run("Run valid base case, just ToB", func(t *testing.T) {
-		backend := createBackendHelper(t)
-
-		// TODO: CHANGE ME LATER
-		justToBBlock := defaultBlockReq
-
-		rrCode := processBlockRequest(backend, justToBBlock)
-		require.Equal(t, http.StatusOK, rrCode)
-	})
-
 	// TODO: Add test cases below(as many as you can think of) using this format
 	// note: copy and alter the CreateTestChunkSubmission for each case
 	t.Run("Run valid base case, just ToB", func(t *testing.T) {
 		backend := createBackendHelper(t)
 
-		// TODO: CHANGE ME LATER
-		justToBBlock := defaultBlockReq
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			robChainIndex:  0,
+			numTxs:         2,
+			withTransferTx: true,
+		}
 
-		rrCode := processBlockRequest(backend, justToBBlock)
+		tobReq, _, _ := CreateTestChunkSubmission(t, 2, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, tobReq)
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
@@ -568,7 +571,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
 			robChainIndex:  0,
-			numTxs:         1,
+			numTxs:         2,
 			withTransferTx: false,
 		}
 
@@ -624,8 +627,10 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			}(req)
 		}
 		wg.Wait()
+		chainID := GetTestChainId(&opts, opts.robChainIndex)
+		testChainIDStr := strings.Join(chainID, "")
 
-		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), GetTestChainId(opts.robChainIndex))
+		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), testChainIDStr)
 		require.NoError(t, err)
 		require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
 	})
