@@ -623,6 +623,14 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 				defer wg.Done()
 				rrCode := processBlockRequest(backend, req)
 				require.Equal(t, http.StatusOK, rrCode)
+
+				// TEMP TEST
+				chainID := GetTestChainId(&opts, opts.robChainIndex)
+				testChainIDStr := strings.Join(chainID, "")
+				header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), testChainIDStr)
+				require.NoError(t, err)
+				require.NotNil(t, header)
+				require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
 			}(req)
 		}
 		wg.Wait()

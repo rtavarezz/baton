@@ -163,29 +163,6 @@ type BatonAPIOpts struct {
 	mockMode bool
 }
 
-/*
-// Data needed to issue a block validation request.
-type blockSimOptions struct {
-	isHighPrio bool
-	fastTrack  bool
-	log        *logrus.Entry
-	builder    *blockBuilderCacheEntry
-	req        *common.BuilderBlockValidationRequest
-}
-
-*/
-
-// Like the above but
-type blockSimOptions2 struct {
-	isHighPrio         bool
-	fastTrack          bool
-	log                *logrus.Entry
-	builder            *blockBuilderCacheEntry
-	RegisteredGasLimit uint64
-	req                *common.SubmitNewBlockRequest
-	//req        *common.BuilderBlockValidationRequest
-}
-
 type blockBuilderCacheEntry struct {
 	status     common.BuilderStatus
 	collateral *big.Int
@@ -270,6 +247,9 @@ type BatonAPI struct {
 	// stores RoB chain IDs
 	robChainIDs    map[string]struct{}             `jjj:"rob_chain_i_ds"`
 	expectedHeader *common.AnchorGetHeaderResponse `jjj:"expected_header"`
+
+	// To prevent bugs resulting from overlapping requests, for now, let's have each mutating request be processed one at a time.
+	requestMu sync.Mutex
 
 	// Mock mode assists in testing and helps us skip difficult to test functionality (like simulation).
 	mockMode bool
@@ -1247,6 +1227,9 @@ func (api *BatonAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.R
 }
 
 func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
+	api.requestMu.Lock()
+	defer api.requestMu.Unlock()
+
 	ua := req.UserAgent()
 	log := api.log.WithFields(logrus.Fields{
 		"method":        "registerValidator",
@@ -1464,6 +1447,9 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 }
 
 func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
+	api.requestMu.Lock()
+	defer api.requestMu.Unlock()
+
 	vars := mux.Vars(req)
 	// TODO: figure out slot(block number from seq) with rollups
 	slotStr := vars["slot"]
@@ -1619,6 +1605,9 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 }
 
 func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) {
+	api.requestMu.Lock()
+	defer api.requestMu.Unlock()
+
 	// note: multiple payload calls are unlikely
 	api.getPayloadCallsInFlight.Add(1)
 	defer api.getPayloadCallsInFlight.Done()
@@ -2207,6 +2196,9 @@ func (api *BatonAPI) handleRegisterSimlator(w http.ResponseWriter, req *http.Req
 // TODO: Builders need to register themeselves on Baton before submitting blocks
 // TODO: rollup sequencer provide slot state and we need to make sure slot is seperated between rob and tob(this we can provide in baton, just verify that the slot matches)
 func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *http.Request) {
+	api.requestMu.Lock()
+	defer api.requestMu.Unlock()
+
 	var pf common.Profile
 	var prevTime, nextTime time.Time
 	headSlot := api.headSlot.Load()
