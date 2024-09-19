@@ -1878,7 +1878,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	if payloadWasFound == false {
 		log.Warn("no execution payloads were found for getPayload request")
-		api.RespondError(w, http.StatusBadRequest, "no execution payloads were found for getPayload request")
+		api.RespondError(w, http.StatusNoContent, "no execution payloads were found for getPayload request")
 		return
 	}
 
@@ -1936,7 +1936,15 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	getPayloadResp.Slot = payload.Slot
 	getPayloadResp.ExecPayloads.RoBPayloads = make(map[string]common.ExecutionPayload)
 
+	// TODO: Should a bad bundle block the rest of the action? Or should rest of good chunks be allowed through?
 	if tobAnchorPayload != nil {
+		// slots from retrieved payload should match request else abort
+		if tobAnchorPayload.Slot != payload.Slot {
+			log.Warn("getPayload failed because stored payload slot did not match requested slot")
+			api.RespondError(w, http.StatusBadRequest, "getPayload failed because stored payload slot did not match requested slot")
+			return
+		}
+
 		tobExecPayload := common.ExecutionPayload{
 			Transactions: tobAnchorPayload.Transactions,
 		}
@@ -1944,6 +1952,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	}
 
 	for chainID, anchorPayload := range robPayloads {
+		// slots from retrieved payload should match request else abort
+		if tobAnchorPayload.Slot != payload.Slot {
+			log.Warn("getPayload failed because stored payload slot did not match requested slot")
+			api.RespondError(w, http.StatusBadRequest, "getPayload failed because stored payload slot did not match requested slot")
+			return
+		}
+
 		robChunkExecPayload := common.ExecutionPayload{
 			Transactions: anchorPayload.Transactions,
 		}

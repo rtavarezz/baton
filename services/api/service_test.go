@@ -45,6 +45,7 @@ const (
 	testChainID          = "test-chain-0"
 	test2ProposerPubkey  = "0x84e975405f8691ad7118527ee9ee4ed2e4e8bae973f6e29aa9ca9ee4aea83605ae3536d22acc9aa1af0545064eacf82e"
 	mockSecretKeyHex     = "0x4e343a647c5a5c44d76c2c58b63f02cdf3a9a0ec40f102ebc26363b4b1b95033"
+	testHeaderHash       = "0x67d105493936e93431c7e42ff60e7c81405a4fe2e6877993996122fe07830a0c"
 )
 
 var (
@@ -142,7 +143,9 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	}
 
 	// Add a single known test validator
-	backend.datastore.SetKnownValidator(test2ProposerPubkey, 0)
+	mockPublicKeyBytes := bls.PublicKeyToBytes(mockPublicKey)
+	mockPublicKeyHex := hex.EncodeToString(mockPublicKeyBytes[:])
+	backend.datastore.SetKnownValidator("0x"+common.PubkeyHex(mockPublicKeyHex), 0)
 	return &backend
 }
 
@@ -726,37 +729,125 @@ func TestGetPayload(t *testing.T) {
 	robIDs := backend.baton.GetRoBChainIDs()
 	(*robIDs)[testChainID] = struct{}{}
 
-	headerHash, err := common.GenerateRandomHash()
+	/*
+		headerHash, err := common.GenerateRandomHash()
+		if err != nil {
+			t.Error(err)
+		}
+	*/
+
+	// This is a default AnchorGetHeaderResp that can be used in our base case testing.
+	anchorGetHeaderResp := common.MakeRandomAnchorGetHeaderResponse(*mockPublicKey, slot)
+	err := common.SignAnchorGetHeaderResponse(anchorGetHeaderResp, mockSecretKey)
 	if err != nil {
 		t.Error(err)
 	}
-	//var pk []byte
-	//pk = make([]byte, 8)
-	anchor := common.MakeRandomAnchorGetHeaderResponse(*mockPublicKey, slot)
-	err = common.SignAnchorGetHeaderResponse(anchor, mockSecretKey)
-	if err != nil {
-		t.Error(err)
-	}
-	signedHeaders, err := common.GetExecHeaderSignature(&anchor.ExecHeaders, mockSecretKey)
+	signedHeaders, err := common.GetExecHeaderSignature(&anchorGetHeaderResp.ExecHeaders, mockSecretKey)
 	if err != nil {
 		t.Error(err)
 	}
 	signedHeaderBytes := signedHeaders.Bytes()
-	backend.baton.SetExpectedHeaders(anchor)
+	backend.baton.SetExpectedHeaders(anchorGetHeaderResp)
+
+	// helper for populating tob payloads
+	populateToBPayloadFromHeader := func(header *common.AnchorHeader, redis *datastore.RedisCache) {
+		rpipe := backend.redis.NewTxPipeline()
+
+		randHeader, err := common.GenerateRandomHash()
+		require.NoError(t, err)
+		txBytes := randHeader.Bytes()
+
+		payload := common.AnchorPayload{
+			Slot:         1,
+			Header:       *header.Header,
+			Transactions: txBytes,
+			GasUsed:      uint64(1),
+			GasLimit:     uint64(10000),
+		}
+
+		err = redis.SaveExecutionToBAnchorPayload(
+			context.Background(),
+			rpipe,
+			1,
+			common.BlsPubKeyToStr(mockPublicKey),
+			testParentHash,
+			&payload)
+		require.NoError(t, err)
+
+		_, err = rpipe.Exec(context.Background())
+		require.NoError(t, err)
+	}
+
+	// helper for populating rob payloads
+	populateRoBPayloadFromHeader := func(header *common.AnchorHeader, redis *datastore.RedisCache, chainID string) {
+		rpipe := backend.redis.NewTxPipeline()
+
+		randHeader, err := common.GenerateRandomHash()
+		require.NoError(t, err)
+		txBytes := randHeader.Bytes()
+
+		payload := common.AnchorPayload{
+			Slot:         1,
+			Header:       *header.Header,
+			Transactions: txBytes,
+			GasUsed:      uint64(1),
+			GasLimit:     uint64(10000),
+		}
+
+		err = redis.SaveExecutionRoBAnchorPayload(
+			context.Background(),
+			rpipe,
+			1,
+			common.BlsPubKeyToStr(mockPublicKey),
+			testParentHash,
+			&payload,
+			chainID)
+		require.NoError(t, err)
+
+		_, err = rpipe.Exec(context.Background())
+		require.NoError(t, err)
+	}
+
+	populatePayloadsFromHeaderResp := func(headerResp *common.AnchorGetHeaderResponse, redis *datastore.RedisCache) {
+		if headerResp.ExecHeaders.ToBHash != nil {
+			populateToBPayloadFromHeader(headerResp.ExecHeaders.ToBHash, redis)
+		}
+
+		for chainID, header := range headerResp.ExecHeaders.RoBHashes {
+			populateRoBPayloadFromHeader(header, redis, chainID)
+		}
+	}
 
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
+		populatePayloadsFromHeaderResp(anchorGetHeaderResp, backend.redis)
+
 		//redis := backend.GetRedis()
 		payloadReq := common.AnchorGetPayloadRequest{
 			Slot:          uint64(1),
 			ProposerIndex: uint64(0),
 			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
-			HeadersHash: headerHash.String(),
+			HeadersHash: testHeaderHash,
 			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
 			SignedHeaders: signedHeaderBytes[:],
 		}
 
 		rr := backend.request(http.MethodPost, requestPath, payloadReq)
 		require.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("Run case with no content", func(t *testing.T) {
+		//redis := backend.GetRedis()
+		payloadReq := common.AnchorGetPayloadRequest{
+			Slot:          uint64(1),
+			ProposerIndex: uint64(0),
+			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
+			HeadersHash: testHeaderHash,
+			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
+			SignedHeaders: signedHeaderBytes[:],
+		}
+
+		rr := backend.request(http.MethodPost, requestPath, payloadReq)
+		require.Equal(t, http.StatusNoContent, rr.Code)
 	})
 }
 
