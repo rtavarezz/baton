@@ -783,7 +783,8 @@ func (r *RedisCache) SaveRoBBuilderBid(
 	}
 	// save the actual bid
 	keyLatestBid := r.KeyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey, chainID)
-	err = r.SetObjPipelined(ctx, pipeline, keyLatestBid, headerRespBytes, expiryBidCache)
+	fmt.Printf("setting RoB anchor header by key(%s) and value: %+v\n", keyLatestBid, headerResp)
+	err = r.SetObjPipelined(ctx, pipeline, keyLatestBid, headerResp, expiryBidCache)
 	if err != nil {
 		return err
 	}

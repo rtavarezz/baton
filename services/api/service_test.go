@@ -602,7 +602,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		rrCode := processBlockRequest(backend, baseRobReq)
 		require.Equal(t, http.StatusOK, rrCode)
 
-		numRoBs := 1
+		numRoBs := 1000
 		robReqs := make([]*common.SubmitNewBlockRequest, 0, numRoBs) // all are higher bids than the base one
 		for i := 0; i < numRoBs; i++ {
 			req, _, _ := CreateTestChunkSubmission(t, baseValue+uint64(i), &opts)
@@ -633,7 +633,6 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			}(req)
 		}
 		wg.Wait()
-		time.Sleep(1 * time.Second)
 
 		chainIDs := GetTestChainId(&opts, opts.robChainIndex)
 		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
