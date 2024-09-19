@@ -116,8 +116,8 @@ func MakeRandomAnchorGetHeaderResponse(pk bls.PublicKey, slot uint64) *AnchorGet
 	}
 
 	robHashes := make(map[string]*AnchorHeader, 0)
-	robHashes["TestChainID1"] = &robAnchorHeader1
-	robHashes["TestChainID2"] = &robAnchorHeader2
+	robHashes["test-chain-0"] = &robAnchorHeader1
+	robHashes["test-chain-1"] = &robAnchorHeader2
 
 	execPayloads := ExecHeadersInfo{
 		ToBHash:   &tobAnchorHeader,

@@ -42,7 +42,6 @@ const (
 	testParentHash       = "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747"
 	testProposerPubkey   = "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
 	testBuilderPubKey    = "0x6ae7109d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90891234"
-	testChainID          = "test-chain-0"
 	test2ProposerPubkey  = "0x84e975405f8691ad7118527ee9ee4ed2e4e8bae973f6e29aa9ca9ee4aea83605ae3536d22acc9aa1af0545064eacf82e"
 	mockSecretKeyHex     = "0x4e343a647c5a5c44d76c2c58b63f02cdf3a9a0ec40f102ebc26363b4b1b95033"
 	testHeaderHash       = "0x67d105493936e93431c7e42ff60e7c81405a4fe2e6877993996122fe07830a0c"
@@ -55,6 +54,7 @@ var (
 	skBytes, _           = hexutil.Decode(mockSecretKeyHex)
 	mockSecretKey, _     = bls.SecretKeyFromBytes(skBytes)
 	mockPublicKey, _     = bls.PublicKeyFromSecretKey(mockSecretKey)
+	testChainID          = GetTestChainId(0)
 )
 
 type testBackend struct {
@@ -680,7 +680,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		}
 		wg.Wait()
 
-		chainIDs := GetTestChainId(opts.IsToB, opts.robChainIndex)
+		chainIDs := GetTestChainIds(opts.IsToB, opts.robChainIndex)
 		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
 		require.NoError(t, err)
 		require.NotNil(t, header)
@@ -728,13 +728,6 @@ func TestGetPayload(t *testing.T) {
 
 	robIDs := backend.baton.GetRoBChainIDs()
 	(*robIDs)[testChainID] = struct{}{}
-
-	/*
-		headerHash, err := common.GenerateRandomHash()
-		if err != nil {
-			t.Error(err)
-		}
-	*/
 
 	// This is a default AnchorGetHeaderResp that can be used in our base case testing.
 	anchorGetHeaderResp := common.MakeRandomAnchorGetHeaderResponse(*mockPublicKey, slot)
@@ -799,7 +792,7 @@ func TestGetPayload(t *testing.T) {
 			rpipe,
 			1,
 			common.BlsPubKeyToStr(mockPublicKey),
-			testParentHash,
+			header.Header.String(),
 			&payload,
 			chainID)
 		require.NoError(t, err)
