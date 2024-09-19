@@ -403,6 +403,10 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	return api, nil
 }
 
+func (api *BatonAPI) SetExpectedHeaders(msg *common.AnchorGetHeaderResponse) {
+	api.expectedHeader = msg
+}
+
 func (api *BatonAPI) getRouter() http.Handler {
 	r := mux.NewRouter()
 
@@ -1711,7 +1715,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	if payload.SignedHeaders == nil || len(payload.SignedHeaders) != 48 {
+	if payload.SignedHeaders == nil || len(payload.SignedHeaders) != 96 {
 		log.WithError(err).Warn("payload request failed because signed headers were bad")
 		api.RespondError(w, http.StatusBadRequest, "payload request failed because signed headers were bad")
 		return

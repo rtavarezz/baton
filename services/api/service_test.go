@@ -43,12 +43,17 @@ const (
 	testProposerPubkey   = "0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
 	testBuilderPubKey    = "0x6ae7109d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90891234"
 	testChainID          = "test-chain-0"
+	test2ProposerPubkey  = "0x84e975405f8691ad7118527ee9ee4ed2e4e8bae973f6e29aa9ca9ee4aea83605ae3536d22acc9aa1af0545064eacf82e"
+	mockSecretKeyHex     = "0x4e343a647c5a5c44d76c2c58b63f02cdf3a9a0ec40f102ebc26363b4b1b95033"
 )
 
 var (
 	builderSigningDomain = phase0.Domain([32]byte{0, 0, 0, 1, 245, 165, 253, 66, 209, 106, 32, 48, 39, 152, 239, 110, 211, 9, 151, 155, 67, 0, 61, 35, 32, 217, 240, 232, 234, 152, 49, 169})
 	testAddress          = eth.Address([20]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
 	testAddress2         = eth.Address([20]byte{1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
+	skBytes, _           = hexutil.Decode(mockSecretKeyHex)
+	mockSecretKey, _     = bls.SecretKeyFromBytes(skBytes)
+	mockPublicKey, _     = bls.PublicKeyFromSecretKey(mockSecretKey)
 )
 
 type testBackend struct {
@@ -137,7 +142,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	}
 
 	// Add a single known test validator
-	backend.datastore.SetKnownValidator(testProposerPubkey, 0)
+	backend.datastore.SetKnownValidator(test2ProposerPubkey, 0)
 	return &backend
 }
 
@@ -725,17 +730,29 @@ func TestGetPayload(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	//var pk []byte
+	//pk = make([]byte, 8)
+	anchor := common.MakeRandomAnchorGetHeaderResponse(*mockPublicKey, slot)
+	err = common.SignAnchorGetHeaderResponse(anchor, mockSecretKey)
+	if err != nil {
+		t.Error(err)
+	}
+	signedHeaders, err := common.GetExecHeaderSignature(&anchor.ExecHeaders, mockSecretKey)
+	if err != nil {
+		t.Error(err)
+	}
+	signedHeaderBytes := signedHeaders.Bytes()
+	backend.baton.SetExpectedHeaders(anchor)
 
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
 		//redis := backend.GetRedis()
-
 		payloadReq := common.AnchorGetPayloadRequest{
 			Slot:          uint64(1),
 			ProposerIndex: uint64(0),
 			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
 			HeadersHash: headerHash.String(),
 			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
-			SignedHeaders: nil,
+			SignedHeaders: signedHeaderBytes[:],
 		}
 
 		rr := backend.request(http.MethodPost, requestPath, payloadReq)

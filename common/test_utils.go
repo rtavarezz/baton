@@ -1,6 +1,9 @@
 package common
 
 import (
+	"github.com/ava-labs/avalanchego/ids"
+	"github.com/flashbots/go-boost-utils/bls"
+	"math/big"
 	"time"
 
 	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
@@ -58,4 +61,85 @@ var ValidPayloadRegisterValidator = builderApiV1.SignedValidatorRegistration{
 	},
 	Signature: _HexToSignature(
 		"0xaf12df007a0c78abb5575067e5f8b089cfcc6227e4a91db7dd8cf517fe86fb944ead859f0781277d9b78c672e4a18c5d06368b603374673cf2007966cece9540f3a1b3f6f9e1bf421d779c4e8010368e6aac134649c7a009210780d401a778a5"),
+}
+
+func MakeRandomAnchorGetHeaderResponse(pk bls.PublicKey, slot uint64) *AnchorGetHeaderResponse {
+	tobHash, err := GenerateRandomHash()
+	if err != nil {
+		return nil
+	}
+
+	tobBlockHashStr, err := GenerateRandomHash()
+	tobBlockHash := tobBlockHashStr.String()
+	if err != nil {
+		return nil
+	}
+
+	robHash1, err := GenerateRandomHash()
+	if err != nil {
+		return nil
+	}
+
+	robBlockHashStr1, err := GenerateRandomHash()
+	robBlockHash1 := robBlockHashStr1.String()
+	if err != nil {
+		return nil
+	}
+
+	robHash2, err := GenerateRandomHash()
+	if err != nil {
+		return nil
+	}
+
+	robBlockHashStr2, err := GenerateRandomHash()
+	robBlockHash2 := robBlockHashStr2.String()
+	if err != nil {
+		return nil
+	}
+
+	tobAnchorHeader := AnchorHeader{
+		Header:    &tobHash,
+		BlockHash: tobBlockHash,
+		Value:     big.NewInt(5),
+	}
+
+	robAnchorHeader1 := AnchorHeader{
+		Header:    &robHash1,
+		BlockHash: robBlockHash1,
+		Value:     big.NewInt(1),
+	}
+
+	robAnchorHeader2 := AnchorHeader{
+		Header:    &robHash2,
+		BlockHash: robBlockHash2,
+		Value:     big.NewInt(2),
+	}
+
+	robHashes := make(map[string]*AnchorHeader, 0)
+	robHashes["TestChainID1"] = &robAnchorHeader1
+	robHashes["TestChainID2"] = &robAnchorHeader2
+
+	execPayloads := ExecHeadersInfo{
+		ToBHash:   &tobAnchorHeader,
+		RoBHashes: robHashes,
+	}
+
+	//proposerPk, err := bls.PublicKeyFromBytes(pkBytes)
+	//if err != nil {
+	//	return nil
+	//}
+
+	anchorBlockInfo := AnchorBlockInfo{
+		Slot: slot,
+		// nodeID of chunk producing validator.
+		Producer:       ids.NodeID{1},
+		ProposerPubkey: pk,
+	}
+
+	resp := AnchorGetHeaderResponse{
+		ExecHeaders: execPayloads,
+		BlockInfo:   anchorBlockInfo,
+	}
+
+	return &resp
 }
