@@ -113,7 +113,12 @@ func CreateTestChunkSubmission(
 		}
 
 		if opts.ParentHash != "" {
-			copy(parentHash[:], opts.ParentHash)
+			var h eth.Hash
+			b, err := hexutil.Decode(opts.ParentHash)
+			require.NoError(t, err)
+			h.SetBytes(b)
+			parentHash = h
+			fmt.Printf("parnet hash: %s\n", hex.EncodeToString(parentHash[:]))
 		}
 	}
 

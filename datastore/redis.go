@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/flashbots/go-boost-utils/bls"
 	"math/big"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/flashbots/go-boost-utils/bls"
 
 	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-utils/cli"
@@ -459,6 +460,7 @@ func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey strin
 
 func (r *RedisCache) GetBestRoBBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
+	fmt.Printf("keyCacheGetRoBHeaderResponse: %s\n", key)
 	resp := new(common.AnchorHeader)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
@@ -1477,6 +1479,7 @@ func (r *RedisCache) _updateRoBTopBid(
 
 	// Copy winning bid to top bid cache
 	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
+	fmt.Printf("keyTopBid (header): %s\n", keyTopBid)
 	c := pipeline.Copy(context.Background(), keyBidRoBSource, keyTopBid, 0, true)
 	_, err = pipeline.Exec(ctx)
 	if err != nil {

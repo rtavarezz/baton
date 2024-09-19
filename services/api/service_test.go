@@ -624,19 +624,18 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 				rrCode := processBlockRequest(backend, req)
 				require.Equal(t, http.StatusOK, rrCode)
 
-				// TEMP TEST
-				chainID := GetTestChainId(&opts, opts.robChainIndex)
-				testChainIDStr := strings.Join(chainID, "")
-				header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), testChainIDStr)
-				require.NoError(t, err)
-				require.NotNil(t, header)
-				require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
+				// // TEMP TEST
+				// chainIDs := GetTestChainId(&opts, opts.robChainIndex)
+				// header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
+				// require.NoError(t, err)
+				// require.NotNil(t, header)
+				// require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
 			}(req)
 		}
 		wg.Wait()
+		time.Sleep(1 * time.Second)
 
 		chainIDs := GetTestChainId(&opts, opts.robChainIndex)
-
 		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
 		require.NoError(t, err)
 		require.NotNil(t, header)

@@ -9,14 +9,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/flashbots/go-boost-utils/bls"
-	"github.com/flashbots/go-boost-utils/ssz"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/flashbots/go-boost-utils/bls"
+	"github.com/flashbots/go-boost-utils/ssz"
 
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -203,7 +204,8 @@ func MapValuesToSlice[K comparable, V any](m map[K]V) []V {
 
 func PublicKeyToByteString(pk *bls.PublicKey) string {
 	pubKeyBytes := pk.Bytes()
-	pubKeyBytesAsStr := string(pubKeyBytes[:])
+	// pubKeyBytesAsStr := string(pubKeyBytes[:])
+	pubKeyBytesAsStr := hex.EncodeToString(pubKeyBytes[:])
 	return pubKeyBytesAsStr
 }
 
@@ -219,3 +221,6 @@ func MustB64Gunzip(s string) []byte {
 	}
 	return output
 }
+
+// rob,boost-relay/:cache-gethead-response:1_0x3078313365363036633762336431666161643765383335303363653364656463_a2d4448cd0db7db072960cf0077332bef49d9c54850d6f54b167975c1b4598b01ddc80d05f8afd12d7fea12715bedbb5_test-chain-0
+// rob,boost-relay/:cache-gethead-response:1_0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747_a2d4448cd0db7db072960cf0077332bef49d9c54850d6f54b167975c1b4598b01ddc80d05f8afd12d7fea12715bedbb5_test-chain-0
