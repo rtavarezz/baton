@@ -20,15 +20,15 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/types"
 	boosttypes "github.com/flashbots/go-boost-utils/types"
-	"github.com/flashbots/mev-boost-relay/beaconclient"
-	"github.com/flashbots/mev-boost-relay/common"
+	"github.com/flashbots/mev-boost-baton/beaconclient"
+	"github.com/flashbots/mev-boost-baton/common"
 	"github.com/stretchr/testify/require"
 )
 
 var (
 	randomAddr           = common2.HexToAddress("0xB9D7a3554F221B34f49d7d3C61375E603aFb699e")
-	blockSubmitPath      = "/relay/v1/builder/rob_blocks"
-	tobTxSubmitPath      = "/relay/v1/builder/tob_txs"
+	blockSubmitPath      = "/baton/v1/builder/rob_blocks"
+	tobTxSubmitPath      = "/baton/v1/builder/tob_txs"
 	payloadJSONFilename  = "../../testdata/submitBlockPayloadCapella_Goerli.json.gz"
 	payloadJSONFilename2 = "../../testdata/submitBlockPayloadCapella_Goerli2.json.gz"
 )
@@ -56,12 +56,12 @@ func prepareBackend(t *testing.T, backend *testBackend, slot uint64, parentHash 
 	headSlot := slot
 	submissionSlot := headSlot + 1
 
-	backend.relay.opts.EthNetDetails.Name = network
-	// Setup the test relay backend
-	backend.relay.headSlot.Store(headSlot)
-	backend.relay.capellaEpoch = 1
-	backend.relay.proposerDutiesMap = make(map[uint64]*common.BuilderGetValidatorsResponseEntry)
-	backend.relay.proposerDutiesMap[headSlot+1] = &common.BuilderGetValidatorsResponseEntry{
+	backend.baton.opts.EthNetDetails.Name = network
+	// Setup the test baton backend
+	backend.baton.headSlot.Store(headSlot)
+	backend.baton.capellaEpoch = 1
+	backend.baton.proposerDutiesMap = make(map[uint64]*common.BuilderGetValidatorsResponseEntry)
+	backend.baton.proposerDutiesMap[headSlot+1] = &common.BuilderGetValidatorsResponseEntry{
 		Slot: headSlot,
 		Entry: &types.SignedValidatorRegistration{
 			Message: &types.RegisterValidatorRequestMessage{
@@ -70,8 +70,8 @@ func prepareBackend(t *testing.T, backend *testBackend, slot uint64, parentHash 
 			},
 		},
 	}
-	backend.relay.payloadAttributes = make(map[string]payloadAttributesHelper)
-	backend.relay.payloadAttributes[parentHash] = payloadAttributesHelper{
+	backend.baton.payloadAttributes = make(map[string]payloadAttributesHelper)
+	backend.baton.payloadAttributes[parentHash] = payloadAttributesHelper{
 		slot:       submissionSlot,
 		parentHash: parentHash,
 		payloadAttributes: beaconclient.PayloadAttributes{
@@ -79,7 +79,7 @@ func prepareBackend(t *testing.T, backend *testBackend, slot uint64, parentHash 
 		},
 		withdrawalsRoot: phase0.Root(withdrawalsRoot),
 	}
-	backend.relay.blockAssembler = &MockBlockAssembler{
+	backend.baton.blockAssembler = &MockBlockAssembler{
 		assemblerError: nil,
 	}
 }
@@ -102,7 +102,7 @@ func prepareBlockSubmitRequest(t *testing.T, payloadJSONFilename string, submiss
 	require.NoError(t, err)
 	req.Capella.Message.BuilderPubkey = phase0.BLSPubKey(pKey)
 	// sign the payload with the builder keypair
-	signature, err := boosttypes.SignMessage(req.Message(), backend.relay.opts.EthNetDetails.DomainBuilder, secretKey)
+	signature, err := boosttypes.SignMessage(req.Message(), backend.baton.opts.EthNetDetails.DomainBuilder, secretKey)
 	require.NoError(t, err)
 	req.Capella.Signature = phase0.BLSSignature(signature)
 
@@ -290,7 +290,7 @@ func TestStateInterference(t *testing.T) {
 
 			prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, c.network)
 
-			res, err := backend.relay.TobTxChecks(c.callTraces)
+			res, err := backend.baton.TobTxChecks(c.callTraces)
 			if c.requiredError != "" {
 				require.Contains(t, err.Error(), c.requiredError)
 				return
@@ -335,7 +335,7 @@ func TestBaseTraceChecks(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.description, func(t *testing.T) {
-			res, err := backend.relay.BaseTraceChecks(c.callTrace)
+			res, err := backend.baton.BaseTraceChecks(c.callTrace)
 			require.NoError(t, err)
 			require.Equal(t, c.isTraceCorrect, res)
 
@@ -422,7 +422,7 @@ func TestIsTraceEthUsdcSwap(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.description, func(t *testing.T) {
-			res, err := backend.relay.IsTraceUniV3EthUsdcSwap(c.callTrace)
+			res, err := backend.baton.IsTraceUniV3EthUsdcSwap(c.callTrace)
 			if c.requiredError != "" {
 				require.Contains(t, err.Error(), c.requiredError)
 				return
@@ -486,7 +486,7 @@ func TestIsTraceToWEthDaiPair(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.description, func(t *testing.T) {
-			res, err := backend.relay.IsTraceToWEthDaiPair(c.callTrace)
+			res, err := backend.baton.IsTraceToWEthDaiPair(c.callTrace)
 			if c.requiredError != "" {
 				require.Contains(t, err.Error(), c.requiredError)
 				return
@@ -508,7 +508,7 @@ func TestNetworkIndependentTobTxChecks(t *testing.T) {
 
 	prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, common.EthNetworkCustom)
 
-	headSlotProposerFeeRecipient := common2.HexToAddress(backend.relay.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
+	headSlotProposerFeeRecipient := common2.HexToAddress(backend.baton.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
 
 	cases := []struct {
 		description        string
@@ -687,12 +687,12 @@ func TestNetworkIndependentTobTxChecks(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.description, func(t *testing.T) {
-			backend.relay.tracer = &MockTracer{
+			backend.baton.tracer = &MockTracer{
 				tracerError:  "",
 				callTraceMap: c.callTraces,
 			}
 			if c.tobSimulationError != "" {
-				backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
+				backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
 					tobSimulationError: fmt.Errorf(c.tobSimulationError),
 				}
 			}
@@ -736,7 +736,7 @@ func TestNetworkDependentCheckTxAndSenderValidity(t *testing.T) {
 
 	prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, common.EthNetworkCustom)
 
-	headSlotProposerFeeRecipient := common2.HexToAddress(backend.relay.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
+	headSlotProposerFeeRecipient := common2.HexToAddress(backend.baton.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
 
 	cases := []struct {
 		description   string
@@ -886,7 +886,7 @@ func TestNetworkDependentCheckTxAndSenderValidity(t *testing.T) {
 		t.Run(c.description, func(t *testing.T) {
 			_, _, backend := startTestBackend(t, c.network)
 
-			backend.relay.tracer = &MockTracer{
+			backend.baton.tracer = &MockTracer{
 				tracerError:  "",
 				callTraceMap: c.callTraces,
 			}
@@ -895,7 +895,7 @@ func TestNetworkDependentCheckTxAndSenderValidity(t *testing.T) {
 
 			prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, c.network)
 
-			err := backend.relay.checkTobTxsStateInterference(c.txs, common.TestLog)
+			err := backend.baton.checkTobTxsStateInterference(c.txs, common.TestLog)
 			if c.requiredError != "" {
 				require.Contains(t, err.Error(), c.requiredError)
 				return
@@ -918,7 +918,7 @@ func TestSubmitTobTxsInSequence(t *testing.T) {
 
 	prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, common.EthNetworkCustom)
 
-	headSlotProposerFeeRecipient := common2.HexToAddress(backend.relay.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
+	headSlotProposerFeeRecipient := common2.HexToAddress(backend.baton.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
 
 	cases := []struct {
 		description        string
@@ -1069,11 +1069,11 @@ func TestSubmitTobTxsInSequence(t *testing.T) {
 
 			prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, c.network)
 
-			backend.relay.tracer = &MockTracer{
+			backend.baton.tracer = &MockTracer{
 				tracerError:  "",
 				callTraceMap: c.firstTobTxsTraces,
 			}
-			backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
+			backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
 
 			// submit first set of tob txs
 			tobTxReqs := bellatrixUtil.ExecutionPayloadTransactions{Transactions: []bellatrix.Transaction{}}
@@ -1100,7 +1100,7 @@ func TestSubmitTobTxsInSequence(t *testing.T) {
 			assertTobTxs(t, backend, headSlot+1, parentHash, c.firstTobTxs[len(c.firstTobTxs)-1].Value(), firstSetTxHashRoot, len(c.firstTobTxs))
 
 			// submit second set of txs
-			backend.relay.tracer = &MockTracer{
+			backend.baton.tracer = &MockTracer{
 				tracerError:  "",
 				callTraceMap: c.secondTobTxsTraces,
 			}
@@ -1145,7 +1145,7 @@ func TestSubmitTobTxs(t *testing.T) {
 
 	prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, common.EthNetworkCustom)
 
-	headSlotProposerFeeRecipient := common2.HexToAddress(backend.relay.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
+	headSlotProposerFeeRecipient := common2.HexToAddress(backend.baton.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
 
 	cases := []struct {
 		description   string
@@ -1330,12 +1330,12 @@ func TestSubmitTobTxs(t *testing.T) {
 
 			prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, c.network)
 			if c.traces == nil {
-				backend.relay.tracer = &MockTracer{tracerError: "no traces available", callTraceMap: nil}
+				backend.baton.tracer = &MockTracer{tracerError: "no traces available", callTraceMap: nil}
 			} else {
-				backend.relay.tracer = &MockTracer{tracerError: "", callTraceMap: c.traces}
+				backend.baton.tracer = &MockTracer{tracerError: "", callTraceMap: c.traces}
 			}
 
-			backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
+			backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
 
 			tobTxReqs := bellatrixUtil.ExecutionPayloadTransactions{Transactions: []bellatrix.Transaction{}}
 			txHashesList := []string{}
@@ -1363,7 +1363,7 @@ func TestSubmitTobTxs(t *testing.T) {
 				return
 			}
 			assertTobTxs(t, backend, headSlot+1, parentHash, c.tobTxs[len(c.tobTxs)-1].Value(), txHashRoot, len(c.tobTxs))
-			profile, err := backend.relay.db.GetTobSubmitProfile(headSlot+1, parentHash, strings.Join(txHashesList, ","))
+			profile, err := backend.baton.db.GetTobSubmitProfile(headSlot+1, parentHash, strings.Join(txHashesList, ","))
 			require.NoError(t, err)
 			require.NotNil(t, profile)
 		})
@@ -1406,7 +1406,7 @@ func assertBlock(t *testing.T, backend *testBackend, headSlot uint64, parentHash
 	floorBid, err := backend.redis.GetFloorBidValue(context.Background(), txPipeliner, headSlot+1, parentHash, blockSubmitReq.ProposerPubkey())
 	require.NoError(t, err)
 	require.Equal(t, floorBid, totalExpectedBidValue)
-	blockSubmissionEntry, err := backend.relay.db.GetBlockSubmissionEntry(headSlot+1, blockSubmitReq.ProposerPubkey(), blockSubmitReq.BlockHash())
+	blockSubmissionEntry, err := backend.baton.db.GetBlockSubmissionEntry(headSlot+1, blockSubmitReq.ProposerPubkey(), blockSubmitReq.BlockHash())
 	require.NoError(t, err)
 	blockSubmissionValue, ok := new(big.Int).SetString(blockSubmissionEntry.Value, 10)
 	require.True(t, ok)
@@ -1429,7 +1429,7 @@ func assertBlock(t *testing.T, backend *testBackend, headSlot uint64, parentHash
 		require.Equal(t, expectedRobTx, robtx)
 	}
 	if len(tobTxs) > 0 {
-		includedTobTxs, err := backend.relay.db.GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(headSlot+1, blockSubmitReq.ParentHash(), blockSubmitReq.BlockHash())
+		includedTobTxs, err := backend.baton.db.GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(headSlot+1, blockSubmitReq.ParentHash(), blockSubmitReq.BlockHash())
 		require.NoError(t, err)
 		require.Equal(t, len(tobTxs), len(includedTobTxs))
 	}
@@ -1446,7 +1446,7 @@ func TestSubmitBuilderBlockInSequence(t *testing.T) {
 
 	prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, common.EthNetworkCustom)
 
-	headSlotProposerFeeRecipient := common2.HexToAddress(backend.relay.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
+	headSlotProposerFeeRecipient := common2.HexToAddress(backend.baton.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
 
 	cases := []struct {
 		description        string
@@ -1596,9 +1596,9 @@ func TestSubmitBuilderBlockInSequence(t *testing.T) {
 
 			prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, c.network)
 
-			backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
+			backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
 
-			backend.relay.tracer = &MockTracer{
+			backend.baton.tracer = &MockTracer{
 				tracerError:  "",
 				callTraceMap: c.firstTobTxsTraces,
 			}
@@ -1654,7 +1654,7 @@ func TestSubmitBuilderBlockInSequence(t *testing.T) {
 			require.Equal(t, blockSubmitReq1, highestRob)
 
 			// submit the second set of ToB txs
-			backend.relay.tracer = &MockTracer{
+			backend.baton.tracer = &MockTracer{
 				tracerError:  "",
 				callTraceMap: c.secondTobTxsTraces,
 			}
@@ -1728,9 +1728,9 @@ func TestRebuildCachedRobBlock(t *testing.T) {
 
 	prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, common.EthNetworkCustom)
 
-	backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
+	backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
 
-	headSlotProposerFeeRecipient := common2.HexToAddress(backend.relay.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
+	headSlotProposerFeeRecipient := common2.HexToAddress(backend.baton.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
 
 	cases := []struct {
 		description   string
@@ -1822,15 +1822,15 @@ func TestRebuildCachedRobBlock(t *testing.T) {
 
 			prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, c.network)
 
-			backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
+			backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
 
 			if c.traces != nil {
-				backend.relay.tracer = &MockTracer{
+				backend.baton.tracer = &MockTracer{
 					tracerError:  "",
 					callTraceMap: c.traces,
 				}
 			} else {
-				backend.relay.tracer = &MockTracer{
+				backend.baton.tracer = &MockTracer{
 					tracerError:  "no traces available",
 					callTraceMap: nil,
 				}
@@ -1864,7 +1864,7 @@ func TestRebuildCachedRobBlock(t *testing.T) {
 				tobTxsValue = payoutTxs.Value()
 				assertTobTxs(t, backend, headSlot+1, parentHash, tobTxsValue, txsHashRoot, len(c.tobTxs))
 			} else {
-				backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
+				backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
 					simulationError: nil,
 				}
 			}
@@ -1875,9 +1875,9 @@ func TestRebuildCachedRobBlock(t *testing.T) {
 			req := prepareBlockSubmitRequest(t, payloadJSONFilename, submissionSlot, uint64(submissionTimestamp), backend)
 			req2 := prepareBlockSubmitRequest(t, payloadJSONFilename2, submissionSlot, uint64(submissionTimestamp), backend)
 
-			err := backend.relay.redis.SetHighestRob(headSlot+1, parentHash, req2)
+			err := backend.baton.redis.SetHighestRob(headSlot+1, parentHash, req2)
 			require.NoError(t, err)
-			err = backend.relay.redis.SetHighestRobValue(context.Background(), txPipeliner, req2.Value(), headSlot+1, parentHash)
+			err = backend.baton.redis.SetHighestRobValue(context.Background(), txPipeliner, req2.Value(), headSlot+1, parentHash)
 			require.NoError(t, err)
 			totalExpectedBidValue := big.NewInt(0).Add(req2.Message().Value.ToBig(), tobTxsValue)
 
@@ -1917,9 +1917,9 @@ func TestSubmitBuilderBlock(t *testing.T) {
 
 	prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, common.EthNetworkCustom)
 
-	backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
+	backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
 
-	headSlotProposerFeeRecipient := common2.HexToAddress(backend.relay.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
+	headSlotProposerFeeRecipient := common2.HexToAddress(backend.baton.proposerDutiesMap[headSlot+1].Entry.Message.FeeRecipient.String())
 
 	cases := []struct {
 		description   string
@@ -2011,15 +2011,15 @@ func TestSubmitBuilderBlock(t *testing.T) {
 
 			prepareBackend(t, backend, headSlot, parentHash, feeRec, withdrawalsRoot, prevRandao, proposerPubkey, c.network)
 
-			backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
+			backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{tobSimulationError: nil}
 
 			if c.traces != nil {
-				backend.relay.tracer = &MockTracer{
+				backend.baton.tracer = &MockTracer{
 					tracerError:  "",
 					callTraceMap: c.traces,
 				}
 			} else {
-				backend.relay.tracer = &MockTracer{
+				backend.baton.tracer = &MockTracer{
 					tracerError:  "no traces available",
 					callTraceMap: nil,
 				}
@@ -2053,7 +2053,7 @@ func TestSubmitBuilderBlock(t *testing.T) {
 				tobTxsValue = payoutTxs.Value()
 				assertTobTxs(t, backend, headSlot+1, parentHash, tobTxsValue, txsHashRoot, len(c.tobTxs))
 			} else {
-				backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
+				backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
 					simulationError: nil,
 				}
 			}

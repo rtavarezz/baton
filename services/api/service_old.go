@@ -34,11 +34,11 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 	boostTypes "github.com/flashbots/go-boost-utils/types"
 	"github.com/flashbots/go-utils/httplogger"
-	"github.com/flashbots/mev-boost-relay/beaconclient"
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/flashbots/mev-boost-relay/contracts"
-	"github.com/flashbots/mev-boost-relay/database"
-	"github.com/flashbots/mev-boost-relay/datastore"
+	"github.com/flashbots/mev-boost-baton/beaconclient"
+	"github.com/flashbots/mev-boost-baton/common"
+	"github.com/flashbots/mev-boost-baton/contracts"
+	"github.com/flashbots/mev-boost-baton/database"
+	"github.com/flashbots/mev-boost-baton/datastore"
 	"github.com/go-redis/redis/v9"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
@@ -167,7 +167,7 @@ func NewBatonOldAPI(opts BatonOldAPIOpts) (api *BatonOldAPI, err error) {
 		}
 		opts.Log.Infof("Using BLS key: %s", publicKey.String())
 
-		// ensure pubkey is same across all relay instances
+		// ensure pubkey is same across all baton instances
 		_pubkey, err := opts.Redis.GetRelayConfig(datastore.RedisConfigFieldPubkey)
 		if err != nil {
 			return nil, err
@@ -1602,11 +1602,11 @@ func (api *BatonOldAPI) handleGetPayload(w http.ResponseWriter, req *http.Reques
 		if err != nil || getPayloadResp == nil {
 			// Still not found! Error out now.
 			if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
-				// Couldn't find the execution payload, maybe it never was submitted to our relay! Check that now
+				// Couldn't find the execution payload, maybe it never was submitted to our baton! Check that now
 				_, err := api.db.GetBlockSubmissionEntry(payload.Slot(), proposerPubkey.String(), payload.BlockHash())
 				if errors.Is(err, sql.ErrNoRows) {
-					log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this relay")
-					api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this relay")
+					log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this baton")
+					api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this baton")
 				} else if err != nil {
 					log.WithError(err).Error("failed getting execution payload (2/2) - payload not found, and error on checking bids")
 				} else {
@@ -1620,7 +1620,7 @@ func (api *BatonOldAPI) handleGetPayload(w http.ResponseWriter, req *http.Reques
 		}
 	}
 
-	// Now we know this relay also has the payload
+	// Now we know this baton also has the payload
 	log = log.WithField("timestampAfterLoadResponse", time.Now().UTC().UnixMilli())
 
 	// Check whether getPayload has already been called -- TODO: do we need to allow multiple submissions of one blinded block?
@@ -3323,14 +3323,14 @@ func (api *BatonOldAPI) handleSubmitNewBlock(w http.ResponseWriter, req *http.Re
 	// If cancellations are enabled, then abort now if this submission is not the latest one
 	if isCancellationEnabled {
 		// Ensure this request is still the latest one. This logic intentionally ignores the value of the bids and makes the current active bid the one
-		// that arrived at the relay last. This allows for builders to reduce the value of their bid (effectively cancel a high bid) by ensuring a lower
+		// that arrived at the baton last. This allows for builders to reduce the value of their bid (effectively cancel a high bid) by ensuring a lower
 		// bid arrives later. Even if the higher bid takes longer to simulate, by checking the receivedAt timestamp, this logic ensures that the low bid
 		// is not overwritten by the high bid.
 		//
-		// NOTE: this can lead to a rather tricky race condition. If a builder submits two blocks to the relay concurrently, then the randomness of network
+		// NOTE: this can lead to a rather tricky race condition. If a builder submits two blocks to the baton concurrently, then the randomness of network
 		// latency will make it impossible to predict which arrives first. Thus a high bid could unintentionally be overwritten by a low bid that happened
 		// to arrive a few microseconds later. If builders are submitting blocks at a frequency where they cannot reliably predict which bid will arrive at
-		// the relay first, they should instead use multiple pubkeys to avoid uninitentionally overwriting their own bids.
+		// the baton first, they should instead use multiple pubkeys to avoid uninitentionally overwriting their own bids.
 		latestPayloadReceivedAt, err := api.redis.GetBuilderLatestPayloadReceivedAt(context.Background(), tx, payload.Slot(), payload.BuilderPubkey().String(), payload.ParentHash(), payload.ProposerPubkey())
 		if err != nil {
 			log.WithError(err).Error("failed getting latest payload receivedAt from redis")

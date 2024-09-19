@@ -60,7 +60,7 @@ var (
 	ErrMissingLogOpt              = errors.New("log parameter is nil")
 	ErrMissingBeaconClientOpt     = errors.New("beacon-client is nil")
 	ErrMissingDatastoreOpt        = errors.New("proposer datastore is nil")
-	ErrRelayPubkeyMismatch        = errors.New("relay pubkey does not match existing one")
+	ErrRelayPubkeyMismatch        = errors.New("baton pubkey does not match existing one")
 	ErrServerAlreadyStarted       = errors.New("server was already started")
 	ErrBuilderAPIWithoutSecretKey = errors.New("cannot start builder API without secret key")
 )
@@ -76,18 +76,18 @@ var (
 	pathRegisterSimulator = "/sim/v1/register"
 
 	// Block builder API
-	pathBuilderGetValidators  = "/relay/v1/builder/validators"
-	pathSubmitNewBlockRequest = "/relay/v1/builder/submit"
-	pathSubmitNewBlock        = "/relay/v1/builder/blocks"
-	pathSubmitNewRoBBlock     = "/relay/v1/builder/rob_blocks"
-	pathSubmitNewToBTxs       = "/relay/v1/builder/tob_txs"
-	pathGetTobGasReservations = "/relay/v1/builder/tob_gas_reservations"
+	pathBuilderGetValidators  = "/baton/v1/builder/validators"
+	pathSubmitNewBlockRequest = "/baton/v1/builder/submit"
+	pathSubmitNewBlock        = "/baton/v1/builder/blocks"
+	pathSubmitNewRoBBlock     = "/baton/v1/builder/rob_blocks"
+	pathSubmitNewToBTxs       = "/baton/v1/builder/tob_txs"
+	pathGetTobGasReservations = "/baton/v1/builder/tob_gas_reservations"
 
 	// Data API
-	pathDataProposerPayloadDelivered = "/relay/v1/data/bidtraces/proposer_payload_delivered"
-	pathDataBuilderBidsReceived      = "/relay/v1/data/bidtraces/builder_blocks_received"
-	pathDataValidatorRegistration    = "/relay/v1/data/validator_registration"
-	pathIncludedTobTxs               = "/relay/v1/data/included_tob_txs/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{block_hash:0x[a-fA-F0-9]+}"
+	pathDataProposerPayloadDelivered = "/baton/v1/data/bidtraces/proposer_payload_delivered"
+	pathDataBuilderBidsReceived      = "/baton/v1/data/bidtraces/builder_blocks_received"
+	pathDataValidatorRegistration    = "/baton/v1/data/validator_registration"
+	pathIncludedTobTxs               = "/baton/v1/data/included_tob_txs/{slot:[0-9]+}/{parent_hash:0x[a-fA-F0-9]+}/{block_hash:0x[a-fA-F0-9]+}"
 
 	// Internal API
 	pathInternalBuilderStatus     = "/internal/v1/builder/{pubkey:0x[a-fA-F0-9]+}"
@@ -95,9 +95,9 @@ var (
 
 	// Testing APIs
 	// TODO - lets keep this for v0 launch for ease of testing but after that remove it.
-	pathGetSlot              = "/eth/v1/relay/get_head_slot"
-	pathGetParentHashForSlot = "/eth/v1/relay/get_parent_hash_for_slot/{slot:[0-9]+}"
-	pathGetProposerForSlot   = "/eth/v1/relay/get_proposer_for_slot/{slot:[0-9]+}"
+	pathGetSlot              = "/eth/v1/baton/get_head_slot"
+	pathGetParentHashForSlot = "/eth/v1/baton/get_parent_hash_for_slot/{slot:[0-9]+}"
+	pathGetProposerForSlot   = "/eth/v1/baton/get_proposer_for_slot/{slot:[0-9]+}"
 
 	// number of goroutines to save active validator
 	numValidatorRegProcessors = cli.GetEnvInt("NUM_VALIDATOR_REG_PROCESSORS", 10)
@@ -133,7 +133,7 @@ var uri string
 var networkID uint32
 var chainID ids.ID
 
-// BatonAPIOpts contains the options for a relay
+// BatonAPIOpts contains the options for a baton
 type BatonAPIOpts struct {
 	Log *logrus.Entry
 
@@ -314,7 +314,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		}
 		opts.Log.Infof("Using BLS key: %s", publicKey.String())
 
-		// ensure pubkey is same across all relay instances
+		// ensure pubkey is same across all baton instances
 		_pubkey, err := opts.Redis.GetRelayConfig(datastore.RedisConfigFieldPubkey)
 		if err != nil {
 			return nil, err
@@ -1371,16 +1371,10 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 
 		// Ensure a valid timestamp (not too early, and not too far in the future)
 		registrationTimestamp := signedValidatorRegistration.Message.Timestamp.Unix()
-
-		// TODO: Do we need this timestamp check? Hard to make since we are removing beacon dependency.
-		/*
-			if registrationTimestamp < int64(api.genesisInfo.Data.GenesisTime) {
-				handleError(regLog, http.StatusBadRequest, "timestamp too early")
-				return
-			}
-		*/
-
-		if registrationTimestamp > registrationTimestampUpperBound {
+		if registrationTimestamp < int64(api.genesisInfo.Data.GenesisTime) {
+			handleError(regLog, http.StatusBadRequest, "timestamp too early")
+			return
+		} else if registrationTimestamp > registrationTimestampUpperBound {
 			handleError(regLog, http.StatusBadRequest, "timestamp too far in the future")
 			return
 		}
@@ -1401,6 +1395,8 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 			return
 		}
 
+		// TODO: Is the below compatible with SEQ validator signatures?
+		// TODO: Do we need to use domains for our other signature usages?
 		// Verify the signature
 		ok, err := boostSsz.VerifySignature(signedValidatorRegistration.Message, api.opts.EthNetDetails.DomainBuilder, signedValidatorRegistration.Message.Pubkey[:], signedValidatorRegistration.Signature[:])
 		if err != nil {
@@ -1809,11 +1805,11 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			// TODO: Is the below still needed?
 			/*
 				if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
-					// Couldn't find the execution payload, maybe it never was submitted to our relay! Check that now
+					// Couldn't find the execution payload, maybe it never was submitted to our baton! Check that now
 					_, err := api.db.GetBlockSubmissionEntry(payload.Slot, proposerPubkey.String(), payload.BlockHash)
 					if errors.Is(err, sql.ErrNoRows) {
-						log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this relay")
-						api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this relay")
+						log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this baton")
+						api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this baton")
 					} else if err != nil {
 						log.WithError(err).Error("failed getting execution payload (2/2) - payload not found, and error on checking bids")
 					} else {
@@ -1848,11 +1844,11 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 				// TODO: Is the below still needed?
 				/*
 					if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
-						// Couldn't find the execution payload, maybe it never was submitted to our relay! Check that now
+						// Couldn't find the execution payload, maybe it never was submitted to our baton! Check that now
 						_, err := api.db.GetBlockSubmissionEntry(payload.Slot, proposerPubkey.String(), payload.BlockHash)
 						if errors.Is(err, sql.ErrNoRows) {
-							log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this relay")
-							api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this relay")
+							log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this baton")
+							api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this baton")
 						} else if err != nil {
 							log.WithError(err).Error("failed getting execution payload (2/2) - payload not found, and error on checking bids")
 						} else {
@@ -1882,7 +1878,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	// Now we know this relay also has the payload
+	// Now we know this baton also has the payload
 	log = log.WithField("timestampAfterLoadResponse", time.Now().UTC().UnixMilli())
 
 	// Check whether getPayload has already been called -- TODO: do we need to allow multiple submissions of one blinded block?

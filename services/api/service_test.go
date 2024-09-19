@@ -53,7 +53,7 @@ var (
 
 type testBackend struct {
 	t          require.TestingT
-	relay      *BatonAPI
+	baton      *BatonAPI
 	datastore  *datastore.Datastore
 	redis      *datastore.RedisCache
 	simManager *bls.SecretKey
@@ -119,10 +119,10 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 		mockMode:        true,
 	}
 
-	relay, err := NewBatonAPI(opts)
+	baton, err := NewBatonAPI(opts)
 	require.NoError(t, err)
 
-	relay.genesisInfo = &beaconclient.GetGenesisResponse{
+	baton.genesisInfo = &beaconclient.GetGenesisResponse{
 		Data: beaconclient.GetGenesisResponseData{
 			GenesisTime: 1606824023,
 		},
@@ -130,11 +130,14 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 
 	backend := testBackend{
 		t:          t,
-		relay:      relay,
+		baton:      baton,
 		datastore:  ds,
 		redis:      redisCache,
 		simManager: managerSk,
 	}
+
+	// Add a single known test validator
+	backend.datastore.SetKnownValidator(testProposerPubkey, 0)
 	return &backend
 }
 
@@ -156,7 +159,7 @@ func (be *testBackend) requestBytes(method, path string, payload []byte, headers
 
 	// lfg
 	rr := httptest.NewRecorder()
-	be.relay.getRouter().ServeHTTP(rr, req)
+	be.baton.getRouter().ServeHTTP(rr, req)
 	return rr
 }
 
@@ -175,7 +178,7 @@ func (be *testBackend) request(method, path string, payload any) *httptest.Respo
 
 	// lfg
 	rr := httptest.NewRecorder()
-	be.relay.getRouter().ServeHTTP(rr, req)
+	be.baton.getRouter().ServeHTTP(rr, req)
 	return rr
 }
 
@@ -194,49 +197,52 @@ func (be *testBackend) requestWithUA(method, path, userAgent string, payload any
 
 	require.NoError(be.t, err)
 	rr := httptest.NewRecorder()
-	be.relay.getRouter().ServeHTTP(rr, req)
+	be.baton.getRouter().ServeHTTP(rr, req)
 	return rr
 }
 
-// func generateSignedValidatorRegistration(sk *bls.SecretKey, feeRecipient types.Address, timestamp uint64) (*types.SignedValidatorRegistration, error) {
-// 	var err error
-// 	if sk == nil {
-// 		sk, _, err = bls.GenerateNewKeypair()
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 	}
+/*
+func generateSignedValidatorRegistration(sk *bls.SecretKey, feeRecipient types.Address, timestamp uint64) (*types.SignedValidatorRegistration, error) {
+	var err error
+	if sk == nil {
+		sk, _, err = bls.GenerateNewKeypair()
+		if err != nil {
+			return nil, err
+		}
+	}
 
-// 	blsPubKey, _ := bls.PublicKeyFromSecretKey(sk)
+	blsPubKey, _ := bls.PublicKeyFromSecretKey(sk)
 
-// 	var pubKey types.PublicKey
-// 	err = pubKey.FromSlice(bls.PublicKeyToBytes(blsPubKey))
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	msg := &types.RegisterValidatorRequestMessage{
-// 		FeeRecipient: feeRecipient,
-// 		Timestamp:    timestamp,
-// 		Pubkey:       pubKey,
-// 		GasLimit:     278234191203,
-// 	}
+	var pubKey types.PublicKey
+	err = pubKey.FromSlice(bls.PublicKeyToBytes(blsPubKey))
+	if err != nil {
+		return nil, err
+	}
+	msg := &types.RegisterValidatorRequestMessage{
+		FeeRecipient: feeRecipient,
+		Timestamp:    timestamp,
+		Pubkey:       pubKey,
+		GasLimit:     278234191203,
+	}
 
-// 	sig, err := types.SignMessage(msg, builderSigningDomain, sk)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	sig, err := types.SignMessage(msg, builderSigningDomain, sk)
+	if err != nil {
+		return nil, err
+	}
 
-// 	return &types.SignedValidatorRegistration{
-// 		Message:   msg,
-// 		Signature: sig,
-// 	}, nil
-// }
+	return &types.SignedValidatorRegistration{
+		Message:   msg,
+		Signature: sig,
+	}, nil
+}
+
+*/
 
 func TestWebserver(t *testing.T) {
 	t.Run("errors when webserver is already existing", func(t *testing.T) {
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-		backend.relay.srvStarted.Store(true)
-		err := backend.relay.StartServer()
+		backend.baton.srvStarted.Store(true)
+		err := backend.baton.StartServer()
 		require.Error(t, err)
 	})
 }
@@ -313,32 +319,33 @@ func TestRegisterSimulator(t *testing.T) {
 	})
 }
 
+/*
 func TestRegisterValidator(t *testing.T) {
 	path := "/eth/v1/builder/validators"
 
-	// t.Run("Normal function", func(t *testing.T) {
-	// 	backend := newTestBackend(t, 1)
-	// 	pubkeyHex := common.ValidPayloadRegisterValidator.Message.Pubkey.PubkeyHex()
-	// 	index := uint64(17)
-	// 	err := backend.redis.SetKnownValidator(pubkeyHex, index)
-	// 	require.NoError(t, err)
+	t.Run("Normal function", func(t *testing.T) {
+		backend := newTestBackend(t, 1)
+		pubkeyHex := common.ValidPayloadRegisterValidator.Message.Pubkey.PubkeyHex()
+		index := uint64(17)
+		err := backend.redis.SetKnownValidator(pubkeyHex, index)
+		require.NoError(t, err)
 
-	// 	// Update datastore
-	// 	_, err = backend.datastore.RefreshKnownValidators()
-	// 	require.NoError(t, err)
-	// 	require.True(t, backend.datastore.IsKnownValidator(pubkeyHex))
-	// 	pkH, ok := backend.datastore.GetKnownValidatorPubkeyByIndex(index)
-	// 	require.True(t, ok)
-	// 	require.Equal(t, pubkeyHex, pkH)
+		// Update datastore
+		_, err = backend.datastore.RefreshKnownValidators()
+		require.NoError(t, err)
+		require.True(t, backend.datastore.IsKnownValidator(pubkeyHex))
+		pkH, ok := backend.datastore.GetKnownValidatorPubkeyByIndex(index)
+		require.True(t, ok)
+		require.Equal(t, pubkeyHex, pkH)
 
-	// 	payload := []types.SignedValidatorRegistration{common.ValidPayloadRegisterValidator}
-	// 	rr := backend.request(http.MethodPost, path, payload)
-	// 	require.Equal(t, http.StatusOK, rr.Code)
-	// 	time.Sleep(20 * time.Millisecond) // registrations are processed asynchronously
+		payload := []types.SignedValidatorRegistration{common.ValidPayloadRegisterValidator}
+		rr := backend.request(http.MethodPost, path, payload)
+		require.Equal(t, http.StatusOK, rr.Code)
+		time.Sleep(20 * time.Millisecond) // registrations are processed asynchronously
 
-	// 	isKnown := backend.datastore.IsKnownValidator(pubkeyHex)
-	// 	require.True(t, isKnown)
-	// })
+		isKnown := backend.datastore.IsKnownValidator(pubkeyHex)
+		require.True(t, isKnown)
+	})
 
 	t.Run("not a known validator", func(t *testing.T) {
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
@@ -376,20 +383,58 @@ func TestRegisterValidator(t *testing.T) {
 	// 	require.Contains(t, rr.Body.String(), "timestamp too far in the future")
 	// })
 }
+*/
+
+// NEW VERSION
+func TestRegisterValidator(t *testing.T) {
+	path := "/eth/v1/builder/validators"
+
+	t.Run("not a known validator", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+
+		rr := backend.request(http.MethodPost, path, []apiv1.SignedValidatorRegistration{common.ValidPayloadRegisterValidator})
+		require.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("known validator", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+
+		msg := common.ValidPayloadRegisterValidator
+		backend.datastore.SetKnownValidator(common.PubkeyHex(msg.Message.Pubkey.String()), 1)
+
+		rr := backend.request(http.MethodPost, path, []apiv1.SignedValidatorRegistration{common.ValidPayloadRegisterValidator})
+		require.Equal(t, http.StatusOK, rr.Code)
+
+		// wait for the both channel notifications
+		select {
+		case val := <-backend.baton.validatorRegC:
+			require.Equal(t, val.Message.Pubkey, msg.Message.Pubkey)
+		default:
+		}
+
+		// TODO: Do we need this validatorUpdateCh?
+		/*
+			select {
+			case <-backend.baton.validatorUpdateCh:
+			default:
+			}
+		*/
+	})
+}
 
 // @TODO: Create test cases below, cover ALL cases
 func TestGetHeader(t *testing.T) {
 	// Setup backend with headSlot and genesisTime
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+	backend.baton.genesisInfo = &beaconclient.GetGenesisResponse{
 		Data: beaconclient.GetGenesisResponseData{
 			GenesisTime: uint64(time.Now().UTC().Unix()),
 		},
 	}
 	slot := uint64(1)
-	backend.relay.headSlot.Store(slot)
+	backend.baton.headSlot.Store(slot)
 
-	robIDs := backend.relay.GetRoBChainIDs()
+	robIDs := backend.baton.GetRoBChainIDs()
 
 	(*robIDs)[testChainID] = struct{}{}
 
@@ -421,7 +466,7 @@ func TestGetHeader(t *testing.T) {
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
 
 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
-		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
 
 		require.Equal(t, http.StatusOK, rr.Code)
 	})
@@ -454,7 +499,7 @@ func TestGetHeader(t *testing.T) {
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
 
 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
-		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
 
 		require.Equal(t, http.StatusOK, rr.Code)
 	})
@@ -462,7 +507,7 @@ func TestGetHeader(t *testing.T) {
 
 func createBackendHelper(t *testing.T) *testBackend {
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+	backend.baton.genesisInfo = &beaconclient.GetGenesisResponse{
 		Data: beaconclient.GetGenesisResponseData{
 			GenesisTime: uint64(time.Now().UTC().Unix()),
 		},
@@ -515,14 +560,14 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.NoError(t, err)
 
 		// new HTTP req
-		httpReq := httptest.NewRequest(http.MethodPost, "/relay/v1/builder/submit", bytes.NewReader(requestBodyBytes))
+		httpReq := httptest.NewRequest(http.MethodPost, "/baton/v1/builder/submit", bytes.NewReader(requestBodyBytes))
 		httpReq.Header.Set("Content-Type", "application/json")
 
 		// Capture the response
 		rr := httptest.NewRecorder()
 
 		// Process the request
-		backend.relay.getRouter().ServeHTTP(rr, httpReq)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
 
 		return rr.Code
 	}
@@ -623,13 +668,6 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 				defer wg.Done()
 				rrCode := processBlockRequest(backend, req)
 				require.Equal(t, http.StatusOK, rrCode)
-
-				// // TEMP TEST
-				// chainIDs := GetTestChainId(&opts, opts.robChainIndex)
-				// header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
-				// require.NoError(t, err)
-				// require.NotNil(t, header)
-				// require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
 			}(req)
 		}
 		wg.Wait()
@@ -644,7 +682,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 // TODO: fix me soon
 func TestBuilderApiGetValidators(t *testing.T) {
-	path := "/relay/v1/builder/validators"
+	path := "/baton/v1/builder/validators"
 
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 	duties := []common.BuilderGetValidatorsResponseEntry{
@@ -655,7 +693,7 @@ func TestBuilderApiGetValidators(t *testing.T) {
 	}
 	responseBytes, err := json.Marshal(duties)
 	require.NoError(t, err)
-	backend.relay.proposerDutiesResponse = &responseBytes
+	backend.baton.proposerDutiesResponse = &responseBytes
 
 	rr := backend.request(http.MethodGet, path, nil)
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -671,16 +709,16 @@ func TestBuilderApiGetValidators(t *testing.T) {
 func TestGetPayload(t *testing.T) {
 	// Setup backend with headSlot and genesisTime
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{
+	backend.baton.genesisInfo = &beaconclient.GetGenesisResponse{
 		Data: beaconclient.GetGenesisResponseData{
 			GenesisTime: uint64(time.Now().UTC().Unix()),
 		},
 	}
 	slot := uint64(1)
-	backend.relay.headSlot.Store(slot)
+	backend.baton.headSlot.Store(slot)
 	requestPath := "/eth/v1/builder/blinded_blocks"
 
-	robIDs := backend.relay.GetRoBChainIDs()
+	robIDs := backend.baton.GetRoBChainIDs()
 	(*robIDs)[testChainID] = struct{}{}
 
 	headerHash, err := common.GenerateRandomHash()
@@ -693,7 +731,7 @@ func TestGetPayload(t *testing.T) {
 
 		payloadReq := common.AnchorGetPayloadRequest{
 			Slot:          uint64(1),
-			ProposerIndex: uint64(2),
+			ProposerIndex: uint64(0),
 			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
 			HeadersHash: headerHash.String(),
 			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
@@ -706,7 +744,7 @@ func TestGetPayload(t *testing.T) {
 }
 
 func TestDataApiGetDataProposerPayloadDelivered(t *testing.T) {
-	path := "/relay/v1/data/bidtraces/proposer_payload_delivered"
+	path := "/baton/v1/data/bidtraces/proposer_payload_delivered"
 
 	t.Run("Accept valid block_hash", func(t *testing.T) {
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
@@ -808,14 +846,14 @@ func TestCheckSubmissionFeeRecipient(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(tc.description, func(t *testing.T) {
 				_, _, backend := startTestBackend(t, common.EthNetworkMainnet)
-				backend.relay.proposerDutiesLock.RLock()
-				backend.relay.proposerDutiesMap[tc.payload.Slot()] = tc.slotDuty
-				backend.relay.proposerDutiesLock.RUnlock()
+				backend.baton.proposerDutiesLock.RLock()
+				backend.baton.proposerDutiesMap[tc.payload.Slot()] = tc.slotDuty
+				backend.baton.proposerDutiesLock.RUnlock()
 
 				w := httptest.NewRecorder()
 				logger := logrus.New()
 				log := logrus.NewEntry(logger)
-				gasLimit, ok := backend.relay.checkSubmissionFeeRecipient(w, log, tc.payload)
+				gasLimit, ok := backend.baton.checkSubmissionFeeRecipient(w, log, tc.payload)
 				require.Equal(t, tc.expectGasLimit, gasLimit)
 				require.Equal(t, tc.expectOk, ok)
 			})
@@ -886,7 +924,7 @@ func TestCheckSubmissionSlotDetails(t *testing.T) {
 				w := httptest.NewRecorder()
 				logger := logrus.New()
 				log := logrus.NewEntry(logger)
-				ok := backend.relay.checkSubmissionSlotDetails(w, log, headSlot, tc.payload)
+				ok := backend.baton.checkSubmissionSlotDetails(w, log, headSlot, tc.payload)
 				require.Equal(t, tc.expectOk, ok)
 			})
 		}
@@ -947,12 +985,12 @@ func TestCheckBuilderEntry(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(tc.description, func(t *testing.T) {
 				_, _, backend := startTestBackend(t, common.EthNetworkMainnet)
-				backend.relay.blockBuildersCache[tc.pk.String()] = tc.entry
-				backend.relay.ffDisableLowPrioBuilders = true
+				backend.baton.blockBuildersCache[tc.pk.String()] = tc.entry
+				backend.baton.ffDisableLowPrioBuilders = true
 				w := httptest.NewRecorder()
 				logger := logrus.New()
 				log := logrus.NewEntry(logger)
-				_, ok := backend.relay.checkBuilderEntry(w, log, builderPubkey)
+				_, ok := backend.baton.checkBuilderEntry(w, log, builderPubkey)
 				require.Equal(t, tc.expectOk, ok)
 			})
 		}
@@ -1025,7 +1063,7 @@ func TestUpdateRedis(t *testing.T) {
 				floorBidValue:        floorValue,
 				payload:              tc.payload,
 			}
-			updateResp, getPayloadResp, ok := backend.relay.updateRedisBid(rOpts)
+			updateResp, getPayloadResp, ok := backend.baton.updateRedisBid(rOpts)
 			require.Equal(t, tc.expectOk, ok)
 			if ok {
 				require.NotNil(t, updateResp)

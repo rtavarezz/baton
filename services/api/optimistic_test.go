@@ -17,10 +17,10 @@ import (
   "github.com/attestantio/go-eth2-client/spec/phase0"
   "github.com/flashbots/go-boost-utils/bls"
   boostTypes "github.com/flashbots/go-boost-utils/types"
-  "github.com/flashbots/mev-boost-relay/beaconclient"
-  "github.com/flashbots/mev-boost-relay/common"
-  "github.com/flashbots/mev-boost-relay/database"
-  "github.com/flashbots/mev-boost-relay/datastore"
+  "github.com/flashbots/mev-boost-baton/beaconclient"
+  "github.com/flashbots/mev-boost-baton/common"
+  "github.com/flashbots/mev-boost-baton/database"
+  "github.com/flashbots/mev-boost-baton/datastore"
   "github.com/holiman/uint256"
   "github.com/stretchr/testify/require"
 )
@@ -72,9 +72,9 @@ func startTestBackend(t *testing.T, network string) (*phase0.BLSPubKey, *bls.Sec
 
 	// Setup test backend.
 	backend := newTestBackend(t, 1, network)
-	backend.relay.genesisInfo = &beaconclient.GetGenesisResponse{}
-	backend.relay.genesisInfo.Data.GenesisTime = 0
-	backend.relay.proposerDutiesMap = map[uint64]*common.BuilderGetValidatorsResponseEntry{
+	backend.baton.genesisInfo = &beaconclient.GetGenesisResponse{}
+	backend.baton.genesisInfo.Data.GenesisTime = 0
+	backend.baton.proposerDutiesMap = map[uint64]*common.BuilderGetValidatorsResponseEntry{
 		slot: {
 			Entry: &boostTypes.SignedValidatorRegistration{
 				Message: &boostTypes.RegisterValidatorRequestMessage{
@@ -86,10 +86,10 @@ func startTestBackend(t *testing.T, network string) (*phase0.BLSPubKey, *bls.Sec
 			},
 		},
 	}
-	backend.relay.opts.BlockBuilderAPI = true
-	backend.relay.beaconClient = beaconclient.NewMockMultiBeaconClient()
-	backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{}
-	backend.relay.blockBuildersCache = map[string]*blockBuilderCacheEntry{
+	backend.baton.opts.BlockBuilderAPI = true
+	backend.baton.beaconClient = beaconclient.NewMockMultiBeaconClient()
+	backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{}
+	backend.baton.blockBuildersCache = map[string]*blockBuilderCacheEntry{
 		pkStr: {
 			status: common.BuilderStatus{
 				IsHighPrio:   true,
@@ -120,25 +120,25 @@ func startTestBackend(t *testing.T, network string) (*phase0.BLSPubKey, *bls.Sec
 	mockDS, err := datastore.NewDatastore(mockRedis, nil, mockDB)
 	require.NoError(t, err)
 
-	backend.relay.datastore = mockDS
-	backend.relay.redis = mockRedis
-	backend.relay.db = mockDB
+	backend.baton.datastore = mockDS
+	backend.baton.redis = mockRedis
+	backend.baton.db = mockDB
 
 	// Prepare redis
-	// err = backend.relay.redis.SetKnownValidator(boostTypes.NewPubkeyHex(pubkey.String()), proposerInd)
+	// err = backend.baton.redis.SetKnownValidator(boostTypes.NewPubkeyHex(pubkey.String()), proposerInd)
 	// require.NoError(t, err)
 
-	// count, err := backend.relay.datastore.RefreshKnownValidators()
+	// count, err := backend.baton.datastore.RefreshKnownValidators()
 	// require.NoError(t, err)
 	// require.Equal(t, count, 1)
 
-	backend.relay.headSlot.Store(40)
+	backend.baton.headSlot.Store(40)
 	return &pubkey, sk, backend
 }
 
 func runOptimisticBlockSubmission(t *testing.T, opts blockRequestOpts, simErr error, backend *testBackend) *httptest.ResponseRecorder {
 	t.Helper()
-	backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
+	backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
 		simulationError: simErr,
 	}
 
@@ -176,12 +176,12 @@ func TestSimulateBlock(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.description, func(t *testing.T) {
 			pubkey, secretkey, backend := startTestBackend(t, common.EthNetworkMainnet)
-			backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
+			backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
 				simulationError: tc.simulationError,
 			}
-			_, simErr := backend.relay.simulateBlock(context.Background(), blockSimOptions{
+			_, simErr := backend.baton.simulateBlock(context.Background(), blockSimOptions{
 				isHighPrio: true,
-				log:        backend.relay.log,
+				log:        backend.baton.log,
 				builder: &blockBuilderCacheEntry{
 					status: common.BuilderStatus{
 						IsOptimistic: true,
@@ -225,13 +225,13 @@ func TestProcessOptimisticBlock(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			pubkey, secretkey, backend := startTestBackend(t, common.EthNetworkMainnet)
 			pkStr := pubkey.String()
-			backend.relay.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
+			backend.baton.blockSimRateLimiter = &MockBlockSimulationRateLimiter{
 				simulationError: tc.simulationError,
 			}
 			simResultC := make(chan *blockSimResult, 1)
-			backend.relay.processOptimisticBlock(blockSimOptions{
+			backend.baton.processOptimisticBlock(blockSimOptions{
 				isHighPrio: true,
-				log:        backend.relay.log,
+				log:        backend.baton.log,
 				builder: &blockBuilderCacheEntry{
 					status: common.BuilderStatus{
 						IsOptimistic: true,
@@ -244,7 +244,7 @@ func TestProcessOptimisticBlock(t *testing.T) {
 			}, simResultC)
 
 			// Check status in db.
-			builder, err := backend.relay.db.GetBlockBuilderByPubkey(pkStr)
+			builder, err := backend.baton.db.GetBlockBuilderByPubkey(pkStr)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantStatus.IsOptimistic, builder.IsOptimistic)
 			require.Equal(t, tc.wantStatus.IsHighPrio, builder.IsHighPrio)
@@ -258,7 +258,7 @@ func TestProcessOptimisticBlock(t *testing.T) {
 
 			// Check demotion but no refund.
 			if tc.simulationError != nil {
-				mockDB, ok := backend.relay.db.(*database.MockDB)
+				mockDB, ok := backend.baton.db.(*database.MockDB)
 				require.True(t, ok)
 				require.True(t, mockDB.Demotions[pkStr])
 				require.False(t, mockDB.Refunds[pkStr])
@@ -275,16 +275,16 @@ func TestDemoteBuilder(t *testing.T) {
 	pubkey, secretkey, backend := startTestBackend(t, common.EthNetworkMainnet)
 	pkStr := pubkey.String()
 	req := common.TestBuilderSubmitBlockRequest(secretkey, getTestBidTrace(*pubkey, collateral))
-	backend.relay.demoteBuilder(pkStr, &req, errFake)
+	backend.baton.demoteBuilder(pkStr, &req, errFake)
 
 	// Check status in db.
-	builder, err := backend.relay.db.GetBlockBuilderByPubkey(pkStr)
+	builder, err := backend.baton.db.GetBlockBuilderByPubkey(pkStr)
 	require.NoError(t, err)
 	require.Equal(t, wantStatus.IsOptimistic, builder.IsOptimistic)
 	require.Equal(t, wantStatus.IsHighPrio, builder.IsHighPrio)
 
 	// Check demotion and refund statuses.
-	mockDB, ok := backend.relay.db.(*database.MockDB)
+	mockDB, ok := backend.baton.db.(*database.MockDB)
 	require.True(t, ok)
 	require.True(t, mockDB.Demotions[pkStr])
 }
@@ -293,9 +293,9 @@ func TestPrepareBuildersForSlot(t *testing.T) {
 	pubkey, _, backend := startTestBackend(t, common.EthNetworkMainnet)
 	pkStr := pubkey.String()
 	// Clear cache.
-	backend.relay.blockBuildersCache = map[string]*blockBuilderCacheEntry{}
-	backend.relay.prepareBuildersForSlot(slot + 1)
-	entry, ok := backend.relay.blockBuildersCache[pkStr]
+	backend.baton.blockBuildersCache = map[string]*blockBuilderCacheEntry{}
+	backend.baton.prepareBuildersForSlot(slot + 1)
+	entry, ok := backend.baton.blockBuildersCache[pkStr]
 	require.True(t, ok)
 	require.Equal(t, true, entry.status.IsHighPrio)
 	require.Equal(t, true, entry.status.IsOptimistic)
@@ -350,14 +350,14 @@ func TestPrepareBuildersForSlot(t *testing.T) {
 // 	for _, tc := range testCases {
 // 		t.Run(tc.description, func(t *testing.T) {
 // 			pubkey, secretkey, backend := startTestBackend(t)
-// 			backend.relay.optimisticSlot.Store(slot)
-// 			backend.relay.capellaEpoch = 1
+// 			backend.baton.optimisticSlot.Store(slot)
+// 			backend.baton.capellaEpoch = 1
 // 			var randaoHash boostTypes.Hash
 // 			err := randaoHash.FromSlice([]byte(randao))
 // 			require.NoError(t, err)
 // 			withRoot, err := ComputeWithdrawalsRoot([]*consensuscapella.Withdrawal{})
 // 			require.NoError(t, err)
-// 			backend.relay.payloadAttributes[emptyHash] = payloadAttributesHelper{
+// 			backend.baton.payloadAttributes[emptyHash] = payloadAttributesHelper{
 // 				slot:            slot,
 // 				withdrawalsRoot: withRoot,
 // 				payloadAttributes: beaconclient.PayloadAttributes{
@@ -369,20 +369,20 @@ func TestPrepareBuildersForSlot(t *testing.T) {
 // 				secretkey:  secretkey,
 // 				pubkey:     *pubkey,
 // 				blockValue: tc.blockValue,
-// 				domain:     backend.relay.opts.EthNetDetails.DomainBuilder,
+// 				domain:     backend.baton.opts.EthNetDetails.DomainBuilder,
 // 			}, tc.simulationError, backend)
 
 // 			// Check http code.
 // 			require.Equal(t, uint64(rr.Code), tc.httpCode)
 
 // 			// Check status in db.
-// 			builder, err := backend.relay.db.GetBlockBuilderByPubkey(pkStr)
+// 			builder, err := backend.baton.db.GetBlockBuilderByPubkey(pkStr)
 // 			require.NoError(t, err)
 // 			require.Equal(t, tc.wantStatus.IsOptimistic, builder.IsOptimistic)
 // 			require.Equal(t, tc.wantStatus.IsHighPrio, builder.IsHighPrio)
 
 // 			// Check demotion status is set to expected and refund is false.
-// 			mockDB, ok := backend.relay.db.(*database.MockDB)
+// 			mockDB, ok := backend.baton.db.(*database.MockDB)
 // 			require.True(t, ok)
 // 			require.Equal(t, mockDB.Demotions[pkStr], tc.expectDemotion)
 // 			require.False(t, mockDB.Refunds[pkStr])
@@ -393,7 +393,7 @@ func TestPrepareBuildersForSlot(t *testing.T) {
 func TestInternalBuilderStatus(t *testing.T) {
 	pubkey, _, backend := startTestBackend(t, common.EthNetworkMainnet)
 	// Set all to false initially.
-	err := backend.relay.db.SetBlockBuilderStatus(pubkey.String(), common.BuilderStatus{})
+	err := backend.baton.db.SetBlockBuilderStatus(pubkey.String(), common.BuilderStatus{})
 	require.NoError(t, err)
 	path := "/internal/v1/builder/" + pubkey.String()
 
