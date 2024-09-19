@@ -553,7 +553,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			withTransferTx: true,
 		}
 
-		tobReq, _, _ := CreateTestChunkSubmission(t, 2, &opts)
+		tobReq, _, _ := CreateTestChunkSubmission(t, 5, &opts)
 		require.NoError(t, err)
 
 		rrCode := processBlockRequest(backend, tobReq)
@@ -634,7 +634,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		}
 		wg.Wait()
 
-		chainIDs := GetTestChainId(&opts, opts.robChainIndex)
+		chainIDs := GetTestChainId(opts.IsToB, opts.robChainIndex)
 		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
 		require.NoError(t, err)
 		require.NotNil(t, header)

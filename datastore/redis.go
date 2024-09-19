@@ -1544,7 +1544,6 @@ func (r *RedisCache) HasTopToBBidValue(
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopToBBidValue(slot, parentString, proposerString)
 	fmt.Println("keyTopBidValue:", keyTopBidValue)
-	//TODO: keyTopBidValue returns correct info, yet exists returns 0 meaning redis isn't finding the key
 	exists, err := r.client.Exists(ctx, keyTopBidValue).Result()
 	if err != nil {
 		return false, err

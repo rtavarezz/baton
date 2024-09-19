@@ -2364,7 +2364,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	if isToB {
-		// TODO: fix since it fails here for base tob case due to other TODO comment inside HasTopToBBidValue
 		hasToB, err = api.redis.HasTopToBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
 		if err != nil {
 			log.WithError(err).Info("could not query tob for blockReq, returned err")
