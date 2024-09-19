@@ -770,7 +770,7 @@ func TestGetPayload(t *testing.T) {
 			rpipe,
 			1,
 			common.BlsPubKeyToStr(mockPublicKey),
-			testParentHash,
+			header.Header.String(),
 			&payload)
 		require.NoError(t, err)
 

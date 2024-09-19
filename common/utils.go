@@ -224,7 +224,11 @@ func MustB64Gunzip(s string) []byte {
 
 func BlsPubKeyToStr(pk *bls.PublicKey) string {
 	pkBytes := pk.Bytes()
-	return hex.EncodeToString(pkBytes[:])
+	pubKeyStr := hex.EncodeToString(pkBytes[:])
+	if pubKeyStr[0] != '0' && pubKeyStr[1] != 'x' {
+		pubKeyStr = "0x" + pubKeyStr
+	}
+	return pubKeyStr
 }
 
 // rob,boost-relay/:cache-gethead-response:1_0x3078313365363036633762336431666161643765383335303363653364656463_a2d4448cd0db7db072960cf0077332bef49d9c54850d6f54b167975c1b4598b01ddc80d05f8afd12d7fea12715bedbb5_test-chain-0
