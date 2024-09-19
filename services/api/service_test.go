@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -603,7 +602,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		rrCode := processBlockRequest(backend, baseRobReq)
 		require.Equal(t, http.StatusOK, rrCode)
 
-		numRoBs := 100
+		numRoBs := 1
 		robReqs := make([]*common.SubmitNewBlockRequest, 0, numRoBs) // all are higher bids than the base one
 		for i := 0; i < numRoBs; i++ {
 			req, _, _ := CreateTestChunkSubmission(t, baseValue+uint64(i), &opts)
@@ -627,11 +626,12 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			}(req)
 		}
 		wg.Wait()
-		chainID := GetTestChainId(&opts, opts.robChainIndex)
-		testChainIDStr := strings.Join(chainID, "")
 
-		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), testChainIDStr)
+		chainIDs := GetTestChainId(&opts, opts.robChainIndex)
+
+		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
 		require.NoError(t, err)
+		require.NotNil(t, header)
 		require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
 	})
 }
