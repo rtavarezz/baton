@@ -725,12 +725,14 @@ func TestGetPayload(t *testing.T) {
 	slot := uint64(1)
 	backend.baton.headSlot.Store(slot)
 	requestPath := "/eth/v1/builder/blinded_blocks"
+	headerHash := eth.Hash([]byte(testHeaderHash))
 
 	robIDs := backend.baton.GetRoBChainIDs()
 	(*robIDs)[testChainID] = struct{}{}
 
 	// This is a default AnchorGetHeaderResp that can be used in our base case testing.
 	anchorGetHeaderResp := common.MakeRandomAnchorGetHeaderResponse(*mockPublicKey, slot)
+	anchorGetHeaderResp.HeadersHash = eth.Hash([]byte(testHeaderHash))
 	err := common.SignAnchorGetHeaderResponse(anchorGetHeaderResp, mockSecretKey)
 	if err != nil {
 		t.Error(err)
@@ -743,7 +745,7 @@ func TestGetPayload(t *testing.T) {
 	backend.baton.SetExpectedHeaders(anchorGetHeaderResp)
 
 	// helper for populating tob payloads
-	populateToBPayloadFromHeader := func(header *common.AnchorHeader, redis *datastore.RedisCache) {
+	populateToBPayloadFromHeader := func(header *common.AnchorHeader, blockHash eth.Hash, redis *datastore.RedisCache) {
 		rpipe := backend.redis.NewTxPipeline()
 
 		randHeader, err := common.GenerateRandomHash()
@@ -751,8 +753,9 @@ func TestGetPayload(t *testing.T) {
 		txBytes := randHeader.Bytes()
 
 		payload := common.AnchorPayload{
-			Slot:         1,
-			Header:       *header.Header,
+			Slot:   1,
+			Header: *header.Header,
+			//Header:       eth.Hash([]byte(testHeaderHash)),
 			Transactions: txBytes,
 			GasUsed:      uint64(1),
 			GasLimit:     uint64(10000),
@@ -763,7 +766,7 @@ func TestGetPayload(t *testing.T) {
 			rpipe,
 			1,
 			common.BlsPubKeyToStr(mockPublicKey),
-			header.Header.String(),
+			string(blockHash.Bytes()),
 			&payload)
 		require.NoError(t, err)
 
@@ -772,7 +775,7 @@ func TestGetPayload(t *testing.T) {
 	}
 
 	// helper for populating rob payloads
-	populateRoBPayloadFromHeader := func(header *common.AnchorHeader, redis *datastore.RedisCache, chainID string) {
+	populateRoBPayloadFromHeader := func(header *common.AnchorHeader, blockHash eth.Hash, redis *datastore.RedisCache, chainID string) {
 		rpipe := backend.redis.NewTxPipeline()
 
 		randHeader, err := common.GenerateRandomHash()
@@ -780,8 +783,9 @@ func TestGetPayload(t *testing.T) {
 		txBytes := randHeader.Bytes()
 
 		payload := common.AnchorPayload{
-			Slot:         1,
-			Header:       *header.Header,
+			Slot:   1,
+			Header: *header.Header,
+			//Header:       eth.Hash([]byte(testHeaderHash)),
 			Transactions: txBytes,
 			GasUsed:      uint64(1),
 			GasLimit:     uint64(10000),
@@ -792,7 +796,8 @@ func TestGetPayload(t *testing.T) {
 			rpipe,
 			1,
 			common.BlsPubKeyToStr(mockPublicKey),
-			header.Header.String(),
+			string(blockHash.Bytes()),
+			//blockHash.String(),
 			&payload,
 			chainID)
 		require.NoError(t, err)
@@ -801,25 +806,25 @@ func TestGetPayload(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	populatePayloadsFromHeaderResp := func(headerResp *common.AnchorGetHeaderResponse, redis *datastore.RedisCache) {
+	populatePayloadsFromHeaderResp := func(headerResp *common.AnchorGetHeaderResponse, blockHash eth.Hash, redis *datastore.RedisCache) {
 		if headerResp.ExecHeaders.ToBHash != nil {
-			populateToBPayloadFromHeader(headerResp.ExecHeaders.ToBHash, redis)
+			populateToBPayloadFromHeader(headerResp.ExecHeaders.ToBHash, blockHash, redis)
 		}
 
 		for chainID, header := range headerResp.ExecHeaders.RoBHashes {
-			populateRoBPayloadFromHeader(header, redis, chainID)
+			populateRoBPayloadFromHeader(header, blockHash, redis, chainID)
 		}
 	}
 
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
-		populatePayloadsFromHeaderResp(anchorGetHeaderResp, backend.redis)
+		populatePayloadsFromHeaderResp(anchorGetHeaderResp, headerHash, backend.redis)
 
 		//redis := backend.GetRedis()
 		payloadReq := common.AnchorGetPayloadRequest{
 			Slot:          uint64(1),
 			ProposerIndex: uint64(0),
 			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
-			HeadersHash: testHeaderHash,
+			HeadersHash: string(headerHash.Bytes()),
 			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
 			SignedHeaders: signedHeaderBytes[:],
 		}
@@ -828,7 +833,7 @@ func TestGetPayload(t *testing.T) {
 		require.Equal(t, http.StatusOK, rr.Code)
 	})
 
-	t.Run("Run case with no content", func(t *testing.T) {
+	t.Run("Run case with no valid content available", func(t *testing.T) {
 		//redis := backend.GetRedis()
 		payloadReq := common.AnchorGetPayloadRequest{
 			Slot:          uint64(1),
@@ -839,8 +844,27 @@ func TestGetPayload(t *testing.T) {
 			SignedHeaders: signedHeaderBytes[:],
 		}
 
+		backend.baton.SetExpectedHeaders(anchorGetHeaderResp)
+
 		rr := backend.request(http.MethodPost, requestPath, payloadReq)
 		require.Equal(t, http.StatusNoContent, rr.Code)
+	})
+
+	t.Run("Requesting getPayloads() but without call to getHeaders()", func(t *testing.T) {
+		//redis := backend.GetRedis()
+		payloadReq := common.AnchorGetPayloadRequest{
+			Slot:          uint64(1),
+			ProposerIndex: uint64(0),
+			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
+			HeadersHash: testHeaderHash,
+			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
+			SignedHeaders: signedHeaderBytes[:],
+		}
+
+		backend.baton.SetExpectedHeaders(nil)
+
+		rr := backend.request(http.MethodPost, requestPath, payloadReq)
+		require.Equal(t, http.StatusBadRequest, rr.Code)
 	})
 }
 
