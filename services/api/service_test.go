@@ -732,7 +732,7 @@ func TestGetPayload(t *testing.T) {
 
 	// This is a default AnchorGetHeaderResp that can be used in our base case testing.
 	anchorGetHeaderResp := common.MakeRandomAnchorGetHeaderResponse(*mockPublicKey, slot)
-	anchorGetHeaderResp.HeadersHash = eth.Hash([]byte(testHeaderHash))
+	anchorGetHeaderResp.ParentHash = eth.Hash([]byte(testHeaderHash))
 	err := common.SignAnchorGetHeaderResponse(anchorGetHeaderResp, mockSecretKey)
 	if err != nil {
 		t.Error(err)
@@ -815,20 +815,20 @@ func TestGetPayload(t *testing.T) {
 			populateRoBPayloadFromHeader(header, blockHash, redis, chainID)
 		}
 	}
+	pk := mockPublicKey.Bytes()
 
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
 		populatePayloadsFromHeaderResp(anchorGetHeaderResp, headerHash, backend.redis)
 
-		//redis := backend.GetRedis()
 		payloadReq := common.AnchorGetPayloadRequest{
-			Slot:          uint64(1),
-			ProposerIndex: uint64(0),
+			Slot:           uint64(1),
+			ProposerPubKey: pk[:],
 			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
-			HeadersHash: string(headerHash.Bytes()),
+			ParentHash: string(headerHash.Bytes()),
 			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
 			SignedHeaders: signedHeaderBytes[:],
 		}
-
+		payloadReq.GetPublicKey()
 		rr := backend.request(http.MethodPost, requestPath, payloadReq)
 		require.Equal(t, http.StatusOK, rr.Code)
 	})
@@ -836,10 +836,10 @@ func TestGetPayload(t *testing.T) {
 	t.Run("Run case with no valid content available", func(t *testing.T) {
 		//redis := backend.GetRedis()
 		payloadReq := common.AnchorGetPayloadRequest{
-			Slot:          uint64(1),
-			ProposerIndex: uint64(0),
+			Slot:           uint64(1),
+			ProposerPubKey: pk[:],
 			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
-			HeadersHash: testHeaderHash,
+			ParentHash: testHeaderHash,
 			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
 			SignedHeaders: signedHeaderBytes[:],
 		}
@@ -853,10 +853,10 @@ func TestGetPayload(t *testing.T) {
 	t.Run("Requesting getPayloads() but without call to getHeaders()", func(t *testing.T) {
 		//redis := backend.GetRedis()
 		payloadReq := common.AnchorGetPayloadRequest{
-			Slot:          uint64(1),
-			ProposerIndex: uint64(0),
+			Slot:           uint64(1),
+			ProposerPubKey: pk[:],
 			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
-			HeadersHash: testHeaderHash,
+			ParentHash: testHeaderHash,
 			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
 			SignedHeaders: signedHeaderBytes[:],
 		}

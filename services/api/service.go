@@ -798,7 +798,6 @@ func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 }
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-// @TODO: Fix me to work with new submit block msg format
 func (api *BatonAPI) simulateBlock(
 	ctx context.Context,
 	req *common.SubmitNewBlockRequest,
@@ -815,18 +814,6 @@ func (api *BatonAPI) simulateBlock(
 			if len(tx.Actions) != 1 {
 				return 0, errors.New("simulateBlock: transfer action had multiple ethTxs"), nil
 			}
-			// TODO: may remove this as transfer.Memo are not eth type txs
-			// for _, action := range tx.Actions {
-			// 	if seqMsg, ok := action.(*actions.Transfer); ok {
-			// 		ethTxs = append(ethTxs, seqMsg.Memo)
-			// 		ns := "proposer_tx"
-			// 		txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Memo)
-			// 	} else {
-			// 		log.Error("simulateBlock: tx is not sequencer message")
-			// 		return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
-			// 	}
-			// }
-			// otherwise, not proposer tx(last tx) and do loop for this case
 		} else {
 			for _, action := range tx.Actions {
 				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
@@ -912,110 +899,6 @@ func (api *BatonAPI) simulateBlock(
 	// TODO: do we return the sum of used gas?
 	return gasUsed, nil, nil
 }
-
-/*
-func (api *BatonAPI) simulateBlockTxs(
-	ctx context.Context,
-	opts blockSimOptions2,
-) (requestErr, validationErr error) {
-	if api.ffMockSimulation {
-		return nil, nil
-	}
-
-	t := time.Now()
-	requestErr, validationErr = api.blockSimRateLimiter.Send(ctx, opts.req, opts.isHighPrio, opts.fastTrack)
-	log := opts.log.WithFields(logrus.Fields{
-		"durationMs": time.Since(t).Milliseconds(),
-		"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
-	})
-	if validationErr != nil {
-		if api.ffIgnorableValidationErrors {
-			// Operators chooses to ignore certain validation errors
-			ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
-			if ignoreError {
-				log.WithError(validationErr).Warn("block validation failed with ignorable error")
-				return nil, nil
-			}
-		}
-		log.WithError(validationErr).Warn("block validation failed")
-		return nil, validationErr
-	}
-	if requestErr != nil {
-		log.WithError(requestErr).Warn("block validation failed: request error")
-		return requestErr, nil
-	}
-	log.Info("block validation successful")
-	return nil, nil
-}
-*/
-
-// TODO: Verify if this is needed. I suspect not since it is part of the Eth 2.0 consensus layer.
-/*
-func (api *BatonAPI) processPayloadAttributes(payloadAttributes beaconclient.PayloadAttributesEvent) {
-	apiHeadSlot := api.headSlot.Load()
-	payloadAttrSlot := payloadAttributes.Data.ProposalSlot
-
-	// require proposal slot in the future
-	if payloadAttrSlot <= apiHeadSlot {
-		return
-	}
-	log := api.log.WithFields(logrus.Fields{
-		"headSlot":          apiHeadSlot,
-		"payloadAttrSlot":   payloadAttrSlot,
-		"payloadAttrParent": payloadAttributes.Data.ParentBlockHash,
-	})
-
-	// discard payload attributes if already known
-	api.payloadAttributesLock.RLock()
-	_, ok := api.payloadAttributes[payloadAttributes.Data.ParentBlockHash]
-	api.payloadAttributesLock.RUnlock()
-
-	if ok {
-		return
-	}
-
-	var withdrawalsRoot phase0.Root
-	var err error
-	if hasReachedFork(payloadAttrSlot, api.capellaEpoch) {
-		withdrawalsRoot, err = ComputeWithdrawalsRoot(payloadAttributes.Data.PayloadAttributes.Withdrawals)
-		log = log.WithField("withdrawalsRoot", withdrawalsRoot.String())
-		if err != nil {
-			log.WithError(err).Error("error computing withdrawals root")
-			return
-		}
-	}
-
-	api.payloadAttributesLock.Lock()
-	defer api.payloadAttributesLock.Unlock()
-
-	// Step 1: clean up old ones
-	for parentBlockHash, attr := range api.payloadAttributes {
-		if attr.slot < apiHeadSlot {
-			delete(api.payloadAttributes, parentBlockHash)
-		}
-	}
-
-	// Step 2: save new one
-	api.payloadAttributes[payloadAttributes.Data.ParentBlockHash] = payloadAttributesHelper{
-		slot:              payloadAttrSlot,
-		parentHash:        payloadAttributes.Data.ParentBlockHash,
-		withdrawalsRoot:   withdrawalsRoot,
-		payloadAttributes: payloadAttributes.Data.PayloadAttributes,
-	}
-
-	api.payloadAttributesBySlot[payloadAttrSlot] = payloadAttributesHelper{
-		slot:              payloadAttrSlot,
-		parentHash:        payloadAttributes.Data.ParentBlockHash,
-		withdrawalsRoot:   withdrawalsRoot,
-		payloadAttributes: payloadAttributes.Data.PayloadAttributes,
-	}
-
-	log.WithFields(logrus.Fields{
-		"randao":    payloadAttributes.Data.PayloadAttributes.PrevRandao,
-		"timestamp": payloadAttributes.Data.PayloadAttributes.Timestamp,
-	}).Info("updated payload attributes")
-}
-*/
 
 func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	prevHeadSlot := api.headSlot.Load()
@@ -1446,6 +1329,19 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 	w.WriteHeader(http.StatusOK)
 }
 
+func (api *BatonAPI) FindProposerDutiesByPubKey(pk *bls.PublicKey) (*common.BuilderGetValidatorsResponseEntry, error) {
+	phasePk, err := common.BlsToPhase0PubKey(pk)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range api.proposerDutiesMap {
+		if *phasePk == entry.Entry.Message.Pubkey {
+			return entry, nil
+		}
+	}
+	return nil, nil
+}
+
 func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	api.requestMu.Lock()
 	defer api.requestMu.Unlock()
@@ -1463,6 +1359,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		api.RespondError(w, http.StatusBadRequest, common.ErrInvalidSlot.Error())
 		return
 	}
+	parentHash := common2.HexToHash(parentHashHex)
 
 	requestTime := time.Now().UTC()
 	slotStartTimestamp := api.genesisInfo.Data.GenesisTime + (slot * common.SecondsPerSlot)
@@ -1578,19 +1475,10 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	headersHash, err := common.HashExecHeaders(&headers)
-	if err != nil {
-		logMsg := "handleGetHeader: could not hash exec headers, err: " + err.Error()
-		log.Error(logMsg)
-		api.RespondError(w, http.StatusBadRequest, logMsg)
-		return
-	}
-
 	resp := common.AnchorGetHeaderResponse{
 		ExecHeaders: headers,
 		BlockInfo:   blockInfo,
-		// Hash of the exec headers. Needs to be sent in AnchorGetPayloadRequest msg.
-		HeadersHash: headersHash,
+		ParentHash:  parentHash,
 	}
 
 	err = common.SignAnchorGetHeaderResponse(&resp, api.blsSk)
@@ -1673,50 +1561,40 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		"slotStartSec":         slotStartTimestamp,
 		"msIntoSlot":           msIntoSlot,
 		"timestampAfterDecode": decodeTime.UnixMilli(),
-		"proposerIndex":        payload.ProposerIndex,
+		//"proposerIndex":        payload.ProposerIndex,
+		"proposerPubkey": payload.ProposerPubKey,
 	})
 
 	// Ensure the proposer index is expected
 	api.proposerDutiesLock.RLock()
 	slotDuty := api.proposerDutiesMap[payload.Slot]
 	api.proposerDutiesLock.RUnlock()
+	pk, err := payload.GetPublicKey()
+	if err != nil {
+		log.WithError(err).Warn("failed to get public key from payload")
+		api.RespondError(w, http.StatusBadRequest, "failed to get public key from payload")
+		return
+	}
 	if slotDuty == nil {
 		log.Warn("could not find slot duty")
 	} else {
 		log = log.WithField("feeRecipient", slotDuty.Entry.Message.FeeRecipient)
-		if slotDuty.ValidatorIndex != payload.ProposerIndex {
-			log.WithField("expectedProposerIndex", slotDuty.ValidatorIndex).Warn("not the expected proposer index")
-			api.RespondError(w, http.StatusBadRequest, "not the expected proposer index")
+		entry, err := api.FindProposerDutiesByPubKey(pk)
+		if err != nil || entry == nil {
+			log.WithField("FindProposerDutiesByPubKey failed: ", err)
+			api.RespondError(w, http.StatusBadRequest, "FindProposerDutiesByPubKey failed: "+err.Error())
 			return
 		}
 	}
-
-	// Get the proposer pubkey based on the validator index from the payload
-	proposerPubkey, found := api.datastore.GetKnownValidatorPubkeyByIndex(payload.ProposerIndex)
-	if !found {
-		log.Errorf("could not find proposer pubkey for index %d", payload.ProposerIndex)
-		api.RespondError(w, http.StatusBadRequest, "could not match proposer index to pubkey")
+	proposerPubkey, err := payload.GetPublicKey()
+	if err != nil {
+		log.WithField("Failed to get public key from payload", err)
+		api.RespondError(w, http.StatusBadRequest, "Failed to get public key from payload"+err.Error())
 		return
 	}
 
 	// Add proposer pubkey to logs
-	log = log.WithField("proposerPubkey", proposerPubkey.String())
-
-	// Create a BLS pubkey from the hex pubkey
-	pk, err := utils.HexToPubkey(proposerPubkey.String())
-	//_, err = utils.HexToPubkey(proposerPubkey.String())
-	if err != nil {
-		log.WithError(err).Warn("could not convert pubkey to types.PublicKey")
-		api.RespondError(w, http.StatusBadRequest, "could not convert pubkey to types.PublicKey")
-		return
-	}
-
-	blsPubKey, err := ConvertPhase0ToBLSPubKey(pk)
-	if err != nil {
-		log.WithError(err).Warn("could not convert phase0.Pubkey to bls.PublicKey")
-		api.RespondError(w, http.StatusBadRequest, "could not convert phase0.Pubkey to bls.PublicKey")
-		return
-	}
+	log = log.WithField("proposerPubkey", proposerPubkey)
 
 	if payload.SignedHeaders == nil || len(payload.SignedHeaders) != 96 {
 		log.WithError(err).Warn("payload request failed because signed headers were bad")
@@ -1730,7 +1608,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	ok, err := common.VerifySignedHeaders(&api.expectedHeader.ExecHeaders, payload, *blsPubKey)
+	ok, err := common.VerifySignedHeaders(&api.expectedHeader.ExecHeaders, payload, *proposerPubkey)
 	if err != nil {
 		logMsg := "payload request failed because error occurred during signed header verification, err: " + err.Error()
 		log.WithError(err).Warn(logMsg)
@@ -1757,7 +1635,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 		// we only need to get the bidtrace for one of the involved blocks.
 		if getPayloadResp.ExecPayloads.ToBPayload != nil {
-			bidTrace, err = api.redis.GetToBBidTrace(payload.Slot, proposerPubkey.String(), payload.HeadersHash)
+			bidTrace, err = api.redis.GetToBBidTrace(payload.Slot, proposerPubkey.String(), payload.ParentHash)
 			if err != nil {
 				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 				return
@@ -1773,7 +1651,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			for k, _ := range getPayloadResp.ExecPayloads.RoBPayloads {
 				robFirstChainID = k
 			}
-			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, proposerPubkey.String(), payload.HeadersHash, robFirstChainID)
+			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, proposerPubkey.String(), payload.ParentHash, robFirstChainID)
 			if err != nil {
 				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 				return
@@ -1800,13 +1678,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	var tobAnchorPayload *common.AnchorPayload
 	var payloadWasFound bool
 
-	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.HeadersHash)
+	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.ParentHash)
 	if err != nil || tobAnchorPayload == nil {
 		log.WithError(err).Warn("failed getting execution payload (1/2)")
 		time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 		// Try again
-		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.HeadersHash)
+		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.ParentHash)
 		if err != nil || tobAnchorPayload == nil {
 			// Still not found! Error out now.
 			// TODO: Is the below still needed?
@@ -1839,13 +1717,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	robPayloads := make(map[string]*common.AnchorPayload)
 	for chainID, _ := range api.robChainIDs {
-		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.HeadersHash, chainID)
+		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.ParentHash, chainID)
 		if err != nil || robAnchorPayload == nil {
 			log.WithError(err).Warn("failed getting execution payload (1/2)")
 			time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 			// Try again
-			robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.HeadersHash, chainID)
+			robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.ParentHash, chainID)
 			if err != nil || robAnchorPayload == nil {
 				// Still not found! Error out now.
 				// TODO: Is the below still needed?
@@ -1889,7 +1767,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithField("timestampAfterLoadResponse", time.Now().UTC().UnixMilli())
 
 	// Check whether getPayload has already been called -- TODO: do we need to allow multiple submissions of one blinded block?
-	err = api.redis.CheckAndSetLastSlotAndHashDelivered(payload.Slot, payload.HeadersHash)
+	err = api.redis.CheckAndSetLastSlotAndHashDelivered(payload.Slot, payload.ParentHash)
 	log = log.WithField("timestampAfterAlreadyDeliveredCheck", time.Now().UTC().UnixMilli())
 	if err != nil {
 		if errors.Is(err, datastore.ErrAnotherPayloadAlreadyDeliveredForSlot) {
@@ -1927,7 +1805,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("sent too late - %d ms into slot", msIntoSlot))
 
 		go func() {
-			err := api.db.InsertTooLateGetPayload(payload.Slot, proposerPubkey.String(), payload.HeadersHash, slotStartTimestamp, uint64(receivedAt.UnixMilli()), uint64(decodeTime.UnixMilli()), uint64(msIntoSlot))
+			err := api.db.InsertTooLateGetPayload(payload.Slot, proposerPubkey.String(), payload.ParentHash, slotStartTimestamp, uint64(receivedAt.UnixMilli()), uint64(decodeTime.UnixMilli()), uint64(msIntoSlot))
 			if err != nil {
 				log.WithError(err).Error("failed to insert payload too late into db")
 			}
@@ -1956,7 +1834,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	for chainID, anchorPayload := range robPayloads {
 		// slots from retrieved payload should match request else abort
-		if tobAnchorPayload.Slot != payload.Slot {
+		if anchorPayload.Slot != payload.Slot {
 			log.Warn("getPayload failed because stored payload slot did not match requested slot")
 			api.RespondError(w, http.StatusBadRequest, "getPayload failed because stored payload slot did not match requested slot")
 			return
@@ -1978,7 +1856,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	// respond to the HTTP request
 	api.RespondOK(w, getPayloadResp)
 	log = log.WithFields(logrus.Fields{
-		"blockHash": payload.HeadersHash,
+		"blockHash": payload.ParentHash,
 	})
 	api.robChainIDs = make(map[string]struct{})
 	api.expectedHeader = nil
@@ -2507,7 +2385,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 		// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
 		gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, txs, log)
-		// @TODO: figure out exact gas limit later
 		if gasUsed != 0 && gasUsed > gasLimit {
 			errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
 			validErr = errors.New(errMsg)
@@ -2613,7 +2490,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	defer func() {
 		totalDuration := time.Since(receivedAt).Microseconds()
 		txHashList := []string{}
-		// TODO: figure logic out or if this is needed
 		for _, tx := range txs {
 			digestBytes, err := tx.Digest()
 			if err != nil {
@@ -2637,9 +2513,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}()
 
-	// FOR TOMORROW: go to commented out SubmitToB function as well as look at GetHeader() and GetPayload() functions.
-	// this is on hold: think of special cases like in the original function handleSubmitNewTobTxs
-	// respond ok if all passes
 }
 
 // ---------------

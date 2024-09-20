@@ -594,7 +594,7 @@ func (r *RedisCache) GetTobTxValue(ctx context.Context, tx redis.Pipeliner, slot
 // Here is how they save information
 func (r *RedisCache) SaveExecutionToBAnchorPayload(
 	ctx context.Context,
-	pipeliner redis.Pipeliner,
+	pipeline redis.Pipeliner,
 	slot uint64,
 	proposerPubkey,
 	blockHash string,
@@ -605,7 +605,7 @@ func (r *RedisCache) SaveExecutionToBAnchorPayload(
 	if err != nil {
 		return err
 	}
-	return pipeliner.Set(ctx, key, b, expiryBidCache).Err()
+	return pipeline.Set(ctx, key, b, expiryBidCache).Err()
 }
 
 func (r *RedisCache) SaveExecutionRoBAnchorPayload(

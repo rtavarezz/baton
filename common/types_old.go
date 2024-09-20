@@ -357,7 +357,7 @@ type AnchorGetHeaderResponse struct {
   // block builder address
   PriorityFeeReceiverAddr codec.Address `json:"priorityfeereceiveraddr"`
   // hash of the anchor chunks (tob + robs)
-  HeadersHash common.Hash            `json:"chunkhash"`
+  ParentHash common.Hash            `json:"chunkhash"`
   ToBHash   common.Hash            `json:"tobhash"`
   RoBHashes map[string]common.Hash `json:"robhashes"`
 }

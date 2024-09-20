@@ -601,8 +601,7 @@ type AnchorPayload struct {
 type AnchorGetHeaderResponse struct {
 	ExecHeaders ExecHeadersInfo `json:"exec_headers"`
 	BlockInfo   AnchorBlockInfo `json:"block_info"`
-	// Hash of the exec headers. Needs to be sent in AnchorGetPayloadRequest msg.
-	HeadersHash common.Hash `json:"headers_hash"`
+	ParentHash  common.Hash     `json:"parent_hash"`
 	// Exec headers signed by baton's key.
 	ExecHeadersSig []byte `json:"exec_headers_sig"`
 }
@@ -622,10 +621,10 @@ type ExecHeadersInfo struct {
 }
 
 type AnchorGetPayloadRequest struct {
-	Slot          uint64 `json:"slot"`
-	ProposerIndex uint64 `json:"proposer_index"`
-	// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
-	HeadersHash string `json:"headers_hash"`
+	Slot uint64 `json:"slot"`
+	//ProposerIndex uint64 `json:"proposer_index"`
+	ProposerPubKey []byte `json:"proposer_pubkey"`
+	ParentHash     string `json:"parent_hash"`
 	// Exec headers signed by validator's key. Should be [48]byte bls.signature.
 	SignedHeaders []byte `json:"signed_headers"`
 }
@@ -849,4 +848,8 @@ func GenerateRandomHash() (common.Hash, error) {
 
 	// Convert the random bytes to a common.Hash and return it
 	return common.BytesToHash(hashBytes[:]), nil
+}
+
+func (r *AnchorGetPayloadRequest) GetPublicKey() (*bls.PublicKey, error) {
+	return bls.PublicKeyFromBytes(r.ProposerPubKey)
 }
