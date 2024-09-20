@@ -1550,6 +1550,9 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 			api.RespondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if bid == nil {
+			continue
+		}
 		// think of more cases for hash if possible
 		if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
 			log.Error("handleGetHeader: rob chunk had zero value")

@@ -460,11 +460,11 @@ func TestGetHeader(t *testing.T) {
 			Value:     big.NewInt(2),
 		}
 		// Populate redis cache with expected headers
-		err = redis.SetRoBBid(slot, testParentHash, testProposerPubkey, testChainID, header)
+		err = redis.SetToBBid(slot, testParentHash, testProposerPubkey, header)
 		if err != nil {
 			t.Error(err)
 		}
-		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey, testChainID)
+		keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey)
 
 		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header.Value.String(), 0).Err()
 

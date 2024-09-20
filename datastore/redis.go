@@ -204,11 +204,13 @@ func (r *RedisCache) keyCacheRoBBidTrace(slot uint64, proposerPubkey, blockHash 
 	return fmt.Sprintf("rob,%s:%d_%s_%s_%s", r.prefixBidTrace, slot, proposerPubkey, blockHash, chainID)
 }
 
-// keyLatestToBBidByBuilder returns the key for the getHeader response the latest tob bid by a specific builder
-func (r *RedisCache) keyLatestToBBidByBuilder(slot uint64, parentHash, proposerPubkey, builderPubkey string) string {
+// KeyLatestToBBidByBuilder returns the key for the getHeader response the latest tob bid by a specific builder
+// TODO: refactor(rename) uppercase to lowercase for K
+func (r *RedisCache) KeyLatestToBBidByBuilder(slot uint64, parentHash, proposerPubkey, builderPubkey string) string {
 	return fmt.Sprintf("tob,%s:%d_%s_%s/%s", r.prefixBlockBuilderLatestBids, slot, parentHash, proposerPubkey, builderPubkey)
 }
 
+// TODO: refactor(rename) uppercase to lowercase for K
 func (r *RedisCache) KeyLatestRoBBidByBuilder(slot uint64, parentHash, proposerPubkey, builderPubkey string, chainID string) string {
 	return fmt.Sprintf("rob,%s:%d_%s_%s/%s_%s", r.prefixBlockBuilderLatestBids, slot, parentHash, proposerPubkey, builderPubkey, chainID)
 }
@@ -738,7 +740,7 @@ func (r *RedisCache) SaveToBBuilderBid(
 		return err
 	}
 	// save the actual bid
-	keyLatestBid := r.keyLatestToBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey)
+	keyLatestBid := r.KeyLatestToBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey)
 	err = r.SetObjPipelined(ctx, pipeliner, keyLatestBid, headerRespBytes, expiryBidCache)
 	if err != nil {
 		return err
@@ -960,7 +962,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 	}
 
 	// Non-cancellable bid above floor should set new floor
-	keyBidSource := r.keyLatestToBBidByBuilder(
+	keyBidSource := r.KeyLatestToBBidByBuilder(
 		payload.Slot(),
 		payload.ParentHash().String(),
 		payload.ProposerPubKeyAsStr(),
@@ -1399,7 +1401,7 @@ func (r *RedisCache) _updateToBTopBid(
 
 	topBidBuilder := ""
 	topBidBuilder, state.TopBidValue = builderBids.getTopBid()
-	keyBidToBSource := r.keyLatestToBBidByBuilder(slot, parentHash, proposerPubkey, topBidBuilder)
+	keyBidToBSource := r.KeyLatestToBBidByBuilder(slot, parentHash, proposerPubkey, topBidBuilder)
 
 	// If floor value is higher than this bid, use floor bid instead
 	if floorValue.Cmp(state.TopBidValue) == 1 {
@@ -1753,6 +1755,19 @@ func (r *RedisCache) NewTxPipeline() redis.Pipeliner { //nolint:ireturn
 // saving RoB bid to cache
 func (r *RedisCache) SetRoBBid(slot uint64, parentHash string, proposerPubkey string, chainID string, header common.AnchorHeader) error {
 	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
+	headerBytes, err := json.Marshal(header)
+	if err != nil {
+		return err
+	}
+	err = r.client.Set(context.Background(), keyTopBid, headerBytes, 100).Err()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *RedisCache) SetToBBid(slot uint64, parentHash string, proposerPubkey string, header common.AnchorHeader) error {
+	keyTopBid := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
 	headerBytes, err := json.Marshal(header)
 	if err != nil {
 		return err
