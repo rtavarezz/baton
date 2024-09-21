@@ -1678,13 +1678,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	var tobAnchorPayload *common.AnchorPayload
 	var payloadWasFound bool
 
-	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.ParentHash)
+	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash)
 	if err != nil || tobAnchorPayload == nil {
 		log.WithError(err).Warn("failed getting execution payload (1/2)")
 		time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 		// Try again
-		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.ParentHash)
+		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash)
 		if err != nil || tobAnchorPayload == nil {
 			// Still not found! Error out now.
 			// TODO: Is the below still needed?
@@ -1717,13 +1717,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	robPayloads := make(map[string]*common.AnchorPayload)
 	for chainID, _ := range api.robChainIDs {
-		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.ParentHash, chainID)
+		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
 		if err != nil || robAnchorPayload == nil {
 			log.WithError(err).Warn("failed getting execution payload (1/2)")
 			time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 			// Try again
-			robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, proposerPubkey.String(), payload.ParentHash, chainID)
+			robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
 			if err != nil || robAnchorPayload == nil {
 				// Still not found! Error out now.
 				// TODO: Is the below still needed?
