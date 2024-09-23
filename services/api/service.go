@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
+	"github.com/flashbots/mev-boost-relay/seq"
 	"io"
 	"math/big"
 	"net/http"
@@ -63,6 +65,7 @@ var (
 	ErrRelayPubkeyMismatch        = errors.New("baton pubkey does not match existing one")
 	ErrServerAlreadyStarted       = errors.New("server was already started")
 	ErrBuilderAPIWithoutSecretKey = errors.New("cannot start builder API without secret key")
+	ErrMissingSeqURL              = errors.New("cannot start Baton without SEQ URL")
 )
 
 var (
@@ -135,7 +138,8 @@ var chainID ids.ID
 
 // BatonAPIOpts contains the options for a baton
 type BatonAPIOpts struct {
-	Log *logrus.Entry
+	Log    *logrus.Entry
+	SeqURL string
 
 	ListenAddr      string
 	BlockSimURL     string
@@ -247,6 +251,7 @@ type BatonAPI struct {
 	// stores RoB chain IDs
 	robChainIDs    map[string]struct{}             `jjj:"rob_chain_i_ds"`
 	expectedHeader *common.AnchorGetHeaderResponse `jjj:"expected_header"`
+	seqClient      *seq.SeqClient
 
 	// To prevent bugs resulting from overlapping requests, for now, let's have each mutating request be processed one at a time.
 	requestMu sync.Mutex
@@ -295,6 +300,10 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		return nil, ErrMissingDatastoreOpt
 	}
 
+	if len(opts.SeqURL) == 0 && !opts.mockMode {
+		return nil, ErrMissingSeqURL
+	}
+
 	// If block-builder API is enabled, then ensure secret key is all set
 	var publicKey phase0.BLSPubKey
 	var blsPubkey *bls.PublicKey
@@ -327,6 +336,14 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 			return nil, fmt.Errorf("%w: new=%s old=%s", ErrRelayPubkeyMismatch, publicKey.String(), _pubkey)
 		}
 	}
+	config := seq.Config{
+		PrivateKey: ed25519.PrivateKey{},
+		URL:        opts.SeqURL,
+		ChainID:    ids.ID{},
+		NetworkID:  1332,
+	}
+
+	seqClient, err := seq.NewSeqClient(&config)
 
 	managerPkBytes, err := hex.DecodeString(opts.BlockSimManager)
 	if err != nil {
@@ -355,11 +372,15 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		validatorRegC: make(chan apiv1.SignedValidatorRegistration, 450_000),
 		defiAddresses: FillUpDefiAddresses(opts),
 		robChainIDs:   make(map[string]struct{}),
+		seqClient:     seqClient,
 
 		// should only be true in testing
 		mockMode: opts.mockMode,
 	}
-
+	// callback trigger for seq/seq-go
+	api.seqClient.SetNewSlotHandler(func(headSlot uint64) {
+		api.processNewSlot(headSlot)
+	})
 	if os.Getenv("FORCE_GET_HEADER_204") == "1" {
 		api.log.Warn("env: FORCE_GET_HEADER_204 - forcing getHeader to always return 204")
 		api.ffForceGetHeader204 = true
@@ -900,6 +921,7 @@ func (api *BatonAPI) simulateBlock(
 	return gasUsed, nil, nil
 }
 
+// note: important for seq/seq-go.go
 func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	prevHeadSlot := api.headSlot.Load()
 	if headSlot <= prevHeadSlot {
@@ -1285,6 +1307,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 		// TODO: Is the below compatible with SEQ validator signatures?
 		// TODO: Do we need to use domains for our other signature usages?
 		// Verify the signature
+		// note: follow up on api.opts.EthNetDetails.DomainBuilder
 		ok, err := boostSsz.VerifySignature(signedValidatorRegistration.Message, api.opts.EthNetDetails.DomainBuilder, signedValidatorRegistration.Message.Pubkey[:], signedValidatorRegistration.Signature[:])
 		if err != nil {
 			regLog.WithError(err).Error("error verifying registerValidator signature")
@@ -1298,7 +1321,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 				return
 			}
 		}
-
+		// TODO: update proposer duties here
 		// Now we have a new registration to process
 		numRegNew += 1
 

@@ -157,6 +157,8 @@ func (hk *Housekeeper) processNewSlot(headSlot uint64) {
 	}).Infof("updated headSlot to %d", headSlot)
 }
 
+// TODO: might not need this func since we don't communicate with CL(consensus layer)
+// below is how they save to redis but they do so by connecting headslot to beacon client.
 func (hk *Housekeeper) updateProposerDuties(headSlot uint64) {
 	// Should only happen once at a time
 	if hk.isUpdatingProposerDuties.Swap(true) {
@@ -230,6 +232,7 @@ func (hk *Housekeeper) updateProposerDuties(headSlot uint64) {
 	}
 
 	// Save duties to Redis
+	// note: important
 	err = hk.redis.SetProposerDuties(proposerDuties)
 	if err != nil {
 		log.WithError(err).Error("failed to set proposer duties")

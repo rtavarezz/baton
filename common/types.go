@@ -210,9 +210,10 @@ func (p PubkeyHex) String() string {
 }
 
 type BuilderGetValidatorsResponseEntry struct {
-	Slot           uint64                             `json:"slot,string"`
-	ValidatorIndex uint64                             `json:"validator_index,string"`
-	Entry          *apiv1.SignedValidatorRegistration `json:"entry"`
+	Slot           uint64 `json:"slot,string"`
+	ValidatorIndex uint64 `json:"validator_index,string"`
+	// seq validator info below in Entry.Message
+	Entry *apiv1.SignedValidatorRegistration `json:"entry"`
 }
 
 type BidTraceV2 struct {
