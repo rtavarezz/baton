@@ -5,12 +5,9 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
-	"github.com/flashbots/mev-boost-relay/seq"
 	"io"
 	"math/big"
 	"net/http"
@@ -21,6 +18,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
+	"github.com/flashbots/mev-boost-relay/seq"
 
 	"github.com/AnomalyFi/hypersdk/chain"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
@@ -143,7 +143,7 @@ type BatonAPIOpts struct {
 
 	ListenAddr      string
 	BlockSimURL     string
-	BlockSimManager string // bls pubkey of the sim manager
+	BlockSimManager *bls.PublicKey // bls pubkey of the sim manager
 
 	BeaconClient beaconclient.IMultiBeaconClient
 	Datastore    *datastore.Datastore
@@ -354,17 +354,6 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		return nil, err
 	}
 
-	managerPkBytes, err := hex.DecodeString(opts.BlockSimManager)
-	if err != nil {
-		opts.Log.Error("Could not decode blocksimmanager: ", err.Error())
-		return nil, err
-	}
-	simManager, err := bls.PublicKeyFromBytes(managerPkBytes)
-	if err != nil {
-		opts.Log.Error("Could not get public key from manager pk: ", err.Error())
-		return nil, err
-	}
-
 	api = &BatonAPI{
 		opts:         opts,
 		log:          opts.Log,
@@ -377,7 +366,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		db:           opts.DB,
 
 		proposerDutiesResponse: &[]byte{},
-		blockSimRateLimiter:    NewBlockSimulationRateLimiter(simManager),
+		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.BlockSimManager),
 		tracer:                 NewTracer(opts.BlockSimURL), // TODO: check what the tracer does, since it depends on opts.BlockSimURL
 
 		validatorRegC: make(chan apiv1.SignedValidatorRegistration, 450_000),

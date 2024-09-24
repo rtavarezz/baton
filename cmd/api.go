@@ -173,8 +173,14 @@ var apiCmd = &cobra.Command{
 			}
 			opts.SecretKey, err = bls.SecretKeyFromBytes(envSkBytes[:])
 			if err != nil {
-				log.WithError(err).Fatal("incorrect builder API secret key provided")
+				log.WithError(err).Fatal("unable to read secret key from bytes")
 			}
+			// assume the manager is the key holder of this baton instance
+			pk, err := bls.PublicKeyFromSecretKey(opts.SecretKey)
+			if err != nil {
+				log.WithError(err).Fatal("unable to derive pubkey")
+			}
+			opts.BlockSimManager = pk
 		}
 
 		// Create the relay service
