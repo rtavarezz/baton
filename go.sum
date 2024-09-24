@@ -2,8 +2,8 @@ cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMT
 filippo.io/edwards25519 v1.0.0 h1:0wAIcmJUqRdI8IJ/3eGi5/HwXZWPujYXXlkrQogz0Ek=
 filippo.io/edwards25519 v1.0.0/go.mod h1:N1IkdkCkiLB6tki+MYJoSx2JTY9NUlxZE7eHn5EwJns=
 github.com/AndreasBriese/bbloom v0.0.0-20190306092124-e2d15f34fcf9/go.mod h1:bOvUY6CB00SOBii9/FifXqc0awNKxLFCL/+pkDPuyl8=
-github.com/AnomalyFi/hypersdk v0.9.6 h1:Q5r82HHbkWAbPGp25ShA4W33jCuxG0t5xE6cqFy1V8I=
-github.com/AnomalyFi/hypersdk v0.9.6/go.mod h1:cv8RXH6QdifMrE2tki5rLy55nw2q5WkR1etHDQjXEtI=
+github.com/AnomalyFi/hypersdk v0.9.6-anchor.1 h1:iNVL6l8pMjrxOdiyrb7PGciCaovrDTeg5fk7CfyKL0U=
+github.com/AnomalyFi/hypersdk v0.9.6-anchor.1/go.mod h1:4tbY+3/IAesa2DWEPEMl7rMHWcxqjblp14v4kvQ302w=
 github.com/AnomalyFi/nodekit-seq v0.9.16 h1:2Sbv0/C1TGIMKOleLUDYjgDQEJM+MuBOFMoxB0DHF/c=
 github.com/AnomalyFi/nodekit-seq v0.9.16/go.mod h1:HylNUVwtbTOyS3Z5GDRAIdLE/NpXjV/2NpMvSu0m1fs=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
@@ -31,8 +31,8 @@ github.com/alicebob/miniredis/v2 v2.31.0/go.mod h1:UB/T2Uztp7MlFSDakaX1sTXUv5CAS
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
 github.com/attestantio/go-builder-client v0.4.2 h1:EycfAFqQV+ooc2z6hmTsbuH4TCLknr0aO0nHLHLMpJM=
 github.com/attestantio/go-builder-client v0.4.2/go.mod h1:e02i/WO4fjs3/u9oIZEjiC8CK1Qyxy4cpiMMGKx4VqQ=
-github.com/attestantio/go-eth2-client v0.19.9 h1:g5LLX3X7cLC0KS0oai/MtxBOZz3U3QPIX5qryYMxgVE=
-github.com/attestantio/go-eth2-client v0.19.9/go.mod h1:TTz7YF6w4z6ahvxKiHuGPn6DbQn7gH6HPuWm/DEQeGE=
+github.com/attestantio/go-eth2-client v0.19.10 h1:NLs9mcBvZpBTZ3du7Ey2NHQoj8d3UePY7pFBXX6C6qs=
+github.com/attestantio/go-eth2-client v0.19.10/go.mod h1:TTz7YF6w4z6ahvxKiHuGPn6DbQn7gH6HPuWm/DEQeGE=
 github.com/ava-labs/avalanchego v1.11.10 h1:QujciF5OEp5FwAoe/RciFF/i47rxU5rkEr6fVuUBS1Q=
 github.com/ava-labs/avalanchego v1.11.10/go.mod h1:POgZPryqe80OeHCDNrXrPOKoFre736iFuMgmUBeKaLc=
 github.com/aymerick/raymond v2.0.3-0.20180322193309-b565731e1464+incompatible/go.mod h1:osfaiScAUVup+UC9Nfq76eWqDhXlp+4UYaA8uhTBO6g=

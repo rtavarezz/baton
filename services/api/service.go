@@ -251,7 +251,7 @@ type BatonAPI struct {
 	// stores RoB chain IDs
 	robChainIDs    map[string]struct{}             `jjj:"rob_chain_i_ds"`
 	expectedHeader *common.AnchorGetHeaderResponse `jjj:"expected_header"`
-	seqClient      *seq.SeqClient
+	seqClient      seq.BaseSeqClient
 
 	// To prevent bugs resulting from overlapping requests, for now, let's have each mutating request be processed one at a time.
 	requestMu sync.Mutex
@@ -336,21 +336,32 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 			return nil, fmt.Errorf("%w: new=%s old=%s", ErrRelayPubkeyMismatch, publicKey.String(), _pubkey)
 		}
 	}
-	config := seq.Config{
+	config := seq.SeqClientConfig{
 		PrivateKey: ed25519.PrivateKey{},
 		URL:        opts.SeqURL,
 		ChainID:    ids.ID{},
 		NetworkID:  1332,
 	}
 
-	seqClient, err := seq.NewSeqClient(&config)
+	var seqClient seq.BaseSeqClient
+	if !opts.mockMode {
+		seqClient, err = seq.NewSeqClient(&config)
+	} else {
+		seqClient, err = seq.NewMockSeqClient(&config)
+	}
+	if err != nil {
+		opts.Log.Error("Could not create seq client: ", err.Error())
+		return nil, err
+	}
 
 	managerPkBytes, err := hex.DecodeString(opts.BlockSimManager)
 	if err != nil {
+		opts.Log.Error("Could not decode blocksimmanager: ", err.Error())
 		return nil, err
 	}
 	simManager, err := bls.PublicKeyFromBytes(managerPkBytes)
 	if err != nil {
+		opts.Log.Error("Could not get public key from manager pk: ", err.Error())
 		return nil, err
 	}
 
@@ -377,10 +388,12 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		// should only be true in testing
 		mockMode: opts.mockMode,
 	}
-	// callback trigger for seq/seq-go
+
+	// callback trigger for seq client
 	api.seqClient.SetNewSlotHandler(func(headSlot uint64) {
 		api.processNewSlot(headSlot)
 	})
+
 	if os.Getenv("FORCE_GET_HEADER_204") == "1" {
 		api.log.Warn("env: FORCE_GET_HEADER_204 - forcing getHeader to always return 204")
 		api.ffForceGetHeader204 = true
@@ -426,6 +439,10 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 
 func (api *BatonAPI) SetExpectedHeaders(msg *common.AnchorGetHeaderResponse) {
 	api.expectedHeader = msg
+}
+
+func (api *BatonAPI) GetSeqClient() seq.BaseSeqClient {
+	return api.seqClient
 }
 
 func (api *BatonAPI) getRouter() http.Handler {
@@ -547,40 +564,38 @@ func (api *BatonAPI) StartServer() (err error) {
 	}
 
 	// TODO: Figure out what to do with this.
-	/*
-		// start proposer API specific things
-		if api.opts.ProposerAPI {
-			// Update known validators (which can take 10-30 sec). This is a requirement for service readiness, because without them,
-			// getPayload() doesn't have the information it needs (known validators), which could lead to missed slots.
-			go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, currentSlot)
+	// start proposer API specific things
+	if api.opts.ProposerAPI {
+		// Update known validators (which can take 10-30 sec). This is a requirement for service readiness, because without them,
+		// getPayload() doesn't have the information it needs (known validators), which could lead to missed slots.
+		go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, currentSlot)
 
-			// Start the validator registration db-save processor
-			api.log.Infof("starting %d validator registration processors", numValidatorRegProcessors)
-			for i := 0; i < numValidatorRegProcessors; i++ {
-				go api.startValidatorRegistrationDBProcessor()
-			}
+		// Start the validator registration db-save processor
+		api.log.Infof("starting %d validator registration processors", numValidatorRegProcessors)
+		for i := 0; i < numValidatorRegProcessors; i++ {
+			go api.startValidatorRegistrationDBProcessor()
 		}
-	*/
+	}
 
 	// TODO: Verify we don't need anything here for our purposes
 	// start block-builder API specific things
-	//if api.opts.BlockBuilderAPI {
-	// Get current proposer duties blocking before starting, to have them ready
-	//api.updateProposerDuties(syncStatus.HeadSlot)
+	if api.opts.BlockBuilderAPI {
+		// Get current proposer duties blocking before starting, to have them ready
+		api.updateProposerDuties(syncStatus.HeadSlot)
 
-	// TODO: We shouldn't need payload attributes event. Remove when absolutely sure.
-	/*
-				// Subscribe to payload attributes events (only for builder-api)
-				go func() {
-					c := make(chan beaconclient.PayloadAttributesEvent)
-					api.beaconClient.SubscribeToPayloadAttributesEvents(c)
-					for {
-						payloadAttributes := <-c
-						api.processPayloadAttributes(payloadAttributes)
-					}
-				}()
-		}
-	*/
+		/*
+			// TODO: We shouldn't need payload attributes event. Remove when absolutely sure.
+			// Subscribe to payload attributes events (only for builder-api)
+			go func() {
+				c := make(chan beaconclient.PayloadAttributesEvent)
+				api.beaconClient.SubscribeToPayloadAttributesEvents(c)
+				for {
+					payloadAttributes := <-c
+					api.processPayloadAttributes(payloadAttributes)
+				}
+			}()
+		*/
+	}
 
 	// @TODO: Figure out what to do with this here. Recall slots should come from SEQ.
 	// Process current slot
@@ -921,7 +936,7 @@ func (api *BatonAPI) simulateBlock(
 	return gasUsed, nil, nil
 }
 
-// note: important for seq/seq-go.go
+// note: important for seq/seqclient.go
 func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	prevHeadSlot := api.headSlot.Load()
 	if headSlot <= prevHeadSlot {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/flashbots/mev-boost-relay/seq"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -151,6 +152,15 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 
 func (be *testBackend) GetRedis() *datastore.RedisCache {
 	return be.redis
+}
+
+func (be *testBackend) GetMockSeqClient() *seq.MockSeqClient {
+	seqClient := be.baton.GetSeqClient()
+	mockSeqClient, ok := seqClient.(*seq.MockSeqClient)
+	if !ok {
+		panic("backend baton did not have mock seq client")
+	}
+	return mockSeqClient
 }
 
 func (be *testBackend) requestBytes(method, path string, payload []byte, headers map[string]string) *httptest.ResponseRecorder {
@@ -866,6 +876,99 @@ func TestGetPayload(t *testing.T) {
 		rr := backend.request(http.MethodPost, requestPath, payloadReq)
 		require.Equal(t, http.StatusBadRequest, rr.Code)
 	})
+}
+
+func TestOverallBasicFlow(t *testing.T) {
+	expectedSlot := uint64(1)
+	var err error
+
+	// Build hypersdk registry
+	var cli = srpc.Parser{}
+	_, _ = cli.Registry()
+
+	// Build test builder keys
+	testBuilderSecretKey, err := bls.GenerateRandomSecretKey()
+	require.NoError(t, err)
+	testBuilderPublicKey, err := bls.PublicKeyFromSecretKey(testBuilderSecretKey)
+	require.NoError(t, err)
+
+	// Build test proposer keys
+	testProposerSecretKey, err := bls.GenerateRandomSecretKey()
+	require.NoError(t, err)
+	testProposerPublicKey, err := bls.PublicKeyFromSecretKey(testProposerSecretKey)
+	require.NoError(t, err)
+
+	// Create a RoB chunk
+	robBlockOpts := CreateTestBlockSubmissionOpts{
+		Slot:           expectedSlot,
+		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		BuilderPubkey:  *testBuilderPublicKey,
+		ProposerPubkey: *testProposerPublicKey,
+		IsToB:          false,
+		robChainIndex:  0,
+		numTxs:         1,
+		withTransferTx: true,
+	}
+	defaultRoBBlockValue := uint64(2)
+	robBlockReq, _, _ := CreateTestChunkSubmission(t, defaultRoBBlockValue, &robBlockOpts)
+
+	// Create a RoB chunk
+	tobBlockOpts := CreateTestBlockSubmissionOpts{
+		Slot:           expectedSlot,
+		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		BuilderPubkey:  *testBuilderPublicKey,
+		ProposerPubkey: *testProposerPublicKey,
+		IsToB:          true,
+		robChainIndex:  0,
+		numTxs:         2,
+		withTransferTx: true,
+	}
+	defaultToBBlockValue := uint64(2)
+	tobBlockReq, _, _ := CreateTestChunkSubmission(t, defaultToBBlockValue, &tobBlockOpts)
+
+	// Helper for processing block requests to the backend. Returns the status code of the request.
+	processBlockRequest := func(backend *testBackend, blockReq *common.SubmitNewBlockRequest) int {
+		// marshal the req body
+		requestBodyBytes, err := json.Marshal(blockReq)
+		require.NoError(t, err)
+
+		// new HTTP req
+		httpReq := httptest.NewRequest(http.MethodPost, "/baton/v1/builder/submit", bytes.NewReader(requestBodyBytes))
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		// Capture the response
+		rr := httptest.NewRecorder()
+
+		// Process the request
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
+
+		return rr.Code
+	}
+
+	backend := createBackendHelper(t)
+	seqClient := backend.GetMockSeqClient()
+
+	// Submit block requests (one rob, one tob)
+	rrCode := processBlockRequest(backend, robBlockReq)
+	require.Equal(t, http.StatusOK, rrCode)
+
+	rrCode = processBlockRequest(backend, tobBlockReq)
+	require.Equal(t, http.StatusOK, rrCode)
+
+	// process new expectedSlot 1
+	seqClient.TriggerNextSlot(expectedSlot)
+
+	// Now test getHeader()
+	rr := httptest.NewRecorder()
+	getHeaderRequestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(expectedSlot, 10), testParentHash, testProposerPubkey)
+	require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", getHeaderRequestPath)
+
+	httpReq := httptest.NewRequest(http.MethodGet, getHeaderRequestPath, nil)
+	backend.baton.getRouter().ServeHTTP(rr, httpReq)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	// Now test getPayload()
 }
 
 func TestDataApiGetDataProposerPayloadDelivered(t *testing.T) {

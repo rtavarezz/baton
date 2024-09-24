@@ -16,12 +16,21 @@ import (
 	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
 )
 
-type Config struct {
+type SeqClientConfig struct {
 	PrivateKey ed25519.PrivateKey // signer hex
 
 	URL       string
 	ChainID   ids.ID
 	NetworkID uint32
+}
+
+type BaseSeqClient interface {
+	SetNewSlotHandler(handler func(uint64))
+	SeqHead() *chain.StatefulBlock
+	NamespaceExists() bool
+	SetNamespace(namespace []byte)
+	NextProposer(ctx context.Context) *hrpc.NextProposerReply
+	nextProposer(ctx context.Context) (*hrpc.NextProposerReply, error)
 }
 
 type SeqClient struct {
@@ -53,7 +62,7 @@ func (cli *SeqClient) SetNewSlotHandler(handler func(uint64)) {
 	cli.NewSlotHandler = handler
 }
 
-func NewSeqClient(config *Config) (*SeqClient, error) {
+func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 	log.Info("initializing SEQ", "url", config.URL, "chainID", config.ChainID, "sk", config.PrivateKey)
 	hcli := hrpc.NewJSONRPCClient(config.URL)
 	scli := srpc.NewJSONRPCClient(config.URL, config.NetworkID, config.ChainID)

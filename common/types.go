@@ -622,8 +622,7 @@ type ExecHeadersInfo struct {
 }
 
 type AnchorGetPayloadRequest struct {
-	Slot uint64 `json:"slot"`
-	//ProposerIndex uint64 `json:"proposer_index"`
+	Slot           uint64 `json:"slot"`
 	ProposerPubKey []byte `json:"proposer_pubkey"`
 	ParentHash     string `json:"parent_hash"`
 	// Exec headers signed by validator's key. Should be [48]byte bls.signature.
