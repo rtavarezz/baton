@@ -2365,6 +2365,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	getHeader.Value = value
+
 	getPayload, err := BuildPayload(&blockReq, blockReq.Txs())
 	if err != nil {
 		log.WithError(err).Warn("failed to build payload")

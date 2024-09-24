@@ -69,18 +69,17 @@ type CreateTestBlockSubmissionOpts struct {
 func (opts *CreateTestBlockSubmissionOpts) BuilderPubkeyAsStr() string {
 	pk := opts.BuilderPubkey
 	builderPubKeyBytes := (&pk).Bytes()
-	builderPubKeyBytesAsStr := hex.EncodeToString(builderPubKeyBytes[:])
+	builderPubKeyBytesAsStr := "0x" + hex.EncodeToString(builderPubKeyBytes[:])
 	return builderPubKeyBytesAsStr
 }
 
 func (opts *CreateTestBlockSubmissionOpts) ProposerPubKeyAsStr() string {
 	pk := opts.ProposerPubkey
 	proposerPubKeyBytes := (&pk).Bytes()
-	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
+	proposerPubKeyBytesAsStr := "0x" + hex.EncodeToString(proposerPubKeyBytes[:])
 	return proposerPubKeyBytesAsStr
 }
 
-// @TODO: Expand for ToB
 func CreateTestChunkSubmission(
 	t *testing.T,
 	value uint64,
