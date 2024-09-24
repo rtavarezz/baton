@@ -912,7 +912,7 @@ func TestOverallBasicFlow(t *testing.T) {
 	defaultRoBBlockValue := uint64(2)
 	robBlockReq, _, _ := CreateTestChunkSubmission(t, defaultRoBBlockValue, &robBlockOpts)
 
-	// Create a RoB chunk
+	// Create a ToB chunk
 	tobBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           expectedSlot,
 		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
@@ -947,7 +947,7 @@ func TestOverallBasicFlow(t *testing.T) {
 
 	backend := createBackendHelper(t)
 	seqClient := backend.GetMockSeqClient()
-
+	proposerPubKeyStr := robBlockReq.ProposerPubKeyAsStr()
 	// Submit block requests (one rob, one tob)
 	rrCode := processBlockRequest(backend, robBlockReq)
 	require.Equal(t, http.StatusOK, rrCode)
@@ -960,8 +960,9 @@ func TestOverallBasicFlow(t *testing.T) {
 
 	// Now test getHeader()
 	rr := httptest.NewRecorder()
-	getHeaderRequestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(expectedSlot, 10), testParentHash, testProposerPubkey)
-	require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", getHeaderRequestPath)
+
+	getHeaderRequestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(expectedSlot, 10), testParentHash, proposerPubKeyStr)
+	require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+proposerPubKeyStr, getHeaderRequestPath)
 
 	httpReq := httptest.NewRequest(http.MethodGet, getHeaderRequestPath, nil)
 	backend.baton.getRouter().ServeHTTP(rr, httpReq)

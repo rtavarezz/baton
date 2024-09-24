@@ -471,7 +471,7 @@ func (r *SubmitNewBlockRequest) ProposerPubKeyAsStr() string {
 	pk := r.ProposerPubKey()
 	proposerPubKeyBytes := (&pk).Bytes()
 	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
-	return proposerPubKeyBytesAsStr
+	return "0x" + proposerPubKeyBytesAsStr
 }
 
 func (r *SubmitNewBlockRequest) ProposerPayment() codec.Address {
@@ -485,7 +485,12 @@ func (r *SubmitNewBlockRequest) ProposerPaymentAsStr() string {
 func (r *SubmitNewBlockRequest) ParentHash() common.Hash {
 	return r.Chunk.ParentHash
 }
-
+func (r *SubmitNewBlockRequest) ParentHashAsStr() string {
+	pk := r.ParentHash()
+	parentHashBytes := (&pk).Bytes()
+	parentHashBytesAsStr := hex.EncodeToString(parentHashBytes[:])
+	return "0x" + parentHashBytesAsStr
+}
 func (r *SubmitNewBlockRequest) Txs() []byte {
 	return r.Chunk.Txs
 }
@@ -527,7 +532,7 @@ func (r *SubmitNewBlockRequest) BuilderPubkeyAsStr() string {
 	pk := r.BuilderPubkey()
 	builderPubKeyBytes := (&pk).Bytes()
 	builderPubKeyBytesAsStr := hex.EncodeToString(builderPubKeyBytes[:])
-	return builderPubKeyBytesAsStr
+	return "0x" + builderPubKeyBytesAsStr
 }
 
 func (r *SubmitNewBlockRequest) Sig() bls.Signature {

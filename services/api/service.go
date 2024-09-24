@@ -2458,7 +2458,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		Slot:            slot,
 		IsTob:           isToB,
 		ChainID:         chainID,
-		ParentHash:      blockReq.ParentHash().String(),
+		ParentHash:      blockReq.ParentHashAsStr(),
 		BlockHash:       blockReq.BlockHash().String(),
 		BuilderPubkey:   blockReq.BuilderPubkeyAsStr(),
 		ProposerPubkey:  blockReq.ProposerPubKeyAsStr(),
