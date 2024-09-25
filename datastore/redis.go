@@ -289,22 +289,19 @@ func (r *RedisCache) keyFloorRoBBidValue(slot uint64, parentHash, proposerPubkey
 	return fmt.Sprintf("rob,%s:%d_%s_%s_%s", r.prefixFloorBidValue, slot, parentHash, proposerPubkey, chainID)
 }
 
+// TODO: below causing the errors
 func (r *RedisCache) GetObj(key string, obj any) (err error) {
 	value, err := r.client.Get(context.Background(), key).Result()
 	if err != nil {
 		return err
 	}
-	temp := &common.AnchorHeader{
-		Header: &eth.Hash{},
-		Value:  new(big.Int),
-	}
+	//obj = common.AnchorHeader{
+	//	Header:    &eth.Hash{},
+	//	BlockHash: "",
+	//	Value:     new(big.Int),
+	//}
 
-	err = json.Unmarshal([]byte(value), &temp)
-	if err != nil {
-		fmt.Println("Unmarshalling JSON error:", err)
-		return
-	}
-	return nil
+	return json.Unmarshal([]byte(value), &obj)
 }
 
 func (r *RedisCache) SetObj(key string, value any, expiration time.Duration) (err error) {

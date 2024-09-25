@@ -1457,6 +1457,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	headers := common.NewExecutionHeader()
 	var hasToB bool
 	var hasRoB bool
+	// TODO: bid returns an empty AnchorHeader which causes code to fail, debug needed below
 	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
 	if err != nil {
 		log.WithError(err).Error("could not get bid for ToB")
