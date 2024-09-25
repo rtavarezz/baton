@@ -1466,13 +1466,21 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		hasToB = bid != nil
 	}
 
-	if hasToB && bid.Header.Big().Cmp(big.NewInt(0)) == 0 {
-		log.Info("handleGetHeader ToB was removed due to header comparison")
-		hasToB = false
-	}
-	if hasToB && len(bid.BlockHash) == 0 {
-		log.Warning("handleGetHeader ToB was removed due to empty block hash")
-		hasToB = false
+	// Make sure the retrieved ToB block is valid
+	if hasToB {
+		if bid.Header == nil {
+			log.Error("handleGetHeader ToB had nil header")
+			hasToB = false
+		} else if bid.Value == nil {
+			log.Error("handleGetHeader ToB had nil value")
+			hasToB = false
+		} else if bid.Header.Big().Cmp(big.NewInt(0)) == 0 {
+			log.Info("handleGetHeader ToB was removed due to header comparison")
+			hasToB = false
+		} else if len(bid.BlockHash) == 0 {
+			log.Warning("handleGetHeader ToB was removed due to empty block hash")
+			hasToB = false
+		}
 	}
 	if hasToB {
 		headers.ToBHash = bid
@@ -1487,9 +1495,13 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		}
 		if bid == nil {
 			continue
-		}
-		// think of more cases for hash if possible
-		if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
+		} else if bid.Header == nil {
+			log.Error("handleGetHeader rob had nil header, chain_id " + chainID)
+			continue
+		} else if bid.Value == nil {
+			log.Error("handleGetHeader rob had nil value, chain_id " + chainID)
+			hasToB = false
+		} else if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
 			log.Error("handleGetHeader: rob chunk had zero value")
 			w.WriteHeader(http.StatusNoContent)
 			return
