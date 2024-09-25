@@ -294,8 +294,17 @@ func (r *RedisCache) GetObj(key string, obj any) (err error) {
 	if err != nil {
 		return err
 	}
+	temp := &common.AnchorHeader{
+		Header: &eth.Hash{},
+		Value:  new(big.Int),
+	}
 
-	return json.Unmarshal([]byte(value), &obj)
+	err = json.Unmarshal([]byte(value), &temp)
+	if err != nil {
+		fmt.Println("Unmarshalling JSON error:", err)
+		return
+	}
+	return nil
 }
 
 func (r *RedisCache) SetObj(key string, value any, expiration time.Duration) (err error) {
