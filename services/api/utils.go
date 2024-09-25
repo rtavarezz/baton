@@ -73,7 +73,7 @@ func BuildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
 		log.Error("failed to hash header")
 	}
 	var anchorHeader common.AnchorHeader
-	anchorHeader.Header = &header
+	anchorHeader.Header = header
 	anchorHeader.BlockHash = s.BlockHash().String()
 	return anchorHeader, nil
 }
@@ -86,7 +86,7 @@ func BuildPayload(s *common.SubmitNewBlockRequest, hypersdkTxs []byte) (*common.
 
 	payload := common.AnchorPayload{
 		Slot:         s.Chunk.Slot,
-		Header:       *hash.Header,
+		Header:       hash.Header,
 		Transactions: hypersdkTxs,
 	}
 

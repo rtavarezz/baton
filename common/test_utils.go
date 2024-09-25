@@ -3,7 +3,6 @@ package common
 import (
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/flashbots/go-boost-utils/bls"
-	"math/big"
 	"time"
 
 	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
@@ -98,21 +97,21 @@ func MakeRandomAnchorGetHeaderResponse(pk bls.PublicKey, slot uint64) *AnchorGet
 	}
 
 	tobAnchorHeader := AnchorHeader{
-		Header:    &tobHash,
+		Header:    tobHash,
 		BlockHash: tobBlockHash,
-		Value:     big.NewInt(5),
+		Value:     uint64(5),
 	}
 
 	robAnchorHeader1 := AnchorHeader{
-		Header:    &robHash1,
+		Header:    robHash1,
 		BlockHash: robBlockHash1,
-		Value:     big.NewInt(1),
+		Value:     uint64(1),
 	}
 
 	robAnchorHeader2 := AnchorHeader{
-		Header:    &robHash2,
+		Header:    robHash2,
 		BlockHash: robBlockHash2,
-		Value:     big.NewInt(2),
+		Value:     uint64(2),
 	}
 
 	robHashes := make(map[string]*AnchorHeader, 0)

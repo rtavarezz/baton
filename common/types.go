@@ -588,9 +588,17 @@ type FlashbotsCallBundleResult struct {
 }
 
 type AnchorHeader struct {
-	Header    *common.Hash `json:"header"`
-	BlockHash string       `json:"block_hash"`
-	Value     *big.Int     `json:"value"`
+	Header    common.Hash `json:"header"`
+	BlockHash string      `json:"block_hash"`
+	Value     uint64      `json:"value"`
+}
+
+func (h *AnchorHeader) MarshalBinary() ([]byte, error) {
+	return json.Marshal(*h)
+}
+
+func (h *AnchorHeader) UnmarshalBinary(data []byte) error {
+	return json.Unmarshal(data, h)
 }
 
 type AnchorPayload struct {

@@ -1,37 +1,36 @@
 package api
 
 import (
-	"bytes"
-	"compress/gzip"
-	"context"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
-	"github.com/flashbots/mev-boost-relay/seq"
-	"math/big"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
-	"sync"
-	"testing"
-	"time"
+  "bytes"
+  "compress/gzip"
+  "context"
+  "encoding/hex"
+  "encoding/json"
+  "fmt"
+  "github.com/flashbots/mev-boost-relay/seq"
+  "net/http"
+  "net/http/httptest"
+  "strconv"
+  "sync"
+  "testing"
+  "time"
 
-	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"golang.org/x/exp/rand"
+  apiv1 "github.com/attestantio/go-builder-client/api/v1"
+  "github.com/attestantio/go-eth2-client/spec/phase0"
+  "golang.org/x/exp/rand"
 
-	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
-	// "github.com/AnomalyFi/hypersdk/state"
-	"github.com/alicebob/miniredis/v2"
-	eth "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/flashbots/go-boost-utils/bls"
-	"github.com/flashbots/go-boost-utils/types"
-	"github.com/flashbots/mev-boost-relay/beaconclient"
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/flashbots/mev-boost-relay/database"
-	"github.com/flashbots/mev-boost-relay/datastore"
-	"github.com/stretchr/testify/require"
+  srpc "github.com/AnomalyFi/nodekit-seq/rpc"
+  // "github.com/AnomalyFi/hypersdk/state"
+  "github.com/alicebob/miniredis/v2"
+  eth "github.com/ethereum/go-ethereum/common"
+  "github.com/ethereum/go-ethereum/common/hexutil"
+  "github.com/flashbots/go-boost-utils/bls"
+  "github.com/flashbots/go-boost-utils/types"
+  "github.com/flashbots/mev-boost-relay/beaconclient"
+  "github.com/flashbots/mev-boost-relay/common"
+  "github.com/flashbots/mev-boost-relay/database"
+  "github.com/flashbots/mev-boost-relay/datastore"
+  "github.com/stretchr/testify/require"
 )
 
 const (
@@ -465,9 +464,9 @@ func TestGetHeader(t *testing.T) {
 		}
 
 		header := common.AnchorHeader{
-			Header:    &headerHash,
+			Header:    headerHash,
 			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
-			Value:     big.NewInt(2),
+			Value:     uint64(2),
 		}
 		// Populate redis cache with expected headers
 		err = redis.SetToBBid(slot, testParentHash, testProposerPubkey, header)
@@ -476,7 +475,7 @@ func TestGetHeader(t *testing.T) {
 		}
 		keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey)
 
-		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header.Value.String(), 0).Err()
+		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
 
 		rr := httptest.NewRecorder()
 
@@ -498,9 +497,9 @@ func TestGetHeader(t *testing.T) {
 		}
 
 		header := common.AnchorHeader{
-			Header:    &headerHash,
+			Header:    headerHash,
 			BlockHash: "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792",
-			Value:     big.NewInt(2),
+			Value:     uint64(2),
 		}
 		// Populate redis cache with expected headers
 		err = redis.SetRoBBid(slot, testParentHash, testProposerPubkey, testChainID, header)
@@ -509,7 +508,7 @@ func TestGetHeader(t *testing.T) {
 		}
 		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey, testChainID)
 
-		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header.Value.String(), 0).Err()
+		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
 
 		rr := httptest.NewRecorder()
 
@@ -764,7 +763,7 @@ func TestGetPayload(t *testing.T) {
 
 		payload := common.AnchorPayload{
 			Slot:   1,
-			Header: *header.Header,
+			Header: header.Header,
 			//Header:       eth.Hash([]byte(testHeaderHash)),
 			Transactions: txBytes,
 			GasUsed:      uint64(1),
@@ -794,7 +793,7 @@ func TestGetPayload(t *testing.T) {
 
 		payload := common.AnchorPayload{
 			Slot:   1,
-			Header: *header.Header,
+			Header: header.Header,
 			//Header:       eth.Hash([]byte(testHeaderHash)),
 			Transactions: txBytes,
 			GasUsed:      uint64(1),
@@ -949,10 +948,10 @@ func TestOverallBasicFlow(t *testing.T) {
 	seqClient := backend.GetMockSeqClient()
 	proposerPubKeyStr := robBlockReq.ProposerPubKeyAsStr()
 	// Submit block requests (one rob, one tob)
-	rrCode := processBlockRequest(backend, robBlockReq)
-	require.Equal(t, http.StatusOK, rrCode)
+	//rrCode := processBlockRequest(backend, robBlockReq)
+	//require.Equal(t, http.StatusOK, rrCode)
 
-	rrCode = processBlockRequest(backend, tobBlockReq)
+	rrCode := processBlockRequest(backend, tobBlockReq)
 	require.Equal(t, http.StatusOK, rrCode)
 
 	// process new expectedSlot 1

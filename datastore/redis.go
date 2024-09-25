@@ -295,6 +295,7 @@ func (r *RedisCache) GetObj(key string, obj any) (err error) {
 	if err != nil {
 		return err
 	}
+
 	//obj = common.AnchorHeader{
 	//	Header:    &eth.Hash{},
 	//	BlockHash: "",
@@ -739,15 +740,23 @@ func (r *RedisCache) SaveToBBuilderBid(
 	receivedAt time.Time,
 	headerResp *common.AnchorHeader,
 ) (err error) {
-	// need to convert headerResp to bytes so that it holds all info from header
-	// instead of passing in the hash only(AnchorHeader.Header)
-	headerRespBytes, err := json.Marshal(headerResp)
-	if err != nil {
-		return err
+	if headerResp == nil {
+		return errors.New("could not save tob builder bid because header is nil")
 	}
+
+	/*
+	   	// TODO: NEEDED?
+	     // need to convert headerResp to bytes so that it holds all info from header
+	     // instead of passing in the hash only(AnchorHeader.Header)
+	     headerRespBytes, err := json.Marshal(*headerResp)
+	     if err != nil {
+	       return err
+	     }
+	*/
+
 	// save the actual bid
 	keyLatestBid := r.KeyLatestToBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey)
-	err = r.SetObjPipelined(ctx, pipeliner, keyLatestBid, headerRespBytes, expiryBidCache)
+	err = r.SetObjPipelined(ctx, pipeliner, keyLatestBid, headerResp, expiryBidCache)
 	if err != nil {
 		return err
 	}
@@ -765,7 +774,7 @@ func (r *RedisCache) SaveToBBuilderBid(
 
 	// set the value last, because that's iterated over when updating the best bid, and the payload has to be available
 	keyLatestBidsValue := r.keyBlockBuilderLatestToBBidsValue(slot, parentHash, proposerPubkey)
-	err = pipeliner.HSet(ctx, keyLatestBidsValue, builderPubkey, headerRespBytes).Err()
+	err = pipeliner.HSet(ctx, keyLatestBidsValue, builderPubkey, *headerResp).Err()
 	if err != nil {
 		return err
 	}
