@@ -201,11 +201,12 @@ type BatonAPI struct {
 	srvStarted  uberatomic.Bool `jjj:"srv_started"`
 	srvShutdown uberatomic.Bool `jjj:"srv_shutdown"`
 
-	beaconClient beaconclient.IMultiBeaconClient `jjj:"beacon_client"`
-	datastore    *datastore.Datastore            `jjj:"datastore"`
-	redis        *datastore.RedisCache           `jjj:"redis"`
-	memcached    *datastore.Memcached            `jjj:"memcached"`
-	db           database.IDatabaseService       `jjj:"db"`
+	// TODO: to be removed
+	// beaconClient beaconclient.IMultiBeaconClient `jjj:"beacon_client"`
+	datastore *datastore.Datastore      `jjj:"datastore"`
+	redis     *datastore.RedisCache     `jjj:"redis"`
+	memcached *datastore.Memcached      `jjj:"memcached"`
+	db        database.IDatabaseService `jjj:"db"`
 
 	headSlot     uberatomic.Uint64                `jjj:"head_slot"`
 	genesisInfo  *beaconclient.GetGenesisResponse `jjj:"genesis_info"`
@@ -292,9 +293,9 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		return nil, ErrMissingLogOpt
 	}
 
-	if opts.BeaconClient == nil {
-		return nil, ErrMissingBeaconClientOpt
-	}
+	// if opts.BeaconClient == nil {
+	// 	return nil, ErrMissingBeaconClientOpt
+	// }
 
 	if opts.Datastore == nil {
 		return nil, ErrMissingDatastoreOpt
@@ -355,15 +356,15 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	}
 
 	api = &BatonAPI{
-		opts:         opts,
-		log:          opts.Log,
-		blsSk:        opts.SecretKey,
-		publicKey:    blsPubkey,
-		datastore:    opts.Datastore,
-		beaconClient: opts.BeaconClient,
-		redis:        opts.Redis,
-		memcached:    opts.Memcached,
-		db:           opts.DB,
+		opts:      opts,
+		log:       opts.Log,
+		blsSk:     opts.SecretKey,
+		publicKey: blsPubkey,
+		datastore: opts.Datastore,
+		// beaconClient: opts.BeaconClient,
+		redis:     opts.Redis,
+		memcached: opts.Memcached,
+		db:        opts.DB,
 
 		proposerDutiesResponse: &[]byte{},
 		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.BlockSimManager),
@@ -507,98 +508,99 @@ func (api *BatonAPI) StartServer() (err error) {
 		return ErrServerAlreadyStarted
 	}
 
-	log := api.log.WithField("method", "StartServer")
+	// TODO: the following are related to beacon client, which are not used in Baton, commented out
+	// log := api.log.WithField("method", "StartServer")
 
 	// Get best beacon-node status by head slot, process current slot and start slot updates
-	syncStatus, err := api.beaconClient.BestSyncStatus()
-	if err != nil {
-		return err
-	}
-	currentSlot := syncStatus.HeadSlot
+	// syncStatus, err := api.beaconClient.BestSyncStatus()
+	// if err != nil {
+	// 	return err
+	// }
+	// currentSlot := syncStatus.HeadSlot
 
-	// Initialize block builder cache.
-	api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
+	// // Initialize block builder cache.
+	// api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
 
-	// Get genesis info
-	api.genesisInfo, err = api.beaconClient.GetGenesis()
-	if err != nil {
-		return err
-	}
-	log.Infof("genesis info: %d", api.genesisInfo.Data.GenesisTime)
+	// // Get genesis info
+	// api.genesisInfo, err = api.beaconClient.GetGenesis()
+	// if err != nil {
+	// 	return err
+	// }
+	// log.Infof("genesis info: %d", api.genesisInfo.Data.GenesisTime)
 
-	// Get and prepare fork schedule
-	forkSchedule, err := api.beaconClient.GetForkSchedule()
-	if err != nil {
-		return err
-	}
+	// // Get and prepare fork schedule
+	// forkSchedule, err := api.beaconClient.GetForkSchedule()
+	// if err != nil {
+	// 	return err
+	// }
 
-	var foundCapellaEpoch, foundDenebEpoch bool
-	for _, fork := range forkSchedule.Data {
-		log.Infof("forkSchedule: version=%s / epoch=%d", fork.CurrentVersion, fork.Epoch)
-		switch fork.CurrentVersion {
-		case api.opts.EthNetDetails.CapellaForkVersionHex:
-			foundCapellaEpoch = true
-			api.capellaEpoch = fork.Epoch
-		case api.opts.EthNetDetails.DenebForkVersionHex:
-			foundDenebEpoch = true
-			api.denebEpoch = fork.Epoch
-		}
-	}
+	// var foundCapellaEpoch, foundDenebEpoch bool
+	// for _, fork := range forkSchedule.Data {
+	// 	log.Infof("forkSchedule: version=%s / epoch=%d", fork.CurrentVersion, fork.Epoch)
+	// 	switch fork.CurrentVersion {
+	// 	case api.opts.EthNetDetails.CapellaForkVersionHex:
+	// 		foundCapellaEpoch = true
+	// 		api.capellaEpoch = fork.Epoch
+	// 	case api.opts.EthNetDetails.DenebForkVersionHex:
+	// 		foundDenebEpoch = true
+	// 		api.denebEpoch = fork.Epoch
+	// 	}
+	// }
 
 	// Print fork version information
-	if foundDenebEpoch && hasReachedFork(currentSlot, api.denebEpoch) {
-		log.Infof("deneb fork detected (currentEpoch: %d / denebEpoch: %d)", common.SlotToEpoch(currentSlot), api.denebEpoch)
-	} else if foundCapellaEpoch && hasReachedFork(currentSlot, api.capellaEpoch) {
-		log.Infof("capella fork detected (currentEpoch: %d / capellaEpoch: %d)", common.SlotToEpoch(currentSlot), api.capellaEpoch)
-	}
+	// if foundDenebEpoch && hasReachedFork(currentSlot, api.denebEpoch) {
+	// 	log.Infof("deneb fork detected (currentEpoch: %d / denebEpoch: %d)", common.SlotToEpoch(currentSlot), api.denebEpoch)
+	// } else if foundCapellaEpoch && hasReachedFork(currentSlot, api.capellaEpoch) {
+	// 	log.Infof("capella fork detected (currentEpoch: %d / capellaEpoch: %d)", common.SlotToEpoch(currentSlot), api.capellaEpoch)
+	// }
 
 	// TODO: Figure out what to do with this.
 	// start proposer API specific things
-	if api.opts.ProposerAPI {
-		// Update known validators (which can take 10-30 sec). This is a requirement for service readiness, because without them,
-		// getPayload() doesn't have the information it needs (known validators), which could lead to missed slots.
-		go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, currentSlot)
+	// if api.opts.ProposerAPI {
+	// 	// Update known validators (which can take 10-30 sec). This is a requirement for service readiness, because without them,
+	// 	// getPayload() doesn't have the information it needs (known validators), which could lead to missed slots.
+	// 	go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, currentSlot)
 
-		// Start the validator registration db-save processor
-		api.log.Infof("starting %d validator registration processors", numValidatorRegProcessors)
-		for i := 0; i < numValidatorRegProcessors; i++ {
-			go api.startValidatorRegistrationDBProcessor()
-		}
-	}
+	// 	// Start the validator registration db-save processor
+	// 	api.log.Infof("starting %d validator registration processors", numValidatorRegProcessors)
+	// 	for i := 0; i < numValidatorRegProcessors; i++ {
+	// 		go api.startValidatorRegistrationDBProcessor()
+	// 	}
+	// }
 
 	// TODO: Verify we don't need anything here for our purposes
 	// start block-builder API specific things
-	if api.opts.BlockBuilderAPI {
-		// Get current proposer duties blocking before starting, to have them ready
-		api.updateProposerDuties(syncStatus.HeadSlot)
+	// if api.opts.BlockBuilderAPI {
+	// 	// Get current proposer duties blocking before starting, to have them ready
+	// 	api.updateProposerDuties(syncStatus.HeadSlot)
 
-		/*
-			// TODO: We shouldn't need payload attributes event. Remove when absolutely sure.
-			// Subscribe to payload attributes events (only for builder-api)
-			go func() {
-				c := make(chan beaconclient.PayloadAttributesEvent)
-				api.beaconClient.SubscribeToPayloadAttributesEvents(c)
-				for {
-					payloadAttributes := <-c
-					api.processPayloadAttributes(payloadAttributes)
-				}
-			}()
-		*/
-	}
+	// 	/*
+	// 		// TODO: We shouldn't need payload attributes event. Remove when absolutely sure.
+	// 		// Subscribe to payload attributes events (only for builder-api)
+	// 		go func() {
+	// 			c := make(chan beaconclient.PayloadAttributesEvent)
+	// 			api.beaconClient.SubscribeToPayloadAttributesEvents(c)
+	// 			for {
+	// 				payloadAttributes := <-c
+	// 				api.processPayloadAttributes(payloadAttributes)
+	// 			}
+	// 		}()
+	// 	*/
+	// }
 
 	// @TODO: Figure out what to do with this here. Recall slots should come from SEQ.
 	// Process current slot
-	api.processNewSlot(currentSlot)
+	// api.processNewSlot(currentSlot)
 
 	// Start regular slot updates
-	go func() {
-		c := make(chan beaconclient.HeadEventData)
-		api.beaconClient.SubscribeToHeadEvents(c)
-		for {
-			headEvent := <-c
-			api.processNewSlot(headEvent.Slot)
-		}
-	}()
+	// go func() {
+	// 	c := make(chan beaconclient.HeadEventData)
+	// 	api.beaconClient.SubscribeToHeadEvents(c)
+	// 	for {
+	// 		headEvent := <-c
+	// 		api.processNewSlot(headEvent.Slot)
+	// 	}
+	// }()
 
 	// create and start HTTP server
 	api.srv = &http.Server{
@@ -951,9 +953,10 @@ func (api *BatonAPI) processNewSlot(headSlot uint64) {
 		go api.prepareBuildersForSlot(headSlot)
 	}
 
-	if api.opts.ProposerAPI {
-		go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, headSlot)
-	}
+	// TODO: to be removed as related to beacon client
+	// if api.opts.ProposerAPI {
+	// 	go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, headSlot)
+	// }
 
 	// log
 	epoch := headSlot / common.SlotsPerEpoch
