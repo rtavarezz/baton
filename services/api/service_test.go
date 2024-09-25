@@ -1,36 +1,36 @@
 package api
 
 import (
-  "bytes"
-  "compress/gzip"
-  "context"
-  "encoding/hex"
-  "encoding/json"
-  "fmt"
-  "github.com/flashbots/mev-boost-relay/seq"
-  "net/http"
-  "net/http/httptest"
-  "strconv"
-  "sync"
-  "testing"
-  "time"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"github.com/flashbots/mev-boost-relay/seq"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"sync"
+	"testing"
+	"time"
 
-  apiv1 "github.com/attestantio/go-builder-client/api/v1"
-  "github.com/attestantio/go-eth2-client/spec/phase0"
-  "golang.org/x/exp/rand"
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"golang.org/x/exp/rand"
 
-  srpc "github.com/AnomalyFi/nodekit-seq/rpc"
-  // "github.com/AnomalyFi/hypersdk/state"
-  "github.com/alicebob/miniredis/v2"
-  eth "github.com/ethereum/go-ethereum/common"
-  "github.com/ethereum/go-ethereum/common/hexutil"
-  "github.com/flashbots/go-boost-utils/bls"
-  "github.com/flashbots/go-boost-utils/types"
-  "github.com/flashbots/mev-boost-relay/beaconclient"
-  "github.com/flashbots/mev-boost-relay/common"
-  "github.com/flashbots/mev-boost-relay/database"
-  "github.com/flashbots/mev-boost-relay/datastore"
-  "github.com/stretchr/testify/require"
+	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
+	// "github.com/AnomalyFi/hypersdk/state"
+	"github.com/alicebob/miniredis/v2"
+	eth "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/flashbots/go-boost-utils/bls"
+	"github.com/flashbots/go-boost-utils/types"
+	"github.com/flashbots/mev-boost-relay/beaconclient"
+	"github.com/flashbots/mev-boost-relay/common"
+	"github.com/flashbots/mev-boost-relay/database"
+	"github.com/flashbots/mev-boost-relay/datastore"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -948,10 +948,10 @@ func TestOverallBasicFlow(t *testing.T) {
 	seqClient := backend.GetMockSeqClient()
 	proposerPubKeyStr := robBlockReq.ProposerPubKeyAsStr()
 	// Submit block requests (one rob, one tob)
-	//rrCode := processBlockRequest(backend, robBlockReq)
-	//require.Equal(t, http.StatusOK, rrCode)
+	rrCode := processBlockRequest(backend, robBlockReq)
+	require.Equal(t, http.StatusOK, rrCode)
 
-	rrCode := processBlockRequest(backend, tobBlockReq)
+	rrCode = processBlockRequest(backend, tobBlockReq)
 	require.Equal(t, http.StatusOK, rrCode)
 
 	// process new expectedSlot 1
@@ -969,6 +969,28 @@ func TestOverallBasicFlow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	// Now test getPayload()
+	resp := new(common.AnchorGetHeaderResponse)
+	// TODO: fails below with 'can't parse into a big.Int: [0,0,0,0,0,0]'
+	err = json.Unmarshal(rr.Body.Bytes(), resp)
+	require.NoError(t, err)
+	signedHeaders, err := common.GetExecHeaderSignature(&resp.ExecHeaders, mockSecretKey)
+	if err != nil {
+		t.Error(err)
+	}
+	signedHeadersBytes := signedHeaders.Bytes()
+	proposerPubKeyStr = robBlockReq.ProposerPubKeyAsStr()
+	payloadReq := common.AnchorGetPayloadRequest{
+		Slot:           uint64(1),
+		ProposerPubKey: []byte(proposerPubKeyStr),
+		// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
+		ParentHash: testParentHash,
+		// Exec headers signed by validator's key. Should be [48]byte bls.signature.
+		SignedHeaders: signedHeadersBytes[:],
+	}
+	payloadReq.GetPublicKey()
+	requestPath := "/eth/v1/builder/blinded_blocks"
+	rr = backend.request(http.MethodPost, requestPath, payloadReq)
+	require.Equal(t, http.StatusOK, rr.Code)
 }
 
 func TestDataApiGetDataProposerPayloadDelivered(t *testing.T) {

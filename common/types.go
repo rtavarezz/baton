@@ -593,8 +593,8 @@ type AnchorHeader struct {
 	Value     uint64      `json:"value"`
 }
 
-func (h *AnchorHeader) MarshalBinary() ([]byte, error) {
-	return json.Marshal(*h)
+func (h AnchorHeader) MarshalBinary() ([]byte, error) {
+	return json.Marshal(h)
 }
 
 func (h *AnchorHeader) UnmarshalBinary(data []byte) error {
