@@ -971,6 +971,9 @@ func TestOverallBasicFlow(t *testing.T) {
 	// Now test getPayload()
 	resp := new(common.AnchorGetHeaderResponse)
 	// TODO: fails below with 'can't parse into a big.Int: [0,0,0,0,0,0]'
+	fmt.Println(rr)
+	fmt.Println("BREAK")
+	fmt.Println(rr.Body)
 	err = json.Unmarshal(rr.Body.Bytes(), resp)
 	require.NoError(t, err)
 	signedHeaders, err := common.GetExecHeaderSignature(&resp.ExecHeaders, mockSecretKey)

@@ -620,6 +620,14 @@ type AnchorGetHeaderResponse struct {
 	ExecHeadersSig []byte `json:"exec_headers_sig"`
 }
 
+func (h AnchorGetHeaderResponse) MarshalBinary() ([]byte, error) {
+	return json.Marshal(h)
+}
+
+func (h *AnchorGetHeaderResponse) UnmarshalBinary(data []byte) error {
+	return json.Unmarshal(data, h)
+}
+
 type AnchorBlockInfo struct {
 	Slot uint64 `json:"slot"`
 	// nodeID of chunk producing validator.
