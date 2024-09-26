@@ -2417,7 +2417,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		if !isToB {
 			api.robChainIDs[chainID] = struct{}{}
 		}
-		fmt.Println("Hello")
 		fmt.Println(api.robChainIDs)
 	}
 

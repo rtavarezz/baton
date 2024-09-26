@@ -110,8 +110,6 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	require.NoError(t, err)
 	managerPub, err := bls.PublicKeyFromSecretKey(managerSk)
 	require.NoError(t, err)
-	pubBytes := managerPub.Bytes()
-	pubString := hex.EncodeToString(pubBytes[:])
 
 	opts := BatonAPIOpts{
 		Log:             common.TestLog,
@@ -122,7 +120,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 		DB:              db,
 		EthNetDetails:   *mainnetDetails,
 		SecretKey:       sk,
-		BlockSimManager: pubString,
+		BlockSimManager: managerPub,
 		ProposerAPI:     true,
 		BlockBuilderAPI: true,
 		DataAPI:         true,
@@ -560,9 +558,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	testProposerPublicKey, err := bls.PublicKeyFromSecretKey(testProposerSecretKey)
 	require.NoError(t, err)
 
-	// Default test block for use in tests
+	// Default rob test block for use in tests
 	// Do not overwrite! Make your own copy for each test
-	defaultOpts := CreateTestBlockSubmissionOpts{
+	robBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           slot,
 		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
 		BuilderPubkey:  *testBuilderPublicKey,
@@ -572,8 +570,24 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		numTxs:         1,
 		withTransferTx: true,
 	}
-	defaultBlockValue := uint64(2)
-	defaultBlockReq, _, _ := CreateTestChunkSubmission(t, defaultBlockValue, &defaultOpts)
+	robBlockValue := uint64(2)
+	robBlockReq, _, _ := CreateTestChunkSubmission(t, robBlockValue, &robBlockOpts)
+
+	// Default tob test block for use in tests
+	// Do not overwrite! Make your own copy for each test
+	tobBlockOpts := CreateTestBlockSubmissionOpts{
+		Slot:           slot,
+		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		BuilderPubkey:  *testBuilderPublicKey,
+		ProposerPubkey: *testProposerPublicKey,
+		IsToB:          true,
+		robChainIndex:  0,
+		numTxs:         2,
+		withTransferTx: true,
+	}
+	tobBlockValue := uint64(5)
+	tobBlockReq, _, _ := CreateTestChunkSubmission(t, tobBlockValue, &tobBlockOpts)
+	require.NoError(t, err)
 
 	// Helper for processing block requests to the backend. Returns the status code of the request.
 	processBlockRequest := func(backend *testBackend, blockReq *common.SubmitNewBlockRequest) int {
@@ -596,34 +610,14 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run valid base case, just RoB", func(t *testing.T) {
 		backend := createBackendHelper(t)
-
-		// TODO: CHANGE ME LATER
-		justRoBBlock := defaultBlockReq
-
-		rrCode := processBlockRequest(backend, justRoBBlock)
+		rrCode := processBlockRequest(backend, robBlockReq)
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
-	// TODO: Add test cases below(as many as you can think of) using this format
-	// note: copy and alter the CreateTestChunkSubmission for each case
 	t.Run("Run valid base case, just ToB", func(t *testing.T) {
 		backend := createBackendHelper(t)
 
-		opts := CreateTestBlockSubmissionOpts{
-			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
-			BuilderPubkey:  *testBuilderPublicKey,
-			ProposerPubkey: *testProposerPublicKey,
-			IsToB:          true,
-			robChainIndex:  0,
-			numTxs:         2,
-			withTransferTx: true,
-		}
-
-		tobReq, _, _ := CreateTestChunkSubmission(t, 5, &opts)
-		require.NoError(t, err)
-
-		rrCode := processBlockRequest(backend, tobReq)
+		rrCode := processBlockRequest(backend, tobBlockReq)
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
