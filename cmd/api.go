@@ -9,7 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
-	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/flashbots/mev-boost-relay/database"
 	"github.com/flashbots/mev-boost-relay/datastore"
@@ -23,6 +22,7 @@ var (
 	apiDefaultBlockSim   = common.GetEnv("BLOCKSIM_URI", "http://localhost:8545")
 	apiDefaultSecretKey  = common.GetEnv("SECRET_KEY", "")
 	apiDefaultLogTag     = os.Getenv("LOG_TAG")
+	apiDefaultSEQURI     = common.GetEnv("SEQ_URL", "http://seq.url")
 
 	apiDefaultPprofEnabled       = os.Getenv("PPROF") == "1"
 	apiDefaultInternalAPIEnabled = os.Getenv("ENABLE_INTERNAL_API") == "1"
@@ -42,6 +42,7 @@ var (
 	apiInternalAPI  bool
 	apiProposerAPI  bool
 	apiLogTag       string
+	apiSEQURI       string
 )
 
 func init() {
@@ -67,6 +68,7 @@ func init() {
 	apiCmd.Flags().BoolVar(&apiDataAPI, "data-api", apiDefaultDataAPIEnabled, "enable data API (/data/...)")
 	apiCmd.Flags().BoolVar(&apiInternalAPI, "internal-api", apiDefaultInternalAPIEnabled, "enable internal API (/internal/...)")
 	apiCmd.Flags().BoolVar(&apiProposerAPI, "proposer-api", apiDefaultProposerAPIEnabled, "enable proposer API (/proposer/...)")
+	apiCmd.Flags().StringVar(&apiSEQURI, "seq-uri", apiDefaultSEQURI, "SEQ rpc url")
 }
 
 var apiCmd = &cobra.Command{
@@ -95,16 +97,17 @@ var apiCmd = &cobra.Command{
 		log.Infof("Using network: %s", networkInfo.Name)
 		log.Debug(networkInfo.String())
 
+		// TODO: to be removed as beacon client not used
 		// Connect to beacon clients and ensure it's synced
-		if len(beaconNodeURIs) == 0 {
-			log.Fatalf("no beacon endpoints specified")
-		}
-		log.Infof("Using beacon endpoints: %s", strings.Join(beaconNodeURIs, ", "))
-		var beaconInstances []beaconclient.IBeaconInstance
-		for _, uri := range beaconNodeURIs {
-			beaconInstances = append(beaconInstances, beaconclient.NewProdBeaconInstance(log, uri))
-		}
-		beaconClient := beaconclient.NewMultiBeaconClient(log, beaconInstances)
+		// if len(beaconNodeURIs) == 0 {
+		// 	log.Fatalf("no beacon endpoints specified")
+		// }
+		// log.Infof("Using beacon endpoints: %s", strings.Join(beaconNodeURIs, ", "))
+		// var beaconInstances []beaconclient.IBeaconInstance
+		// for _, uri := range beaconNodeURIs {
+		// 	beaconInstances = append(beaconInstances, beaconclient.NewProdBeaconInstance(log, uri))
+		// }
+		// beaconClient := beaconclient.NewMultiBeaconClient(log, beaconInstances)
 
 		// Connect to Redis
 		if redisReadonlyURI == "" {
@@ -145,15 +148,16 @@ var apiCmd = &cobra.Command{
 		}
 
 		opts := api.BatonAPIOpts{
-			Log:           log,
-			ListenAddr:    apiListenAddr,
-			BeaconClient:  beaconClient,
+			Log:        log,
+			ListenAddr: apiListenAddr,
+			// BeaconClient:  beaconClient,
 			Datastore:     ds,
 			Redis:         redis,
 			Memcached:     mem,
 			DB:            db,
 			EthNetDetails: *networkInfo,
 			BlockSimURL:   apiBlockSimURL,
+			SeqURL:        apiSEQURI,
 
 			BlockBuilderAPI: apiBuilderAPI,
 			DataAPI:         apiDataAPI,
@@ -173,8 +177,14 @@ var apiCmd = &cobra.Command{
 			}
 			opts.SecretKey, err = bls.SecretKeyFromBytes(envSkBytes[:])
 			if err != nil {
-				log.WithError(err).Fatal("incorrect builder API secret key provided")
+				log.WithError(err).Fatal("unable to read secret key from bytes")
 			}
+			// assume the manager is the key holder of this baton instance
+			pk, err := bls.PublicKeyFromSecretKey(opts.SecretKey)
+			if err != nil {
+				log.WithError(err).Fatal("unable to derive pubkey")
+			}
+			opts.BlockSimManager = pk
 		}
 
 		// Create the relay service

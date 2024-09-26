@@ -1,33 +1,69 @@
-version: '3.1'
+version: '3.8'
 
 volumes:
   psql_data:
-    driver: local
 
 services:
+  baton:
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      memcached:
+        condition: service_healthy
+    build: 
+      context: .
+    command: >
+      api
+      --network=custom
+      --redis-uri=redis:6379
+      --db=postgresql://postgres:postgres@db:5432/postgres?sslmode=disable
+      --memcached-uris=memcached:11211
+      --secret-key=0xa6bfa13032d80e80a17970e6e1b73993b5b1ccabfe7b1f6842c69a54e55d08cc
+      --seq-uri=http://172.17.0.1:9656/ext/bc/2rXsiidBP2y5xcJKDj9NyVWhv2wH8uVHYWez9HDZU7ws1eNCpp
+    environment:
+      - GENESIS_FORK_VERSION=0x00000000
+      - GENESIS_VALIDATORS_ROOT=0x05a67bcb9b62c29b1fa06a5537c8e11684bf2ae9fbd683cae12e9b07e9e126d1
+      - BELLATRIX_FORK_VERSION=0x00000000
+      - CAPELLA_FORK_VERSION=0x00000000
+      - DENEB_FORK_VERSION=0x00000000
+
   redis:
     image: redis
     restart: always
-    ports:
-      - '6379:6379'
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
   memcached:
-    image: memcached
+    image: memcached:alpine
     restart: always
     ports:
       - '11211:11211'
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'version' | nc -vn -w 1 memcached 11211 || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   db:
     image: postgres
     restart: always
     volumes:
       - 'psql_data:/var/lib/postgresql/data'
-    ports:
-      - '5432:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    healthcheck:
+      test:  [ "CMD", "pg_isready", "-q", "-d", "postgres", "-U", "postgres" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
   adminer:
     image: adminer
