@@ -2,8 +2,10 @@ package seq
 
 import (
 	"context"
+
 	"github.com/AnomalyFi/hypersdk/chain"
 	hrpc "github.com/AnomalyFi/hypersdk/rpc"
+	"github.com/ava-labs/avalanchego/ids"
 )
 
 type MockSeqClient struct {
@@ -11,12 +13,12 @@ type MockSeqClient struct {
 	newSlotHandler func(uint64)
 }
 
-func (cli *MockSeqClient) SetNewSlotHandler(handler func(uint64)) {
-	cli.newSlotHandler = handler
+func (s *MockSeqClient) SetNewSlotHandler(handler func(uint64)) {
+	s.newSlotHandler = handler
 }
 
-func (cli *MockSeqClient) TriggerNextSlot(slot uint64) {
-	cli.newSlotHandler(slot)
+func (s *MockSeqClient) TriggerNextSlot(slot uint64) {
+	s.newSlotHandler(slot)
 }
 
 func NewMockSeqClient(_ *SeqClientConfig) (*MockSeqClient, error) {
@@ -38,6 +40,14 @@ func (s *MockSeqClient) NextProposer(ctx context.Context) *hrpc.NextProposerRepl
 	return nil
 }
 
-func (s *MockSeqClient) nextProposer(ctx context.Context) (*hrpc.NextProposerReply, error) {
-	return nil, nil
+func (s *MockSeqClient) GetChainID() ids.ID {
+	return ids.Empty
+}
+
+func (s *MockSeqClient) GetNetworkID() uint32 {
+	return 1337
+}
+
+func (s *MockSeqClient) CurrentValidators(ctx context.Context) []*hrpc.Validator {
+	return nil
 }

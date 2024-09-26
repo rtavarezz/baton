@@ -3,9 +3,12 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/flashbots/go-boost-utils/utils"
 	"time"
+
+	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/flashbots/go-boost-utils/utils"
+	"github.com/flashbots/mev-boost-relay/common"
 )
 
 func NewNullInt64(i int64) sql.NullInt64 {
@@ -86,13 +89,12 @@ func (reg ValidatorRegistrationEntry) ToSignedValidatorRegistration() (*apiv1.Si
 	}, nil
 }
 
-func SignedValidatorRegistrationToEntry(valReg apiv1.SignedValidatorRegistration) ValidatorRegistrationEntry {
+func SignedValidatorRegistrationToEntry(valReg common.SignedSEQValidatorRegistration) ValidatorRegistrationEntry {
 	return ValidatorRegistrationEntry{
-		Pubkey:       valReg.Message.Pubkey.String(),
-		FeeRecipient: valReg.Message.FeeRecipient.String(),
-		Timestamp:    uint64(valReg.Message.Timestamp.Unix()),
-		GasLimit:     valReg.Message.GasLimit,
-		Signature:    valReg.Signature.String(),
+		Pubkey:       valReg.Message.PublicKey().String(),
+		FeeRecipient: hexutil.Encode(valReg.Message.FeeRecipient[:]),
+		Timestamp:    uint64(valReg.Message.Timestamp),
+		Signature:    valReg.Sig().String(),
 	}
 }
 

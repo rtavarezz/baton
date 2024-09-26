@@ -1,19 +1,17 @@
 package seq
 
 import (
+	"context"
+	"sync"
+	"time"
+
 	"github.com/AnomalyFi/hypersdk/chain"
+	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
 	"github.com/AnomalyFi/hypersdk/pubsub"
 	hrpc "github.com/AnomalyFi/hypersdk/rpc"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/log"
-	"sync"
-	"time"
-)
-
-import (
-	"context"
-	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
 )
 
 type SeqClientConfig struct {
@@ -25,12 +23,15 @@ type SeqClientConfig struct {
 }
 
 type BaseSeqClient interface {
+	GetChainID() ids.ID
+	GetNetworkID() uint32
+
 	SetNewSlotHandler(handler func(uint64))
 	SeqHead() *chain.StatefulBlock
 	NamespaceExists() bool
 	SetNamespace(namespace []byte)
 	NextProposer(ctx context.Context) *hrpc.NextProposerReply
-	nextProposer(ctx context.Context) (*hrpc.NextProposerReply, error)
+	CurrentValidators(ctx context.Context) []*hrpc.Validator
 }
 
 type SeqClient struct {
@@ -43,8 +44,8 @@ type SeqClient struct {
 	blockHead  *chain.StatefulBlock
 	blockHeadL sync.Mutex
 
-	proposer  *hrpc.NextProposerReply
-	proposerL sync.Mutex
+	proposerInfo  *hrpc.NextProposerReply
+	proposerInfoL sync.Mutex
 
 	// ETH Chain related
 	Namespace []byte // ChainID bytes
@@ -58,8 +59,8 @@ type SeqClient struct {
 	stop chan struct{}
 }
 
-func (cli *SeqClient) SetNewSlotHandler(handler func(uint64)) {
-	cli.NewSlotHandler = handler
+func (s *SeqClient) SetNewSlotHandler(handler func(uint64)) {
+	s.NewSlotHandler = handler
 }
 
 func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
@@ -119,17 +120,22 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 				client.NewSlotHandler(client.blockHead.Hght)
 				client.blockHeadL.Unlock()
 
-				// query next proposer on receiving a new block, this save us time while we do compuating during round trip
-				nextProposer, err := client.nextProposer(ctx)
-				client.proposerL.Lock()
-				if err != nil {
-					client.proposer = nil // set next proposer to nil to notify the ToB block built on top of this is invalid
-					log.Error("unable to fetch next proposer", "err", err)
-				} else {
-					client.proposer = nextProposer
-				}
-				log.Info("setting proposer", "proposer", nextProposer.NodeID.String())
-				client.proposerL.Unlock()
+				// track next
+				go func() {
+					// query next proposer on receiving a new block, this save us time while we do compuating during round trip
+					nextProposer, err := client.nextProposer(ctx)
+
+					client.proposerInfoL.Lock()
+					defer client.proposerInfoL.Unlock()
+
+					if err != nil {
+						client.proposerInfo = nil // set next proposer to nil to notify the ToB block built on top of this is invalid
+						log.Error("unable to fetch next proposer", "err", err)
+					} else {
+						client.proposerInfo = nextProposer
+					}
+					log.Info("setting proposer", "proposer", nextProposer.NodeID.String())
+				}()
 			}
 		}
 	}()
@@ -153,14 +159,33 @@ func (s *SeqClient) SetNamespace(namespace []byte) {
 }
 
 func (s *SeqClient) NextProposer(ctx context.Context) *hrpc.NextProposerReply {
-	s.proposerL.Lock()
-	defer s.proposerL.Unlock()
+	s.proposerInfoL.Lock()
+	defer s.proposerInfoL.Unlock()
 
-	return s.proposer
+	return s.proposerInfo
 }
 
 func (s *SeqClient) nextProposer(ctx context.Context) (*hrpc.NextProposerReply, error) {
 	return s.hrpc.NextProposer(ctx)
+}
+
+func (s *SeqClient) CurrentValidators(ctx context.Context) []*hrpc.Validator {
+	s.proposerInfoL.Lock()
+	defer s.proposerInfoL.Unlock()
+
+	if s.proposerInfo != nil {
+		return s.proposerInfo.Validators
+	}
+
+	return nil
+}
+
+func (s *SeqClient) GetNetworkID() uint32 {
+	return s.NetworkID
+}
+
+func (s *SeqClient) GetChainID() ids.ID {
+	return s.ChainID
 }
 
 //func (s *SeqClient) GenerateSeqTxsFromEthRaws(ctx context.Context, ethTxs []hexutil.Bytes) ([]*chain.Transaction, error) {

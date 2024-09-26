@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/exp/rand"
 	"math/big"
 	"os"
 	"strings"
+
+	"golang.org/x/exp/rand"
 
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
@@ -17,6 +18,7 @@ import (
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ava-labs/avalanchego/ids"
+	"github.com/ava-labs/avalanchego/vms/platformvm/warp"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
@@ -399,6 +401,61 @@ func (s *SignedBeaconBlock) BlockHash() string {
 		return string(s.Bellatrix.Message.Body.ETH1Data.BlockHash[:])
 	}
 	return ""
+}
+
+type SignedSEQValidatorRegistration struct {
+	Message   *SEQValidatorRegistration `json:"message"`
+	Signature []byte                    `json:"signature"`
+
+	signature *bls.Signature
+}
+
+func (sreg *SignedSEQValidatorRegistration) Sig() *bls.Signature {
+	return sreg.signature
+}
+
+func (sreg *SignedSEQValidatorRegistration) Initialize() error {
+	sig, err := bls.SignatureFromBytes(sreg.Signature)
+	if err != nil {
+		return err
+	}
+
+	sreg.signature = sig
+	return sreg.Message.Initialize()
+}
+
+func (sreg *SignedSEQValidatorRegistration) Verified(chainID ids.ID, networkID uint32) (bool, error) {
+	payload, err := json.Marshal(sreg.Message)
+	if err != nil {
+		return false, err
+	}
+	uwm, err := warp.NewUnsignedMessage(networkID, chainID, payload)
+	if err != nil {
+		return false, err
+	}
+	return bls.VerifySignature(sreg.signature, sreg.Message.pubkey, uwm.Bytes())
+}
+
+type SEQValidatorRegistration struct {
+	FeeRecipient codec.Address `json:"fee_recipient"`
+	Timestamp    int64         `json:"timestamp"` // timestamp in unix miliseconds
+	Pubkey       []byte        `json:"pubkey"`
+
+	pubkey *bls.PublicKey
+}
+
+func (r *SEQValidatorRegistration) PublicKey() *bls.PublicKey {
+	return r.pubkey
+}
+
+func (r *SEQValidatorRegistration) Initialize() error {
+	pk, err := bls.PublicKeyFromBytes(r.Pubkey)
+	if err != nil {
+		return err
+	}
+
+	r.pubkey = pk
+	return nil
 }
 
 // SubmitNewBlockRequest is the incoming message for new blocks to be added to Baton.

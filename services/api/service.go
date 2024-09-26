@@ -9,8 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
-	"github.com/flashbots/mev-boost-relay/seq"
 	"io"
 	"math/big"
 	"net/http"
@@ -22,10 +20,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
+	"github.com/flashbots/mev-boost-relay/seq"
+
 	"github.com/AnomalyFi/hypersdk/chain"
-	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/ava-labs/avalanchego/ids"
-	boostSsz "github.com/flashbots/go-boost-utils/ssz"
 	"github.com/flashbots/go-boost-utils/utils"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/go-redis/redis/v9"
@@ -34,7 +33,6 @@ import (
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	"github.com/NYTimes/gziphandler"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
-	"github.com/buger/jsonparser"
 	common2 "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -221,7 +219,7 @@ type BatonAPI struct {
 	blockSimRateLimiter IBlockSimRateLimiter `jjj:"block_sim_rate_limiter"`
 	tracer              ITracer              `jjj:"tracer"`
 
-	validatorRegC chan apiv1.SignedValidatorRegistration `jjj:"validator_reg_c"`
+	validatorRegC chan common.SignedSEQValidatorRegistration `jjj:"validator_reg_c"`
 
 	// used to wait on any active getPayload calls on shutdown
 	getPayloadCallsInFlight sync.WaitGroup `jjj:"get_payload_calls_in_flight"`
@@ -380,7 +378,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		blockSimRateLimiter:    NewBlockSimulationRateLimiter(simManager),
 		tracer:                 NewTracer(opts.BlockSimURL), // TODO: check what the tracer does, since it depends on opts.BlockSimURL
 
-		validatorRegC: make(chan apiv1.SignedValidatorRegistration, 450_000),
+		validatorRegC: make(chan common.SignedSEQValidatorRegistration, 450_000),
 		defiAddresses: FillUpDefiAddresses(opts),
 		robChainIDs:   make(map[string]struct{}),
 		seqClient:     seqClient,
@@ -682,7 +680,6 @@ func (api *BatonAPI) startValidatorRegistrationDBProcessor() {
 			api.log.WithError(err).WithFields(logrus.Fields{
 				"reg_pubkey":       valReg.Message.Pubkey,
 				"reg_feeRecipient": valReg.Message.FeeRecipient,
-				"reg_gasLimit":     valReg.Message.GasLimit,
 				"reg_timestamp":    valReg.Message.Timestamp,
 			}).Error("error saving validator registration")
 		}
@@ -1164,8 +1161,6 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 	})
 
 	start := time.Now().UTC()
-	registrationTimestampUpperBound := start.Unix() + 10 // 10 seconds from now
-
 	numRegTotal := 0
 	numRegProcessed := 0
 	numRegActive := 0
@@ -1194,159 +1189,53 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 	}
 	req.Body.Close()
 
-	parseRegistration := func(value []byte) (reg *apiv1.SignedValidatorRegistration, err error) {
-		// Pubkey
-		_pubkey, err := jsonparser.GetUnsafeString(value, "message", "pubkey")
-		if err != nil {
-			return nil, fmt.Errorf("registration message error (pubkey): %w", err)
-		}
+	var signedReg common.SignedSEQValidatorRegistration
+	if err := json.Unmarshal(body, &signedReg); err != nil {
+		log.WithError(err).Warn("failed to unmarshal req request")
+		api.RespondError(w, http.StatusBadRequest, "failed to unmarshal body")
+		return
+	}
+	if err := signedReg.Initialize(); err != nil {
+		log.WithError(err).Warn("failed to initialize reg request")
+		api.RespondError(w, http.StatusBadRequest, "failed to initialize reg req")
+		return
+	}
+	pkHex := common.PubkeyHex(signedReg.Message.PublicKey().String())
+	regLog := log.WithFields(logrus.Fields{
+		"pubkey":       pkHex,
+		"signature":    signedReg.Sig().String(),
+		"feeRecipient": hexutil.Encode(signedReg.Message.FeeRecipient[:]),
+		"timestamp":    signedReg.Message.Timestamp,
+	})
 
-		pubkey, err := utils.HexToPubkey(_pubkey)
-		if err != nil {
-			return nil, fmt.Errorf("registration message error (pubkey): %w", err)
-		}
-
-		// Timestamp
-		_timestamp, err := jsonparser.GetUnsafeString(value, "message", "timestamp")
-		if err != nil {
-			return nil, fmt.Errorf("registration message error (timestamp): %w", err)
-		}
-
-		timestamp, err := strconv.ParseUint(_timestamp, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid timestamp: %w", err)
-		}
-
-		// GasLimit
-		_gasLimit, err := jsonparser.GetUnsafeString(value, "message", "gas_limit")
-		if err != nil {
-			return nil, fmt.Errorf("registration message error (gasLimit): %w", err)
-		}
-
-		gasLimit, err := strconv.ParseUint(_gasLimit, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid gasLimit: %w", err)
-		}
-
-		// FeeRecipient
-		_feeRecipient, err := jsonparser.GetUnsafeString(value, "message", "fee_recipient")
-		if err != nil {
-			return nil, fmt.Errorf("registration message error (fee_recipient): %w", err)
-		}
-
-		feeRecipient, err := utils.HexToAddress(_feeRecipient)
-		if err != nil {
-			return nil, fmt.Errorf("registration message error (fee_recipient): %w", err)
-		}
-
-		// Signature
-		_signature, err := jsonparser.GetUnsafeString(value, "signature")
-		if err != nil {
-			return nil, fmt.Errorf("registration message error (signature): %w", err)
-		}
-
-		signature, err := utils.HexToSignature(_signature)
-		if err != nil {
-			return nil, fmt.Errorf("registration message error (signature): %w", err)
-		}
-
-		// Construct and return full registration object
-		reg = &apiv1.SignedValidatorRegistration{
-			Message: &apiv1.ValidatorRegistration{
-				FeeRecipient: feeRecipient,
-				GasLimit:     gasLimit,
-				Timestamp:    time.Unix(int64(timestamp), 0),
-				Pubkey:       pubkey,
-			},
-			Signature: signature,
-		}
-
-		return reg, nil
+	// TODO: with this check we have to add SEQ pubkeys to datastore before the reg req been made, do we need this for the permissioned system?
+	isKnownValidator := api.datastore.IsKnownValidator(pkHex)
+	if !isKnownValidator {
+		handleError(regLog, http.StatusBadRequest, fmt.Sprintf("not a known validator: %s", pkHex.String()))
+		return
 	}
 
-	// Iterate over the registrations
-	_, err = jsonparser.ArrayEach(body, func(value []byte, dataType jsonparser.ValueType, offset int, _err error) {
-		numRegTotal += 1
-		if processingStoppedByError {
-			return
-		}
-		numRegProcessed += 1
-		regLog := log.WithFields(logrus.Fields{
-			"numRegistrationsSoFar":     numRegTotal,
-			"numRegistrationsProcessed": numRegProcessed,
-		})
+	// Check for a previous registration timestamp
+	prevTimestamp, err := api.redis.GetValidatorRegistrationTimestamp(pkHex)
+	if err != nil {
+		regLog.WithError(err).Error("error getting last registration timestamp")
+	} else if prevTimestamp >= uint64(signedReg.Message.Timestamp) {
+		// abort if the current registration timestamp is older or equal to the last known one
+		return
+	}
 
-		// Extract immediately necessary registration fields
-		signedValidatorRegistration, err := parseRegistration(value)
-		if err != nil {
-			handleError(regLog, http.StatusBadRequest, err.Error())
-			return
-		}
+	ok, err := signedReg.Verified(api.seqClient.GetChainID(), api.seqClient.GetNetworkID())
+	if err != nil || !ok {
+		regLog.WithError(err).WithField("ok", ok).Error("error verifying signature from SEQ")
+		handleError(regLog, http.StatusBadRequest, fmt.Sprintf("cannot veirfy signature: %s", err))
+		return
+	}
 
-		// Add validator pubkey to logs
-		pkHex := common.PubkeyHex(signedValidatorRegistration.Message.Pubkey.String())
-		regLog = regLog.WithFields(logrus.Fields{
-			"pubkey":       pkHex,
-			"signature":    signedValidatorRegistration.Signature.String(),
-			"feeRecipient": signedValidatorRegistration.Message.FeeRecipient.String(),
-			"gasLimit":     signedValidatorRegistration.Message.GasLimit,
-			"timestamp":    signedValidatorRegistration.Message.Timestamp,
-		})
-
-		// Ensure a valid timestamp (not too early, and not too far in the future)
-		registrationTimestamp := signedValidatorRegistration.Message.Timestamp.Unix()
-		if registrationTimestamp < int64(api.genesisInfo.Data.GenesisTime) {
-			handleError(regLog, http.StatusBadRequest, "timestamp too early")
-			return
-		} else if registrationTimestamp > registrationTimestampUpperBound {
-			handleError(regLog, http.StatusBadRequest, "timestamp too far in the future")
-			return
-		}
-
-		// Check if a real validator
-		isKnownValidator := api.datastore.IsKnownValidator(pkHex)
-		if !isKnownValidator {
-			handleError(regLog, http.StatusBadRequest, fmt.Sprintf("not a known validator: %s", pkHex.String()))
-			return
-		}
-
-		// Check for a previous registration timestamp
-		prevTimestamp, err := api.redis.GetValidatorRegistrationTimestamp(pkHex)
-		if err != nil {
-			regLog.WithError(err).Error("error getting last registration timestamp")
-		} else if prevTimestamp >= uint64(signedValidatorRegistration.Message.Timestamp.Unix()) {
-			// abort if the current registration timestamp is older or equal to the last known one
-			return
-		}
-
-		// TODO: Is the below compatible with SEQ validator signatures?
-		// TODO: Do we need to use domains for our other signature usages?
-		// Verify the signature
-		// note: follow up on api.opts.EthNetDetails.DomainBuilder
-		ok, err := boostSsz.VerifySignature(signedValidatorRegistration.Message, api.opts.EthNetDetails.DomainBuilder, signedValidatorRegistration.Message.Pubkey[:], signedValidatorRegistration.Signature[:])
-		if err != nil {
-			regLog.WithError(err).Error("error verifying registerValidator signature")
-			return
-		} else if !ok {
-			regLog.Info("invalid validator signature")
-			if api.ffRegValContinueOnInvalidSig {
-				return
-			} else {
-				handleError(regLog, http.StatusBadRequest, fmt.Sprintf("failed to verify validator signature for %s", signedValidatorRegistration.Message.Pubkey.String()))
-				return
-			}
-		}
-		// TODO: update proposer duties here
-		// Now we have a new registration to process
-		numRegNew += 1
-
-		// Save to database
-		select {
-		case api.validatorRegC <- *signedValidatorRegistration:
-		default:
-			regLog.Error("validator registration channel full")
-		}
-	})
+	select {
+	case api.validatorRegC <- signedReg:
+	default:
+		regLog.Error("validator registration channel full")
+	}
 
 	log = log.WithFields(logrus.Fields{
 		"timeNeededSec":             time.Since(start).Seconds(),
