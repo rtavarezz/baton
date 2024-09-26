@@ -474,6 +474,12 @@ func (r *SubmitNewBlockRequest) ProposerPubKeyAsStr() string {
 	return "0x" + proposerPubKeyBytesAsStr
 }
 
+func (r *SubmitNewBlockRequest) ProposerPubKeyAsBytes() []byte {
+	pk := r.ProposerPubKey()
+	pkBytes := (&pk).Bytes()
+	return pkBytes[:]
+}
+
 func (r *SubmitNewBlockRequest) ProposerPayment() codec.Address {
 	return r.Chunk.ProposerPayment
 }
@@ -533,6 +539,12 @@ func (r *SubmitNewBlockRequest) BuilderPubkeyAsStr() string {
 	builderPubKeyBytes := (&pk).Bytes()
 	builderPubKeyBytesAsStr := hex.EncodeToString(builderPubKeyBytes[:])
 	return "0x" + builderPubKeyBytesAsStr
+}
+
+func (r *SubmitNewBlockRequest) BuilderPubkeyAsBytes() []byte {
+	pk := r.BuilderPubkey()
+	pkBytes := (&pk).Bytes()
+	return pkBytes[:]
 }
 
 func (r *SubmitNewBlockRequest) Sig() bls.Signature {

@@ -981,11 +981,12 @@ func TestOverallBasicFlow(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+
 	signedHeadersBytes := signedHeaders.Bytes()
-	proposerPubKeyStr = robBlockReq.ProposerPubKeyAsStr()
+	proposerPubKeyBytes := robBlockReq.ProposerPubKeyAsBytes()
 	payloadReq := common.AnchorGetPayloadRequest{
 		Slot:           uint64(1),
-		ProposerPubKey: []byte(proposerPubKeyStr),
+		ProposerPubKey: proposerPubKeyBytes,
 		// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
 		ParentHash: testParentHash,
 		// Exec headers signed by validator's key. Should be [48]byte bls.signature.
