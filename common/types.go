@@ -866,7 +866,11 @@ func VerifySignedHeaders(
 	payloadSignatureBytes := payloadReq.SignedHeaders
 	pubKeyBytes := pubKey.Bytes()
 
-	return bls.VerifySignatureBytes(payloadHash[:], payloadSignatureBytes[:], pubKeyBytes[:])
+	_, err = bls.VerifySignatureBytes(payloadHash[:], payloadSignatureBytes[:], pubKeyBytes[:])
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func GenerateRandomHash() (common.Hash, error) {

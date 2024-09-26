@@ -981,7 +981,7 @@ func TestOverallBasicFlow(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
+	resp.SetExecPayloadsSig(signedHeaders)
 	signedHeadersBytes := signedHeaders.Bytes()
 	proposerPubKeyBytes := robBlockReq.ProposerPubKeyAsBytes()
 	payloadReq := common.AnchorGetPayloadRequest{

@@ -184,12 +184,12 @@ func (r *RedisCache) keyCacheGetRoBHeaderResponse(slot uint64, parentHash, propo
 	return fmt.Sprintf("rob,%s:%d_%s_%s_%s", r.prefixGetHeaderResponse, slot, parentHash, proposerPubkey, chainID)
 }
 
-func (r *RedisCache) keyExecToBAnchorPayload(slot uint64, proposerPubkey, blockHash string) string {
-	return fmt.Sprintf("tob,%s:%d_%s_%s", r.prefixExecPayloadCapella, slot, proposerPubkey, blockHash)
+func (r *RedisCache) keyExecToBAnchorPayload(slot uint64, proposerPubkey, parentHash string) string {
+	return fmt.Sprintf("tob,%s:%d_%s_%s", r.prefixExecPayloadCapella, slot, proposerPubkey, parentHash)
 }
 
-func (r *RedisCache) keyExecRoBAnchorPayload(slot uint64, proposerPubkey, blockHash string, chainID string) string {
-	return fmt.Sprintf("rob,%s:%d_%s_%s_%s", r.prefixExecPayloadCapella, slot, proposerPubkey, blockHash, chainID)
+func (r *RedisCache) keyExecRoBAnchorPayload(slot uint64, proposerPubkey, parentHash string, chainID string) string {
+	return fmt.Sprintf("rob,%s:%d_%s_%s_%s", r.prefixExecPayloadCapella, slot, proposerPubkey, parentHash, chainID)
 }
 
 func (r *RedisCache) keyExecPayloadCapella(slot uint64, proposerPubkey, blockHash string) string {
@@ -604,10 +604,10 @@ func (r *RedisCache) SaveExecutionToBAnchorPayload(
 	pipeline redis.Pipeliner,
 	slot uint64,
 	proposerPubkey,
-	blockHash string,
+	parentHash string,
 	payload *common.AnchorPayload,
 ) (err error) {
-	key := r.keyExecToBAnchorPayload(slot, proposerPubkey, blockHash)
+	key := r.keyExecToBAnchorPayload(slot, proposerPubkey, parentHash)
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -620,11 +620,11 @@ func (r *RedisCache) SaveExecutionRoBAnchorPayload(
 	pipeline redis.Pipeliner,
 	slot uint64,
 	proposerPubkey,
-	blockHash string,
+	parentHash string,
 	payload *common.AnchorPayload,
 	chainID string,
 ) (err error) {
-	key := r.keyExecRoBAnchorPayload(slot, proposerPubkey, blockHash, chainID)
+	key := r.keyExecRoBAnchorPayload(slot, proposerPubkey, parentHash, chainID)
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -911,7 +911,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		pipeline,
 		payload.Slot(),
 		payload.ProposerPubKeyAsStr(),
-		payload.BlockHash().String(),
+		payload.ParentHash().String(),
 		getPayload)
 	if err != nil {
 		return state, err
@@ -1073,7 +1073,7 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 		pipeline,
 		payload.Slot(),
 		payload.ProposerPubKeyAsStr(),
-		payload.BlockHash().String(),
+		payload.ParentHash().String(),
 		getPayload,
 		chainID)
 	if err != nil {
