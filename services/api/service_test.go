@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/flashbots/mev-boost-relay/seq"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -15,11 +14,17 @@ import (
 	"testing"
 	"time"
 
+	abls "github.com/ava-labs/avalanchego/utils/crypto/bls"
+	"github.com/ava-labs/avalanchego/vms/platformvm/warp"
+	"github.com/flashbots/mev-boost-relay/seq"
+
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"golang.org/x/exp/rand"
 
+	"github.com/AnomalyFi/hypersdk/codec"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
+
 	// "github.com/AnomalyFi/hypersdk/state"
 	"github.com/alicebob/miniredis/v2"
 	eth "github.com/ethereum/go-ethereum/common"
@@ -694,6 +699,138 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, header)
 		require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
+	})
+}
+
+func TestRegisterSEQValidator(t *testing.T) {
+	path := "/eth/v1/builder/validators"
+
+	sk1, _, err := bls.GenerateNewKeypair()
+	require.NoError(t, err)
+	sk2, _, err := bls.GenerateNewKeypair()
+	require.NoError(t, err)
+
+	sk1Bytes := sk1.Bytes()
+	sk2Bytes := sk2.Bytes()
+
+	t.Run("Run can register SEQ with valid signature and existing pubkey in datastore", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		chainID := backend.baton.seqClient.GetChainID()
+		networkID := backend.baton.seqClient.GetNetworkID()
+
+		sk, err := abls.SecretKeyFromBytes(sk1Bytes[:])
+		require.NoError(t, err)
+		pk := abls.PublicFromSecretKey(sk)
+		pkBytes := pk.Compress()
+
+		reqMsg := common.SEQValidatorRegistration{
+			FeeRecipient: codec.EmptyAddress,
+			Timestamp:    time.Now().UnixMilli(),
+			Pubkey:       pkBytes,
+		}
+
+		warpSigner := warp.NewSigner(sk, networkID, chainID)
+		msgBytes, err := json.Marshal(reqMsg)
+		require.NoError(t, err)
+		uwm, err := warp.NewUnsignedMessage(networkID, chainID, msgBytes)
+		require.NoError(t, err)
+		sig, err := warpSigner.Sign(uwm)
+		require.NoError(t, err)
+
+		req := common.SignedSEQValidatorRegistration{
+			Message:   &reqMsg,
+			Signature: sig,
+		}
+
+		err = req.Initialize()
+		require.NoError(t, err)
+
+		backend.datastore.SetKnownValidator(common.PubkeyHex(req.Message.PublicKey().String()), 0)
+
+		rr := backend.request(http.MethodPost, path, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+
+		select {
+		case val := <-backend.baton.validatorRegC:
+			require.Equal(t, val.Message.Pubkey, req.Message.Pubkey)
+		default:
+		}
+	})
+
+	t.Run("Run cannot register SEQ with invalid signature and existing pubkey in datastore", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		chainID := backend.baton.seqClient.GetChainID()
+		networkID := backend.baton.seqClient.GetNetworkID()
+
+		sk, err := abls.SecretKeyFromBytes(sk2Bytes[:])
+		require.NoError(t, err)
+		pk := abls.PublicFromSecretKey(sk)
+		pkBytes := pk.Compress()
+
+		reqMsg := common.SEQValidatorRegistration{
+			FeeRecipient: codec.EmptyAddress,
+			Timestamp:    time.Now().UnixMilli(),
+			Pubkey:       pkBytes,
+		}
+
+		warpSigner := warp.NewSigner(sk, networkID, chainID)
+		wrongMsg := make([]byte, 200)
+		_, err = rand.Read(wrongMsg)
+		require.NoError(t, err)
+
+		uwm, err := warp.NewUnsignedMessage(networkID, chainID, wrongMsg)
+		require.NoError(t, err)
+		sig, err := warpSigner.Sign(uwm)
+		require.NoError(t, err)
+
+		req := common.SignedSEQValidatorRegistration{
+			Message:   &reqMsg,
+			Signature: sig,
+		}
+
+		err = req.Initialize()
+		require.NoError(t, err)
+
+		backend.datastore.SetKnownValidator(common.PubkeyHex(req.Message.PublicKey().String()), 0)
+
+		rr := backend.request(http.MethodPost, path, req)
+		require.Equal(t, http.StatusBadRequest, rr.Code)
+	})
+
+	t.Run("Run cannot register SEQ with valid signature and non-existing pubkey in datastore", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		chainID := backend.baton.seqClient.GetChainID()
+		networkID := backend.baton.seqClient.GetNetworkID()
+
+		sk, err := abls.SecretKeyFromBytes(sk2Bytes[:])
+		require.NoError(t, err)
+		pk := abls.PublicFromSecretKey(sk)
+		pkBytes := pk.Compress()
+
+		reqMsg := common.SEQValidatorRegistration{
+			FeeRecipient: codec.EmptyAddress,
+			Timestamp:    time.Now().UnixMilli(),
+			Pubkey:       pkBytes,
+		}
+
+		warpSigner := warp.NewSigner(sk, networkID, chainID)
+		msgBytes, err := json.Marshal(reqMsg)
+		require.NoError(t, err)
+		uwm, err := warp.NewUnsignedMessage(networkID, chainID, msgBytes)
+		require.NoError(t, err)
+		sig, err := warpSigner.Sign(uwm)
+		require.NoError(t, err)
+
+		req := common.SignedSEQValidatorRegistration{
+			Message:   &reqMsg,
+			Signature: sig,
+		}
+
+		err = req.Initialize()
+		require.NoError(t, err)
+
+		rr := backend.request(http.MethodPost, path, req)
+		require.Equal(t, http.StatusBadRequest, rr.Code)
 	})
 }
 

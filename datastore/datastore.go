@@ -4,7 +4,10 @@ package datastore
 import (
 	"database/sql"
 	"fmt"
-	apiv1 "github.com/attestantio/go-builder-client/api/v1"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/flashbots/mev-boost-relay/common"
@@ -13,9 +16,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	uberatomic "go.uber.org/atomic"
-	"strings"
-	"sync"
-	"time"
 )
 
 var ErrExecutionPayloadNotFound = errors.New("execution payload not found")
@@ -181,7 +181,7 @@ func (ds *Datastore) SetKnownValidator(pubkeyHex common.PubkeyHex, index uint64)
 }
 
 // SaveValidatorRegistration saves a validator registration into both Redis and the database
-func (ds *Datastore) SaveValidatorRegistration(entry apiv1.SignedValidatorRegistration) error {
+func (ds *Datastore) SaveValidatorRegistration(entry common.SignedSEQValidatorRegistration) error {
 	// First save in the database
 	err := ds.db.SaveValidatorRegistration(database.SignedValidatorRegistrationToEntry(entry))
 	if err != nil {
@@ -189,8 +189,8 @@ func (ds *Datastore) SaveValidatorRegistration(entry apiv1.SignedValidatorRegist
 	}
 
 	// then save in redis
-	pk := common.NewPubkeyHex(entry.Message.Pubkey.String())
-	err = ds.redis.SetValidatorRegistrationTimestampIfNewer(pk, uint64(entry.Message.Timestamp.UnixMilli()))
+	pk := common.NewPubkeyHex(entry.Message.PublicKey().String())
+	err = ds.redis.SetValidatorRegistrationTimestampIfNewer(pk, uint64(entry.Message.Timestamp))
 	if err != nil {
 		return errors.Wrap(err, "failed saving validator registration to redis")
 	}

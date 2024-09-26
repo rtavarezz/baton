@@ -3,15 +3,14 @@ module github.com/flashbots/mev-boost-relay
 go 1.22.5
 
 require (
-	github.com/AnomalyFi/hypersdk v0.9.6
-	github.com/AnomalyFi/nodekit-seq v0.9.16
+	github.com/AnomalyFi/hypersdk v0.9.6-anchor.2
+	github.com/AnomalyFi/nodekit-seq v0.9.16-anchor.2
 	github.com/NYTimes/gziphandler v1.1.1
 	github.com/alicebob/miniredis/v2 v2.31.0
 	github.com/attestantio/go-builder-client v0.4.2
 	github.com/attestantio/go-eth2-client v0.19.10
 	github.com/ava-labs/avalanchego v1.11.10
 	github.com/bradfitz/gomemcache v0.0.0-20230124162541-5f7a7d875746
-	github.com/buger/jsonparser v1.1.1
 	github.com/ethereum/go-ethereum v1.13.14
 	github.com/flashbots/go-boost-utils v1.8.1
 	github.com/flashbots/go-utils v0.5.0
@@ -168,6 +167,3 @@ retract (
 	v1.0.0-alpha2
 	v1.0.0-alpha1
 )
-
-// for development
-replace github.com/AnomalyFi/hypersdk => github.com/AnomalyFi/hypersdk v0.9.6-anchor.1

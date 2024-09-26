@@ -2,6 +2,12 @@ package database
 
 import (
 	"fmt"
+	"math/big"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	common2 "github.com/ethereum/go-ethereum/common"
@@ -11,11 +17,6 @@ import (
 	"github.com/flashbots/mev-boost-relay/database/vars"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
-	"math/big"
-	"os"
-	"strings"
-	"testing"
-	"time"
 )
 
 const (
@@ -80,7 +81,8 @@ func insertTestBuilder(t *testing.T, db *DatabaseService) string {
 	require.NoError(t, err)
 	err = db.UpsertBlockBuilderEntryAfterSubmission(entry, true, "chain1", false)
 	require.NoError(t, err)
-	return req.BuilderPubkey().String()
+	pk := req.BuilderPubkey()
+	return pk.String()
 }
 
 func resetDatabase(t *testing.T) *DatabaseService {
