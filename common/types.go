@@ -631,8 +631,8 @@ func (h *AnchorGetHeaderResponse) UnmarshalBinary(data []byte) error {
 type AnchorBlockInfo struct {
 	Slot uint64 `json:"slot"`
 	// nodeID of chunk producing validator.
-	Producer       ids.NodeID    `json:"producer"`
-	ProposerPubkey bls.PublicKey `json:"proposer_pubkey"`
+	Producer       ids.NodeID `json:"producer"`
+	ProposerPubkey []byte     `json:"proposer_pubkey"`
 }
 
 // SEQ validator should sign this

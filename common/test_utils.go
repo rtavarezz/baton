@@ -127,12 +127,12 @@ func MakeRandomAnchorGetHeaderResponse(pk bls.PublicKey, slot uint64) *AnchorGet
 	//if err != nil {
 	//	return nil
 	//}
-
+	pkBytes := pk.Bytes()
 	anchorBlockInfo := AnchorBlockInfo{
 		Slot: slot,
 		// nodeID of chunk producing validator.
 		Producer:       ids.NodeID{1},
-		ProposerPubkey: pk,
+		ProposerPubkey: pkBytes[:],
 	}
 
 	resp := AnchorGetHeaderResponse{

@@ -970,6 +970,7 @@ func TestOverallBasicFlow(t *testing.T) {
 
 	// Now test getPayload()
 	resp := new(common.AnchorGetHeaderResponse)
+	resp.ExecHeaders = common.NewExecutionHeader()
 	// TODO: fails below with 'can't parse into a big.Int: [0,0,0,0,0,0]'
 	fmt.Println(rr)
 	fmt.Println("BREAK")

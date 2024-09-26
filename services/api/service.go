@@ -1618,6 +1618,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 	// Ensure the proposer index is expected
 	api.proposerDutiesLock.RLock()
+	//TODO: fails below
 	slotDuty := api.proposerDutiesMap[payload.Slot]
 	api.proposerDutiesLock.RUnlock()
 	pk, err := payload.GetPublicKey()
