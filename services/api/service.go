@@ -2659,7 +2659,7 @@ func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[s
 		if header == nil {
 			continue
 		}
-		payload, err := api.datastore.GetGetToBPayloadResponse(log, slot, proposerPubkey, header.BlockHash)
+		payload, err := api.datastore.GetGetRoBPayloadResponse(log, slot, proposerPubkey, header.BlockHash, chainID)
 		if err != nil {
 			return nil, err
 		}
