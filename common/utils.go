@@ -239,3 +239,15 @@ func BlsToPhase0PubKey(pk *bls.PublicKey) (*phase0.BLSPubKey, error) {
 	copy(phase0PubKey[:], pubKeyBytes[:phase0.PublicKeyLength])
 	return &phase0PubKey, nil
 }
+
+func ProposerPubKeyAsStr(pk *bls.PublicKey) string {
+	proposerPubKeyBytes := pk.Bytes()
+	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
+	return "0x" + proposerPubKeyBytesAsStr
+}
+
+func BuilderPubkeyAsStr(pk *bls.PublicKey) string {
+	builderPubKeyBytes := pk.Bytes()
+	builderPubKeyBytesAsStr := "0x" + hex.EncodeToString(builderPubKeyBytes[:])
+	return builderPubKeyBytesAsStr
+}

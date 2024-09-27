@@ -457,7 +457,17 @@ func TestGetHeader(t *testing.T) {
 	robIDs := backend.baton.GetRoBChainIDs()
 
 	(*robIDs)[testChainID] = struct{}{}
+	// Build test builder keys
+	testBuilderSecretKey, err := bls.GenerateRandomSecretKey()
+	require.NoError(t, err)
+	testBuilderPublicKey, err := bls.PublicKeyFromSecretKey(testBuilderSecretKey)
+	require.NoError(t, err)
 
+	// Build test proposer keys
+	testProposerSecretKey, err := bls.GenerateRandomSecretKey()
+	require.NoError(t, err)
+	testProposerPublicKey, err := bls.PublicKeyFromSecretKey(testProposerSecretKey)
+	require.NoError(t, err)
 	// TODO: change to ToB base case
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
 		redis := backend.GetRedis()
@@ -532,9 +542,7 @@ func TestGetHeader(t *testing.T) {
 		numToBs := 2
 		var bids []common.AnchorHeader
 		toBCount := 0
-
 		for i := 0; i < numBids; i++ {
-			testChainID = testChainID + fmt.Sprintf("%d", i)
 			headerHash, err := common.GenerateRandomHash()
 			if err != nil {
 				t.Error(err)
@@ -549,35 +557,35 @@ func TestGetHeader(t *testing.T) {
 			slot := uint64(i + 1)
 			if i%2 == 0 || toBCount >= numToBs {
 				// Set RoB bid
-				err = redis.SetRoBBid(slot, testParentHash, testProposerPubkey, testChainID, bids[i])
+				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, bids[i])
 				if err != nil {
 					t.Error(err)
 				}
 
-				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey, testChainID)
-				headerBytes, err := json.Marshal(bids[i])
-				if err != nil {
-					t.Error(err)
-				}
-				duration := 1 * time.Millisecond
-				err = redis.GetClient().Set(context.Background(), keyTopBidValue, headerBytes, duration).Err()
+				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey), testChainID)
+				//headerBytes, err := json.Marshal(bids[i])
+				//if err != nil {
+				//	t.Error(err)
+				//}
+
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, bids[i], 0).Err()
 				if err != nil {
 					t.Error(err)
 				}
 			} else {
 				// Set ToB bid
-				err = redis.SetToBBid(slot, testParentHash, testProposerPubkey, bids[i])
+				err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), bids[i])
 				if err != nil {
 					t.Error(err)
 				}
 
-				keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey)
-				headerBytes, err := json.Marshal(bids[i])
-				if err != nil {
-					t.Error(err)
-				}
-				duration := 1 * time.Millisecond
-				err = redis.GetClient().Set(context.Background(), keyTopBidValue, headerBytes, duration).Err()
+				keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
+				//headerBytes, err := json.Marshal(bids[i])
+				//if err != nil {
+				//	t.Error(err)
+				//}
+
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, bids[i], 0).Err()
 				if err != nil {
 					t.Error(err)
 				}
@@ -587,10 +595,18 @@ func TestGetHeader(t *testing.T) {
 		rr := httptest.NewRecorder()
 		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), testParentHash, testProposerPubkey)
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
-
+		topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		if err != nil {
+			t.Error(err)
+		}
+		topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+		if err != nil {
+			t.Error(err)
+		}
+		fmt.Println(topToBBid)
+		fmt.Println(topRoBBid)
 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
 		backend.baton.getRouter().ServeHTTP(rr, httpReq)
-
 		require.Equal(t, http.StatusOK, rr.Code)
 	})
 }
