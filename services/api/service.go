@@ -825,36 +825,19 @@ func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 func (api *BatonAPI) simulateL2Txs(
 	ctx context.Context,
 	blockNumber map[string]string, // chainID(hexutil.Encode(big.Int)) -> block number(0x...)
-	seqTxs []*chain.Transaction,
+	l2Txs map[string][]hexutil.Bytes,
 	log *logrus.Entry,
 ) (gasUsed uint64, requestErr, validationErr error) {
 	t := time.Now()
-
-	txsByNamespace := make(map[string][]hexutil.Bytes)
-	for _, tx := range seqTxs {
-		for _, action := range tx.Actions {
-			seqMsg, ok := action.(*actions.SequencerMsg)
-			if !ok {
-				continue
-			}
-			chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
-			chainID := big.NewInt(int64(chainIDu64))
-			namespace := hexutil.EncodeBig(chainID)
-			l := txsByNamespace[namespace]
-			l = append(l, seqMsg.Data)
-			txsByNamespace[namespace] = l
-		}
-	}
-
 	var simResL sync.Mutex
 	simRes := make(map[string]struct {
 		gasUsed       uint64
 		requestErr    error
 		validationErr error
-	}, len(txsByNamespace))
+	}, len(l2Txs))
 
 	var wg sync.WaitGroup
-	for chainID, otxs := range txsByNamespace {
+	for chainID, otxs := range l2Txs {
 		wg.Add(1)
 		go func(chainID string, otxs []hexutil.Bytes) {
 			defer wg.Done()
@@ -889,7 +872,7 @@ func (api *BatonAPI) simulateL2Txs(
 	wg.Wait()
 
 	gasUsed = 0
-	for chainID := range txsByNamespace {
+	for chainID := range l2Txs {
 		r := simRes[chainID]
 		if validationErr != nil {
 			if api.ffIgnorableValidationErrors {
@@ -2414,7 +2397,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		ctx := context.Background()
 		sctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
-		txs2simulate := make([]*chain.Transaction, 0)
+		var txs2simulate map[string][]hexutil.Bytes
 		slog := log.WithFields(logrus.Fields{
 			"slot":           blockReq.Slot,
 			"parentHash":     blockReq.ParentHash,
@@ -2422,25 +2405,32 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			"isToB":          isToB,
 		})
 		if isToB {
-			robTxs, err := api.getTopRoBsTxs(sctx, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
+			chainIDs := api.getChainIDsFromSEQTxs(ctx, txs)
+			robTxs, err := api.getTopRoBsTxsByChainIDs(sctx, chainIDs, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
 			if err != nil {
 				log.WithError(err).Warn("unable to fetch top RoB txs from redis")
 				api.RespondError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			txs2simulate = append(txs2simulate, robTxs...)
+			txs2simulate = robTxs // safe since txs2simulate is empty
 		} else {
-			tobTxs, err := api.getTopToBTxs(sctx, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
+
+			tobTxs, err := api.getTopToBTxsByChainID(sctx, chainID, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
 			if err != nil {
 				log.WithError(err).Warn("unable to fetch top RoB txs from redis")
 				api.RespondError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			txs2simulate = append(txs2simulate, tobTxs...)
+			txs2simulate = tobTxs
 		}
 
 		// append txs from req
-		txs2simulate = append(txs2simulate, txs...)
+		l2txs := api.seqTxs2EthTxs(ctx, txs)
+		for chainID, otxs := range l2txs {
+			l := txs2simulate[chainID]
+			l = append(l, otxs...)
+			txs2simulate[chainID] = l
+		}
 
 		// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 		// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
@@ -2574,7 +2564,44 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 }
 
-func (api *BatonAPI) getTopToBTxs(ctx context.Context, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) ([]*chain.Transaction, error) {
+func (api *BatonAPI) getChainIDsFromSEQTxs(ctx context.Context, txs []*chain.Transaction) map[string]struct{} {
+	ret := make(map[string]struct{})
+	for _, tx := range txs {
+		for _, action := range tx.Actions {
+			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+				chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
+				chainID := big.NewInt(int64(chainIDu64))
+				chainIDstr := hexutil.EncodeBig(chainID)
+				if _, ok := ret[chainIDstr]; !ok {
+					ret[chainIDstr] = struct{}{}
+				}
+			}
+		}
+	}
+
+	return ret
+}
+
+func (api *BatonAPI) seqTxs2EthTxs(ctx context.Context, txs []*chain.Transaction) map[string][]hexutil.Bytes {
+	ret := make(map[string][]hexutil.Bytes)
+	for _, tx := range txs {
+		for _, action := range tx.Actions {
+			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+				chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
+				chainID := big.NewInt(int64(chainIDu64))
+				chainIDstr := hexutil.EncodeBig(chainID)
+
+				l := ret[chainIDstr]
+				l = append(l, seqMsg.Data)
+				ret[chainIDstr] = l
+			}
+		}
+	}
+
+	return ret
+}
+
+func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID string, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) (map[string][]hexutil.Bytes, error) {
 	header, err := api.redis.GetBestToBBid(slot, parentHash, proposerPubkey)
 	if err != nil {
 		return nil, err
@@ -2598,14 +2625,33 @@ func (api *BatonAPI) getTopToBTxs(ctx context.Context, slot uint64, parentHash, 
 		return nil, err
 	}
 
-	return txs, nil
+	// chainID str -> a list of txs
+	ret := make(map[string][]hexutil.Bytes)
+	for _, tx := range txs {
+		for _, action := range tx.Actions {
+			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+				chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
+				chainID := big.NewInt(int64(chainIDu64))
+				chainIDstr := hexutil.EncodeBig(chainID)
+				if chainIDstr != robChainID {
+					continue
+				}
+
+				l := ret[chainIDstr]
+				l = append(l, seqMsg.Data)
+				ret[chainIDstr] = l
+			}
+		}
+	}
+
+	return ret, nil
 }
 
-func (api *BatonAPI) getTopRoBsTxs(ctx context.Context, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) ([]*chain.Transaction, error) {
-	ret := make([]*chain.Transaction, 0)
-	for chainID := range api.robChainIDs {
+func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[string]struct{}, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) (map[string][]hexutil.Bytes, error) {
+	ret := make(map[string][]hexutil.Bytes, 0)
+	for chainID := range chainIDs {
 		header, err := api.redis.GetBestRoBBid(slot, parentHash, proposerPubkey, chainID)
-		if err != nil {
+		if err != nil { // nil won't throw
 			return nil, err
 		}
 		var tobPayload *common.AnchorPayload
@@ -2627,7 +2673,16 @@ func (api *BatonAPI) getTopRoBsTxs(ctx context.Context, slot uint64, parentHash,
 			return nil, err
 		}
 
-		ret = append(ret, txs...)
+		ret[chainID] = make([]hexutil.Bytes, 0, len(txs)-1)
+		for _, tx := range txs {
+			for _, action := range tx.Actions {
+				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+					l := ret[chainID]
+					l = append(l, seqMsg.Data)
+					ret[chainID] = l
+				}
+			}
+		}
 	}
 
 	return ret, nil
