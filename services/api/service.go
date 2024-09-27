@@ -13,11 +13,12 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	hrpc "github.com/AnomalyFi/hypersdk/rpc"
 
 	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
 	"github.com/flashbots/mev-boost-relay/seq"
@@ -210,11 +211,11 @@ type BatonAPI struct {
 	capellaEpoch uint64                           `jjj:"capella_epoch"`
 	denebEpoch   uint64                           `jjj:"deneb_epoch"`
 
-	proposerDutiesLock       sync.RWMutex                                         `jjj:"proposer_duties_lock"`
-	proposerDutiesResponse   *[]byte                                              `jjj:"proposer_duties_response"` // raw http response
-	proposerDutiesMap        map[uint64]*common.BuilderGetValidatorsResponseEntry `jjj:"proposer_duties_map"`
-	proposerDutiesSlot       uint64                                               `jjj:"proposer_duties_slot"`
-	isUpdatingProposerDuties uberatomic.Bool                                      `jjj:"is_updating_proposer_duties"`
+	proposerDutiesLock       sync.RWMutex                                           `jjj:"proposer_duties_lock"`
+	proposerDutiesResponse   *[]byte                                                `jjj:"proposer_duties_response"` // raw http response
+	proposerDutiesMap        map[uint64]*common.BuilderGetSEQValidatorResponseEntry `jjj:"proposer_duties_map"`
+	proposerDutiesSlot       uint64                                                 `jjj:"proposer_duties_slot"`
+	isUpdatingProposerDuties uberatomic.Bool                                        `jjj:"is_updating_proposer_duties"`
 
 	blockSimRateLimiter IBlockSimRateLimiter `jjj:"block_sim_rate_limiter"`
 	tracer              ITracer              `jjj:"tracer"`
@@ -363,6 +364,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		memcached: opts.Memcached,
 		db:        opts.DB,
 
+		proposerDutiesMap:      make(map[uint64]*common.BuilderGetSEQValidatorResponseEntry),
 		proposerDutiesResponse: &[]byte{},
 		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.BlockSimManager),
 		tracer:                 NewTracer(opts.BlockSimURL), // TODO: check what the tracer does, since it depends on opts.BlockSimURL
@@ -377,8 +379,8 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	}
 
 	// callback trigger for seq client
-	api.seqClient.SetNewSlotHandler(func(headSlot uint64) {
-		api.processNewSlot(headSlot)
+	api.seqClient.SetOnNewBlockHandler(func(blk *chain.StatefulBlock, nextProposer *hrpc.NextProposerReply) {
+		api.onNewSeqBlock(blk, nextProposer)
 	})
 
 	if os.Getenv("FORCE_GET_HEADER_204") == "1" {
@@ -923,6 +925,22 @@ func (api *BatonAPI) simulateBlock(
 	return gasUsed, nil, nil
 }
 
+func (api *BatonAPI) onNewSeqBlock(blk *chain.StatefulBlock, nextProposer *hrpc.NextProposerReply) {
+	api.processNewSlot(blk.Hght)
+	api.proposerDutiesLock.Lock()
+	defer api.proposerDutiesLock.Unlock()
+
+	api.proposerDutiesMap[blk.Hght] = &common.BuilderGetSEQValidatorResponseEntry{
+		Slot: blk.Hght,
+		// set it to unsigned, it will be signed after the SEQ proposer sends the registration request
+		Entry: &common.SignedSEQValidatorRegistration{
+			Message: &common.SEQValidatorRegistration{
+				Pubkey: nextProposer.PublicKey,
+			},
+		},
+	}
+}
+
 // note: important for seq/seqclient.go
 func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	prevHeadSlot := api.headSlot.Load()
@@ -941,13 +959,13 @@ func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	api.headSlot.Store(headSlot)
 
 	// only for builder-api
-	if api.opts.BlockBuilderAPI || api.opts.ProposerAPI {
-		// update proposer duties in the background
-		go api.updateProposerDuties(headSlot)
+	// if api.opts.BlockBuilderAPI || api.opts.ProposerAPI {
+	// 	// update proposer duties in the background
+	// 	go api.updateProposerDuties(headSlot)
 
-		// update the optimistic slot
-		go api.prepareBuildersForSlot(headSlot)
-	}
+	// 	// update the optimistic slot
+	// 	go api.prepareBuildersForSlot(headSlot)
+	// }
 
 	// TODO: to be removed as related to beacon client
 	// if api.opts.ProposerAPI {
@@ -963,89 +981,91 @@ func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	}).Infof("updated headSlot to %d", headSlot)
 }
 
-func (api *BatonAPI) updateProposerDuties(headSlot uint64) {
-	// Ensure only one updating is running at a time
-	if api.isUpdatingProposerDuties.Swap(true) {
-		return
-	}
-	defer api.isUpdatingProposerDuties.Store(false)
+// TODO: may not needed as we know the duties of each validator from SEQ client
+// func (api *BatonAPI) updateProposerDuties(headSlot uint64) {
+// 	// Ensure only one updating is running at a time
+// 	if api.isUpdatingProposerDuties.Swap(true) {
+// 		return
+// 	}
+// 	defer api.isUpdatingProposerDuties.Store(false)
 
-	// Update once every 8 slots (or more, if a slot was missed)
-	if headSlot%8 != 0 && headSlot-api.proposerDutiesSlot < 8 {
-		return
-	}
+// 	// Update once every 8 slots (or more, if a slot was missed)
+// 	if headSlot%8 != 0 && headSlot-api.proposerDutiesSlot < 8 {
+// 		return
+// 	}
 
-	// Load upcoming proposer duties from Redis
-	duties, err := api.redis.GetProposerDuties()
-	if err != nil {
-		api.log.WithError(err).Error("failed getting proposer duties from redis")
-		return
-	}
+// 	// Load upcoming proposer duties from Redis
+// 	duties, err := api.redis.GetProposerDuties()
+// 	if err != nil {
+// 		api.log.WithError(err).Error("failed getting proposer duties from redis")
+// 		return
+// 	}
 
-	// Prepare raw bytes for HTTP response
-	respBytes, err := json.Marshal(duties)
-	if err != nil {
-		api.log.WithError(err).Error("error marshalling duties")
-	}
+// 	// Prepare raw bytes for HTTP response
+// 	respBytes, err := json.Marshal(duties)
+// 	if err != nil {
+// 		api.log.WithError(err).Error("error marshalling duties")
+// 	}
 
-	// Prepare the map for lookup by slot
-	dutiesMap := make(map[uint64]*common.BuilderGetValidatorsResponseEntry)
-	for index, duty := range duties {
-		dutiesMap[duty.Slot] = &duties[index]
-	}
+// 	// Prepare the map for lookup by slot
+// 	dutiesMap := make(map[uint64]*common.BuilderGetValidatorsResponseEntry)
+// 	for index, duty := range duties {
+// 		dutiesMap[duty.Slot] = &duties[index]
+// 	}
 
-	// Update
-	api.proposerDutiesLock.Lock()
-	if len(respBytes) > 0 {
-		api.proposerDutiesResponse = &respBytes
-	}
-	api.proposerDutiesMap = dutiesMap
-	api.proposerDutiesSlot = headSlot
-	api.proposerDutiesLock.Unlock()
+// 	// Update
+// 	api.proposerDutiesLock.Lock()
+// 	if len(respBytes) > 0 {
+// 		api.proposerDutiesResponse = &respBytes
+// 	}
+// 	api.proposerDutiesMap = dutiesMap
+// 	api.proposerDutiesSlot = headSlot
+// 	api.proposerDutiesLock.Unlock()
 
-	// pretty-print
-	_duties := make([]string, len(duties))
-	for i, duty := range duties {
-		_duties[i] = fmt.Sprint(duty.Slot)
-	}
-	sort.Strings(_duties)
-	api.log.Infof("proposer duties updated: %s", strings.Join(_duties, ", "))
-}
+// 	// pretty-print
+// 	_duties := make([]string, len(duties))
+// 	for i, duty := range duties {
+// 		_duties[i] = fmt.Sprint(duty.Slot)
+// 	}
+// 	sort.Strings(_duties)
+// 	api.log.Infof("proposer duties updated: %s", strings.Join(_duties, ", "))
+// }
 
-func (api *BatonAPI) prepareBuildersForSlot(headSlot uint64) {
-	// Wait until there are no optimistic blocks being processed. Then we can
-	// safely update the slot.
-	api.optimisticBlocksWG.Wait()
-	api.optimisticSlot.Store(headSlot + 1)
+// TODO: may not needed
+// func (api *BatonAPI) prepareBuildersForSlot(headSlot uint64) {
+// 	// Wait until there are no optimistic blocks being processed. Then we can
+// 	// safely update the slot.
+// 	api.optimisticBlocksWG.Wait()
+// 	api.optimisticSlot.Store(headSlot + 1)
 
-	builders, err := api.db.GetBlockBuilders()
-	if err != nil {
-		api.log.WithError(err).Error("unable to read block builders from db, not updating builder cache")
-		return
-	}
-	api.log.Debugf("Updating builder cache with %d builders from database", len(builders))
+// 	builders, err := api.db.GetBlockBuilders()
+// 	if err != nil {
+// 		api.log.WithError(err).Error("unable to read block builders from db, not updating builder cache")
+// 		return
+// 	}
+// 	api.log.Debugf("Updating builder cache with %d builders from database", len(builders))
 
-	newCache := make(map[string]*blockBuilderCacheEntry)
-	for _, v := range builders {
-		entry := &blockBuilderCacheEntry{ //nolint:exhaustruct
-			status: common.BuilderStatus{
-				IsHighPrio:    v.IsHighPrio,
-				IsBlacklisted: v.IsBlacklisted,
-				IsOptimistic:  v.IsOptimistic,
-			},
-		}
-		// Try to parse builder collateral string to big int.
-		builderCollateral, ok := big.NewInt(0).SetString(v.Collateral, 10)
-		if !ok {
-			api.log.WithError(err).Errorf("could not parse builder collateral string %s", v.Collateral)
-			entry.collateral = big.NewInt(0)
-		} else {
-			entry.collateral = builderCollateral
-		}
-		newCache[v.BuilderPubkey] = entry
-	}
-	api.blockBuildersCache = newCache
-}
+// 	newCache := make(map[string]*blockBuilderCacheEntry)
+// 	for _, v := range builders {
+// 		entry := &blockBuilderCacheEntry{ //nolint:exhaustruct
+// 			status: common.BuilderStatus{
+// 				IsHighPrio:    v.IsHighPrio,
+// 				IsBlacklisted: v.IsBlacklisted,
+// 				IsOptimistic:  v.IsOptimistic,
+// 			},
+// 		}
+// 		// Try to parse builder collateral string to big int.
+// 		builderCollateral, ok := big.NewInt(0).SetString(v.Collateral, 10)
+// 		if !ok {
+// 			api.log.WithError(err).Errorf("could not parse builder collateral string %s", v.Collateral)
+// 			entry.collateral = big.NewInt(0)
+// 		} else {
+// 			entry.collateral = builderCollateral
+// 		}
+// 		newCache[v.BuilderPubkey] = entry
+// 	}
+// 	api.blockBuildersCache = newCache
+// }
 
 func (api *BatonAPI) RespondError(w http.ResponseWriter, code int, message string) {
 	api.Respond(w, code, HTTPErrorResp{code, message})
@@ -1135,7 +1155,7 @@ func (api *BatonAPI) handleGetProposerForSlot(w http.ResponseWriter, req *http.R
 		api.RespondError(w, http.StatusNotFound, "slot proposer duties not found")
 		return
 	}
-	api.RespondOK(w, res.Entry.Message.FeeRecipient.String())
+	api.RespondOK(w, hexutil.Encode(res.Entry.Message.FeeRecipient[:]))
 }
 
 func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Request) {
@@ -1157,6 +1177,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 	numRegActive := 0
 	numRegNew := 0
 	processingStoppedByError := false
+	slot := api.headSlot.Load()
 
 	// Setup error handling
 	handleError := func(_log *logrus.Entry, code int, msg string) {
@@ -1222,6 +1243,21 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 		return
 	}
 
+	api.proposerDutiesLock.Lock()
+	defer api.proposerDutiesLock.Unlock()
+	if duty := api.proposerDutiesMap[slot]; duty != nil {
+		if !bytes.Equal(signedReg.Message.Pubkey, duty.Entry.Message.Pubkey) {
+			regLog.WithError(err).Error(fmt.Sprintf("not proposer for slot: %d", slot))
+			handleError(regLog, http.StatusBadRequest, fmt.Sprintf("not proposer for slot: %d", slot))
+			return
+		}
+
+		api.proposerDutiesMap[slot] = &common.BuilderGetSEQValidatorResponseEntry{
+			Slot:  slot,
+			Entry: &signedReg,
+		}
+	}
+
 	select {
 	case api.validatorRegC <- signedReg:
 	default:
@@ -1236,6 +1272,7 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 		"numRegistrationsProcessed": numRegProcessed,
 		"numRegistrationsNew":       numRegNew,
 		"processingStoppedByError":  processingStoppedByError,
+		"slot":                      slot,
 	})
 
 	if err != nil {
@@ -1247,13 +1284,13 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 	w.WriteHeader(http.StatusOK)
 }
 
-func (api *BatonAPI) FindProposerDutiesByPubKey(pk *bls.PublicKey) (*common.BuilderGetValidatorsResponseEntry, error) {
-	phasePk, err := common.BlsToPhase0PubKey(pk)
-	if err != nil {
-		return nil, err
-	}
+func (api *BatonAPI) FindProposerDutiesByPubKey(pk *bls.PublicKey) (*common.BuilderGetSEQValidatorResponseEntry, error) {
 	for _, entry := range api.proposerDutiesMap {
-		if *phasePk == entry.Entry.Message.Pubkey {
+		epk, err := bls.PublicKeyFromBytes(entry.Entry.Message.Pubkey)
+		if err != nil {
+			return nil, err
+		}
+		if epk.Equal(pk) {
 			return entry, nil
 		}
 	}
@@ -1412,13 +1449,14 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		ParentHash:  parentHash,
 	}
 
-	err = common.SignAnchorGetHeaderResponse(&resp, api.blsSk)
-	if err != nil {
-		logMsg := "handleGetHeader: could not sign exec headers, err: " + err.Error()
-		log.Error(logMsg)
-		api.RespondError(w, http.StatusBadRequest, logMsg)
-		return
-	}
+	// TODO: to be removed, we don't need to sign the header on Baton side
+	// err = common.SignAnchorGetHeaderResponse(&resp, api.blsSk)
+	// if err != nil {
+	// 	logMsg := "handleGetHeader: could not sign exec headers, err: " + err.Error()
+	// 	log.Error(logMsg)
+	// 	api.RespondError(w, http.StatusBadRequest, logMsg)
+	// 	return
+	// }
 
 	// This sets the expected header we will compare against when we receive getPayloadRequest()
 	api.expectedHeader = &resp
@@ -1540,7 +1578,8 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	ok, err := common.VerifySignedHeaders(&api.expectedHeader.ExecHeaders, payload, *proposerPubkey)
+	// TODO: need update that SEQ signs differently
+	ok, err := common.VerifySignedHeaders(api.seqClient.GetChainID(), api.seqClient.GetNetworkID(), &api.expectedHeader.ExecHeaders, payload, *proposerPubkey)
 	if err != nil {
 		logMsg := "payload request failed because error occurred during signed header verification, err: " + err.Error()
 		log.WithError(err).Warn(logMsg)
@@ -1648,7 +1687,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	}
 
 	robPayloads := make(map[string]*common.AnchorPayload)
-	for chainID, _ := range api.robChainIDs {
+	for chainID := range api.robChainIDs {
 		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
 		if err != nil || robAnchorPayload == nil {
 			log.WithError(err).Warn("failed getting execution payload (1/2)")
@@ -1689,7 +1728,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		}
 	}
 
-	if payloadWasFound == false {
+	if !payloadWasFound {
 		log.Warn("no execution payloads were found for getPayload request")
 		api.RespondError(w, http.StatusNoContent, "no execution payloads were found for getPayload request")
 		return
@@ -1810,25 +1849,26 @@ func (api *BatonAPI) handleBuilderGetValidators(w http.ResponseWriter, req *http
 	}
 }
 
-func (api *BatonAPI) getValidatorGasLimit(
-	w http.ResponseWriter,
-	log *logrus.Entry,
-	slot uint64,
-) (uint64, bool) {
-	api.proposerDutiesLock.RLock()
-	slotDuty := api.proposerDutiesMap[slot]
-	api.proposerDutiesLock.RUnlock()
+// TODO: to be removed, no gas limit now
+// func (api *BatonAPI) getValidatorGasLimit(
+// 	w http.ResponseWriter,
+// 	log *logrus.Entry,
+// 	slot uint64,
+// ) (uint64, bool) {
+// 	api.proposerDutiesLock.RLock()
+// 	slotDuty := api.proposerDutiesMap[slot]
+// 	api.proposerDutiesLock.RUnlock()
 
-	if slotDuty == nil {
-		logMsg := "could not find slot duty for slot " + strconv.FormatUint(slot, 10)
-		log.Error(logMsg)
-		api.Respond(w, http.StatusBadRequest, logMsg)
-		return 0, false
-		//note type conversion
-	}
+// 	if slotDuty == nil {
+// 		logMsg := "could not find slot duty for slot " + strconv.FormatUint(slot, 10)
+// 		log.Error(logMsg)
+// 		api.Respond(w, http.StatusBadRequest, logMsg)
+// 		return 0, false
+// 		//note type conversion
+// 	}
 
-	return slotDuty.Entry.Message.GasLimit, true
-}
+// 	return slotDuty.Entry.Message.GasLimit, true
+// }
 
 // TODO: Below shouldn't be needed. Remove when needed.
 /*
@@ -2165,17 +2205,17 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	})
 
 	// Note this also validates slot validity
-	var gasLimit uint64
-	if !api.mockMode {
-		gasLimit, ok = api.getValidatorGasLimit(w, log, slot)
-		if !ok {
-			log.WithError(err).Info("fee recipient check failed")
-			api.RespondError(w, http.StatusBadRequest, "fee recipient check failed")
-			return
-		}
-	} else {
-		gasLimit = uint64(10000000)
-	}
+	// var gasLimit uint64
+	// if !api.mockMode {
+	// 	gasLimit, ok = api.getValidatorGasLimit(w, log, slot)
+	// 	if !ok {
+	// 		log.WithError(err).Info("fee recipient check failed")
+	// 		api.RespondError(w, http.StatusBadRequest, "fee recipient check failed")
+	// 		return
+	// 	}
+	// } else {
+	// 	gasLimit = uint64(10000000)
+	// }
 
 	var topBidValue *big.Int
 	var hasRoB, hasToB bool
@@ -2291,7 +2331,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			&blockReq,
 			getPayload,
 			gasUsed,
-			gasLimit,
+			0,
 			isToB,
 			value,
 			chainID,
@@ -2319,10 +2359,10 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 		// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
 		gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, txs, log)
-		if gasUsed != 0 && gasUsed > gasLimit {
-			errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
-			validErr = errors.New(errMsg)
-		}
+		// if gasUsed != 0 && gasUsed > gasLimit {
+		// 	errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
+		// 	validErr = errors.New(errMsg)
+		// }
 
 		simResultC <- &blockSimResult{reqErr == nil, false, reqErr, validErr}
 		if reqErr != nil {
@@ -2359,7 +2399,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		BuilderPubkey:   blockReq.BuilderPubkeyAsStr(),
 		ProposerPubkey:  blockReq.ProposerPubKeyAsStr(),
 		ProposerPayment: blockReq.ProposerPaymentAsStr(),
-		GasLimit:        gasLimit,
+		GasLimit:        0,
 		GasUsed:         gasUsed,
 		Value:           value.Uint64(),
 		BlockNumber:     blockNumberJSONStr,

@@ -26,12 +26,12 @@ type BaseSeqClient interface {
 	GetChainID() ids.ID
 	GetNetworkID() uint32
 
-	SetNewSlotHandler(handler func(uint64))
 	SeqHead() *chain.StatefulBlock
 	NamespaceExists() bool
 	SetNamespace(namespace []byte)
 	NextProposer(ctx context.Context) *hrpc.NextProposerReply
 	CurrentValidators(ctx context.Context) []*hrpc.Validator
+	SetOnNewBlockHandler(handler func(*chain.StatefulBlock, *hrpc.NextProposerReply))
 }
 
 type SeqClient struct {
@@ -51,16 +51,12 @@ type SeqClient struct {
 	Namespace []byte // ChainID bytes
 
 	// SEQ related
-	parser         chain.Parser
-	ChainID        ids.ID
-	NetworkID      uint32
-	NewSlotHandler func(uint64)
+	parser            chain.Parser
+	ChainID           ids.ID
+	NetworkID         uint32
+	onNewBlockHandler func(*chain.StatefulBlock, *hrpc.NextProposerReply)
 
 	stop chan struct{}
-}
-
-func (s *SeqClient) SetNewSlotHandler(handler func(uint64)) {
-	s.NewSlotHandler = handler
 }
 
 func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
@@ -116,26 +112,23 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 
 				client.blockHeadL.Lock()
 				client.blockHead = blk
-				// trigger callback
-				client.NewSlotHandler(client.blockHead.Hght)
 				client.blockHeadL.Unlock()
 
-				// track next
-				go func() {
-					// query next proposer on receiving a new block, this save us time while we do compuating during round trip
-					nextProposer, err := client.nextProposer(ctx)
+				// query next proposer on receiving a new block, this save us time while we do compuating during round trip
+				nextProposer, err := client.nextProposer(ctx)
 
-					client.proposerInfoL.Lock()
-					defer client.proposerInfoL.Unlock()
+				client.proposerInfoL.Lock()
+				defer client.proposerInfoL.Unlock()
 
-					if err != nil {
-						client.proposerInfo = nil // set next proposer to nil to notify the ToB block built on top of this is invalid
-						log.Error("unable to fetch next proposer", "err", err)
-					} else {
-						client.proposerInfo = nextProposer
-					}
-					log.Info("setting proposer", "proposer", nextProposer.NodeID.String())
-				}()
+				if err != nil {
+					client.proposerInfo = nil // set next proposer to nil to notify the ToB block built on top of this is invalid
+					log.Error("unable to fetch next proposer", "err", err)
+				} else {
+					client.proposerInfo = nextProposer
+				}
+				log.Info("setting proposer", "proposer", nextProposer.NodeID.String())
+
+				go client.onNewBlockHandler(blk, nextProposer)
 			}
 		}
 	}()
@@ -188,107 +181,6 @@ func (s *SeqClient) GetChainID() ids.ID {
 	return s.ChainID
 }
 
-//func (s *SeqClient) GenerateSeqTxsFromEthRaws(ctx context.Context, ethTxs []hexutil.Bytes) ([]*chain.Transaction, error) {
-//	if len(s.Namespace) == 0 {
-//		return nil, fmt.Errorf("namespace not set yet")
-//	}
-//
-//	parser := s.parser
-//
-//	unitPrices, err := s.hrpc.UnitPrices(ctx, true)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	pubkey := s.signer.PublicKey()
-//	rsender := auth.NewED25519Address(pubkey)
-//
-//	acts := make([]chain.Action, 0, len(ethTxs))
-//	for _, ethTx := range ethTxs {
-//		if len(ethTx) == 0 {
-//			return nil, fmt.Errorf("provided a empty eth tx")
-//		}
-//		action := actions.SequencerMsg{
-//			ChainID:     s.Namespace,
-//			Data:        ethTx,
-//			FromAddress: rsender,
-//			RelayerID:   0,
-//		}
-//		acts = append(acts, &action)
-//	}
-//
-//	now := time.Now().UnixMilli()
-//	authFactory := auth.NewED25519Factory(s.signer)
-//
-//	actionRegistry, authRegistry := parser.Registry()
-//
-//	txs := make([]*chain.Transaction, 0, len(ethTxs))
-//	for _, act := range acts {
-//		maxUnits, _, err := chain.EstimateUnits(parser.Rules(now), []chain.Action{act}, authFactory)
-//		if err != nil {
-//			return nil, err
-//		}
-//		maxFee, err := fees.MulSum(unitPrices, maxUnits)
-//		if err != nil {
-//			return nil, err
-//		}
-//		base := &chain.Base{
-//			Timestamp: utils.UnixRMilli(now, parser.Rules(now).GetValidityWindow()),
-//			ChainID:   s.ChainID,
-//			MaxFee:    maxFee,
-//		}
-//
-//		tx := chain.NewTx(base, []chain.Action{act})
-//		tx, err = tx.Sign(authFactory, actionRegistry, authRegistry)
-//		if err != nil {
-//			return nil, err
-//		}
-//
-//		txs = append(txs, tx)
-//	}
-//
-//	return txs, nil
-//}
-
-//func (s *SeqClient) GenerateTransferTx(ctx context.Context, to codec.Address, value uint64, memo []byte) (*chain.Transaction, error) {
-//	if len(s.Namespace) == 0 {
-//		return nil, fmt.Errorf("namespace not set yet")
-//	}
-//
-//	parser := s.parser
-//	act := &actions.Transfer{
-//		To:    to,
-//		Value: value,
-//		Memo:  memo,
-//	}
-//
-//	unitPrices, err := s.hrpc.UnitPrices(ctx, true)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	now := time.Now().UnixMilli()
-//	authFactory := auth.NewED25519Factory(s.signer)
-//	actionRegistry, authRegistry := parser.Registry()
-//
-//	maxUnits, _, err := chain.EstimateUnits(parser.Rules(now), []chain.Action{act}, authFactory)
-//	if err != nil {
-//		return nil, err
-//	}
-//	maxFee, err := fees.MulSum(unitPrices, maxUnits)
-//	if err != nil {
-//		return nil, err
-//	}
-//	base := &chain.Base{
-//		Timestamp: utils.UnixRMilli(now, parser.Rules(now).GetValidityWindow()),
-//		ChainID:   s.ChainID,
-//		MaxFee:    maxFee,
-//	}
-//	tx := chain.NewTx(base, []chain.Action{act})
-//	tx, err = tx.Sign(authFactory, actionRegistry, authRegistry)
-//	if err != nil {
-//		return nil, err
-//	}
-//	return tx, nil
-//
-//}
+func (s *SeqClient) SetOnNewBlockHandler(handler func(*chain.StatefulBlock, *hrpc.NextProposerReply)) {
+	s.onNewBlockHandler = handler
+}
