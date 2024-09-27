@@ -532,7 +532,7 @@ func TestGetHeader(t *testing.T) {
 		require.Equal(t, http.StatusOK, rr.Code)
 	})
 
-	t.Run("multiple bids with diff values", func(t *testing.T) {
+	t.Run("1 bid per slot. > 1 slot", func(t *testing.T) {
 		redis := backend.GetRedis()
 		// state how many bids you'd like below
 		numBids := 10
@@ -559,11 +559,6 @@ func TestGetHeader(t *testing.T) {
 				}
 
 				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey), testChainID)
-				//headerBytes, err := json.Marshal(bids[i])
-				//if err != nil {
-				//	t.Error(err)
-				//}
-				// fmt.Printf("keyTopBidValue: %s\n", keyTopBidValue)
 
 				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
 				if err != nil {
@@ -577,11 +572,6 @@ func TestGetHeader(t *testing.T) {
 				}
 
 				keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
-				// fmt.Printf("keyTopBidValue: %s\n", keyTopBidValue)
-				//headerBytes, err := json.Marshal(bids[i])
-				//if err != nil {
-				//	t.Error(err)
-				//}
 
 				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
 				if err != nil {
@@ -603,6 +593,250 @@ func TestGetHeader(t *testing.T) {
 		}
 		fmt.Println(topToBBid)
 		fmt.Println(topRoBBid)
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+	t.Run("multiple bids per slot. > 1 slot", func(t *testing.T) {
+		redis := backend.GetRedis()
+		// state how many bids you'd like below
+		numBids := 10
+		// no more than 3 ToBs
+		numToBs := 3
+		toBCount := 0
+		bidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		toBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		roBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		for i := 0; i < numBids; i++ {
+			headerHash, err := common.GenerateRandomHash()
+			if err != nil {
+				t.Error(err)
+			}
+			header := common.AnchorHeader{
+				Header:    headerHash,
+				BlockHash: generateRandomBlockHash(),
+				Value:     uint64(i + 1),
+			}
+
+			slot := uint64(i + 1)
+			bidsPerSlot[slot] = append(bidsPerSlot[slot], header)
+			if i%2 == 0 || toBCount >= numToBs {
+				// Set RoB bid
+				roBBidsPerSlot[slot] = append(roBBidsPerSlot[slot], header)
+				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, header)
+				if err != nil {
+					t.Error(err)
+				}
+
+				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey), testChainID)
+
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+				if err != nil {
+					t.Error(err)
+				}
+			} else {
+				// Set ToB bid
+				if len(toBBidsPerSlot[slot]) < 3 {
+					toBBidsPerSlot[slot] = append(toBBidsPerSlot[slot], header)
+					err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), header)
+					if err != nil {
+						t.Error(err)
+					}
+
+					keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
+
+					err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+					if err != nil {
+						t.Error(err)
+					}
+					toBCount++
+				}
+			}
+		}
+		rr := httptest.NewRecorder()
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
+
+		for slot, headers := range toBBidsPerSlot {
+			fmt.Printf("Slot: %d, ToB Bids: %v\n", slot, headers)
+
+			topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+			if err != nil {
+				t.Error(err)
+			}
+			fmt.Printf("Top ToB bid for slot %d: %v\n", slot, topToBBid)
+		}
+
+		for slot, headers := range roBBidsPerSlot {
+			fmt.Printf("Slot: %d, RoB Bids: %v\n", slot, headers)
+
+			topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+			if err != nil {
+				t.Error(err)
+			}
+			fmt.Printf("Top RoB bid for slot %d: %v\n", slot, topRoBBid)
+		}
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+	t.Run("multiple bids per slot. 2 slots only", func(t *testing.T) {
+		redis := backend.GetRedis()
+		// state how many bids you'd like below
+		numBids := 10
+		// no more than 3 ToBs
+		numToBs := 3
+		toBCount := 0
+		bidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		toBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		roBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		for i := 0; i < numBids; i++ {
+			headerHash, err := common.GenerateRandomHash()
+			if err != nil {
+				t.Error(err)
+			}
+			header := common.AnchorHeader{
+				Header:    headerHash,
+				BlockHash: generateRandomBlockHash(),
+				Value:     uint64(i + 1),
+			}
+			var slot uint64
+			if i%2 == 0 || toBCount >= numToBs {
+				// RoB slot
+				slot = 2
+				// Set RoB bid
+				roBBidsPerSlot[slot] = append(roBBidsPerSlot[slot], header)
+				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, header)
+				if err != nil {
+					t.Error(err)
+				}
+
+				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey), testChainID)
+
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+				if err != nil {
+					t.Error(err)
+				}
+			} else {
+				// ToB slot
+				slot = 1
+				// Set ToB bid
+				if len(toBBidsPerSlot[slot]) < 3 {
+					toBBidsPerSlot[slot] = append(toBBidsPerSlot[slot], header)
+					err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), header)
+					if err != nil {
+						t.Error(err)
+					}
+
+					keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
+
+					err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+					if err != nil {
+						t.Error(err)
+					}
+					toBCount++
+				}
+			}
+			bidsPerSlot[slot] = append(bidsPerSlot[slot], header)
+		}
+		rr := httptest.NewRecorder()
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(1, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
+
+		for slot, headers := range toBBidsPerSlot {
+			fmt.Printf("Slot: %d, ToB Bids: %v\n", slot, headers)
+
+			topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+			if err != nil {
+				t.Error(err)
+			}
+			fmt.Printf("Top ToB bid for slot %d: %v\n", slot, topToBBid)
+		}
+
+		for slot, headers := range roBBidsPerSlot {
+			fmt.Printf("Slot: %d, RoB Bids: %v\n", slot, headers)
+
+			topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+			if err != nil {
+				t.Error(err)
+			}
+			fmt.Printf("Top RoB bid for slot %d: %v\n", slot, topRoBBid)
+		}
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+	t.Run("multiple bids, 1 slot only", func(t *testing.T) {
+		redis := backend.GetRedis()
+		// state how many bids you'd like below
+		numBids := 10
+		// no more than 3 ToBs
+		numToBs := 3
+		toBCount := 0
+		bidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		toBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		roBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		for i := 0; i < numBids; i++ {
+			headerHash, err := common.GenerateRandomHash()
+			if err != nil {
+				t.Error(err)
+			}
+			header := common.AnchorHeader{
+				Header:    headerHash,
+				BlockHash: generateRandomBlockHash(),
+				Value:     uint64(i + 1),
+			}
+			const slot = 1
+			if i%2 == 0 || toBCount >= numToBs {
+				// Set RoB bid
+				roBBidsPerSlot[slot] = append(roBBidsPerSlot[slot], header)
+				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, header)
+				if err != nil {
+					t.Error(err)
+				}
+
+				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey), testChainID)
+
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+				if err != nil {
+					t.Error(err)
+				}
+			} else {
+				// Set ToB bid
+				if len(toBBidsPerSlot[slot]) < 3 {
+					toBBidsPerSlot[slot] = append(toBBidsPerSlot[slot], header)
+					err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), header)
+					if err != nil {
+						t.Error(err)
+					}
+
+					keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
+
+					err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+					if err != nil {
+						t.Error(err)
+					}
+					toBCount++
+				}
+			}
+			bidsPerSlot[slot] = append(bidsPerSlot[slot], header)
+		}
+		rr := httptest.NewRecorder()
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(1, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
+
+		fmt.Printf("Slot: %d, All Bids: %v\n", slot, bidsPerSlot[slot])
+		topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		if err != nil {
+			t.Error(err)
+		}
+		fmt.Printf("Top ToB bid for slot %d: %v\n", slot, topToBBid)
+
+		topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+		if err != nil {
+			t.Error(err)
+		}
+		fmt.Printf("Top RoB bid for slot %d: %v\n", slot, topRoBBid)
 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
 		backend.baton.getRouter().ServeHTTP(rr, httpReq)
 		require.Equal(t, http.StatusOK, rr.Code)
