@@ -454,9 +454,7 @@ func TestGetHeader(t *testing.T) {
 	slot := uint64(1)
 	backend.baton.headSlot.Store(slot)
 
-	robIDs := backend.baton.GetRoBChainIDs()
-
-	(*robIDs)[testChainID] = struct{}{}
+	backend.baton.robChainIDs[testChainID] = struct{}{}
 	// Build test builder keys
 	testBuilderSecretKey, err := bls.GenerateRandomSecretKey()
 	require.NoError(t, err)
@@ -540,7 +538,6 @@ func TestGetHeader(t *testing.T) {
 		numBids := 10
 		// no more than 3 ToBs
 		numToBs := 2
-		var bids []common.AnchorHeader
 		toBCount := 0
 		for i := 0; i < numBids; i++ {
 			headerHash, err := common.GenerateRandomHash()
@@ -552,12 +549,11 @@ func TestGetHeader(t *testing.T) {
 				BlockHash: generateRandomBlockHash(),
 				Value:     uint64(i + 1),
 			}
-			bids = append(bids, header)
 
 			slot := uint64(i + 1)
 			if i%2 == 0 || toBCount >= numToBs {
 				// Set RoB bid
-				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, bids[i])
+				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, header)
 				if err != nil {
 					t.Error(err)
 				}
@@ -567,25 +563,27 @@ func TestGetHeader(t *testing.T) {
 				//if err != nil {
 				//	t.Error(err)
 				//}
+				// fmt.Printf("keyTopBidValue: %s\n", keyTopBidValue)
 
-				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, bids[i], 0).Err()
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
 				if err != nil {
 					t.Error(err)
 				}
 			} else {
 				// Set ToB bid
-				err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), bids[i])
+				err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), header)
 				if err != nil {
 					t.Error(err)
 				}
 
 				keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
+				// fmt.Printf("keyTopBidValue: %s\n", keyTopBidValue)
 				//headerBytes, err := json.Marshal(bids[i])
 				//if err != nil {
 				//	t.Error(err)
 				//}
 
-				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, bids[i], 0).Err()
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
 				if err != nil {
 					t.Error(err)
 				}
@@ -593,8 +591,8 @@ func TestGetHeader(t *testing.T) {
 			}
 		}
 		rr := httptest.NewRecorder()
-		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), testParentHash, testProposerPubkey)
-		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/0x6ae5932d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792", requestPath)
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(slot, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
 		topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
 		if err != nil {
 			t.Error(err)

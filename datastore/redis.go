@@ -463,7 +463,6 @@ func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey strin
 
 func (r *RedisCache) GetBestRoBBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	fmt.Printf("keyCacheGetRoBHeaderResponse: %s\n", key)
 	resp := new(common.AnchorHeader)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
