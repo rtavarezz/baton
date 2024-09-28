@@ -14,14 +14,18 @@ services:
         condition: service_healthy
     build: 
       context: .
+    ports:
+      - 9062:9062
     command: >
       api
       --network=custom
       --redis-uri=redis:6379
       --db=postgresql://postgres:postgres@db:5432/postgres?sslmode=disable
       --memcached-uris=memcached:11211
-      --secret-key=0xa6bfa13032d80e80a17970e6e1b73993b5b1ccabfe7b1f6842c69a54e55d08cc
-      --seq-uri=http://172.17.0.1:9656/ext/bc/2rXsiidBP2y5xcJKDj9NyVWhv2wH8uVHYWez9HDZU7ws1eNCpp
+      --secret-key=$API_SK
+      --seq-uri=$SEQ_URL
+      --seq-chain-id=$SEQ_CHAIN_ID
+      --seq-network-id=$SEQ_NETWORK_ID
     environment:
       - GENESIS_FORK_VERSION=0x00000000
       - GENESIS_VALIDATORS_ROOT=0x05a67bcb9b62c29b1fa06a5537c8e11684bf2ae9fbd683cae12e9b07e9e126d1
