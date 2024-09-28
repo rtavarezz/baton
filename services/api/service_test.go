@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"golang.org/x/exp/rand"
 
+	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 
@@ -826,6 +828,190 @@ func TestRegisterSEQValidator(t *testing.T) {
 		rr := backend.request(http.MethodPost, path, req)
 		require.Equal(t, http.StatusBadRequest, rr.Code)
 	})
+}
+
+func TestGetCachedL2Txs(t *testing.T) {
+	randomSEQTxMsg := func(chainID string, limit int) *chain.Transaction {
+		minLength := 1
+		txRawLength := rand.Intn(limit-minLength) + minLength
+		txRaw := make([]byte, txRawLength)
+		_, err := rand.Read(txRaw)
+		require.NoError(t, err)
+
+		return CreateHypersdkTx(chainID, txRaw)
+	}
+
+	randomSEQTxsMsgForChains := func(chainIDs []*big.Int, numTxs int, limit int) []byte {
+		txs := make([]*chain.Transaction, 0, numTxs)
+		numTxsPerChain := numTxs / len(chainIDs)
+		if numTxsPerChain <= 0 {
+			numTxsPerChain = 1
+		}
+		for _, chainID := range chainIDs {
+			chainIDstr := hexutil.EncodeBig(chainID)
+			for i := 0; i < numTxsPerChain; i++ {
+				tx := randomSEQTxMsg(chainIDstr, limit)
+				txs = append(txs, tx)
+			}
+		}
+
+		// we have a 2MB bound for the packer used in this method, also the chain.UnmarshalTxs
+		txsRaw, err := chain.MarshalTxs(txs)
+		require.NoError(t, err)
+		return txsRaw
+	}
+
+	proposerPubkey := test2ProposerPubkey
+	var blockHash eth.Hash
+	slot := uint64(1)
+	overheadPackingTx := 512 // byte
+
+	t.Run("benchmark extracting small(high computation load) L2 txs from raw chain.Transactions in ToB payload stored in cache", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		redis := backend.GetRedis()
+
+		sizeLimitPerL2Tx := 20 + overheadPackingTx // some overhead for packing one tx is added
+		numTxsPerPayload := (2 * 1024 * 1024) / sizeLimitPerL2Tx
+		numChains := 10
+		tobChainIDs := make([]*big.Int, 0, numChains)
+		for i := 0; i < numChains; i++ {
+			chainID := big.NewInt(int64(45200 + i))
+			tobChainIDs = append(tobChainIDs, chainID)
+		}
+
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", numChains, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
+
+		// ToB payload
+		payload := common.AnchorPayload{
+			Slot:         slot,
+			Header:       blockHash,
+			Transactions: randomSEQTxsMsgForChains(tobChainIDs, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx),
+			GasUsed:      0,
+			GasLimit:     0,
+		}
+		pipeline := redis.NewPipeline()
+		err := redis.SaveExecutionToBAnchorPayload(context.TODO(), pipeline, payload.Slot, proposerPubkey, testParentHash, &payload)
+		require.NoError(t, err)
+
+		start := time.Now()
+		_, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, backend.baton.log)
+		require.NoError(t, err)
+
+		fmt.Printf("Used %f seconds to get ToB %d txs out of %d txs among %d chains\n", time.Since(start).Seconds(), numTxsPerPayload/numChains, numTxsPerPayload, numChains)
+	})
+
+	t.Run("benchmark extracting large(high network load) L2 txs from raw chain.Transactions in ToB payload stored in cache", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		redis := backend.GetRedis()
+
+		sizeLimitPerL2Tx := 400*1024 + overheadPackingTx
+		numTxsPerPayload := (2 * 1024 * 1024) / sizeLimitPerL2Tx
+		numChains := 1
+		tobChainIDs := make([]*big.Int, 0, numChains)
+		for i := 0; i < numChains; i++ {
+			chainID := big.NewInt(int64(45200 + i))
+			tobChainIDs = append(tobChainIDs, chainID)
+		}
+
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", numChains, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
+
+		// ToB payload
+		payload := common.AnchorPayload{
+			Slot:         slot,
+			Header:       blockHash,
+			Transactions: randomSEQTxsMsgForChains(tobChainIDs, numTxsPerPayload, sizeLimitPerL2Tx),
+			GasUsed:      0,
+			GasLimit:     0,
+		}
+		pipeline := redis.NewPipeline()
+		err := redis.SaveExecutionToBAnchorPayload(context.TODO(), pipeline, payload.Slot, proposerPubkey, testParentHash, &payload)
+		require.NoError(t, err)
+
+		start := time.Now()
+		_, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, backend.baton.log)
+		require.NoError(t, err)
+
+		fmt.Printf("Used %f seconds to get ToB %d txs out of %d txs among %d chains\n", time.Since(start).Seconds(), numTxsPerPayload/numChains, numTxsPerPayload, numChains)
+	})
+
+	t.Run("benchmark extracting small(high computation load) L2 txs from raw chain.Transactions in RoB payload stored in cache", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		redis := backend.GetRedis()
+
+		sizeLimitPerL2Tx := 20 + overheadPackingTx
+		numTxsPerPayload := (2 * 1024 * 1024) / sizeLimitPerL2Tx
+		numChains := 50
+		robChainIDs := make([]*big.Int, 0, numChains)
+
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", 1, numTxsPerPayload, sizeLimitPerL2Tx)
+
+		for i := 0; i < numChains; i++ {
+			chainID := big.NewInt(int64(45200 + i))
+			robChainIDs = append(robChainIDs, chainID)
+			// ToB payload
+			payload := common.AnchorPayload{
+				Slot:         slot,
+				Header:       blockHash,
+				Transactions: randomSEQTxsMsgForChains([]*big.Int{chainID}, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx),
+				GasUsed:      0,
+				GasLimit:     0,
+			}
+			pipeline := redis.NewPipeline()
+			err := redis.SaveExecutionRoBAnchorPayload(context.TODO(), pipeline, payload.Slot, proposerPubkey, testParentHash, &payload, hexutil.EncodeBig(chainID))
+			require.NoError(t, err)
+		}
+
+		chainIDsMap := make(map[string]struct{})
+		for _, chainID := range robChainIDs {
+			chainIDsMap[hexutil.EncodeBig(chainID)] = struct{}{}
+		}
+
+		start := time.Now()
+		_, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, backend.baton.log)
+		require.NoError(t, err)
+
+		fmt.Printf("Used %f seconds to extract %d RoB txs of %d chains\n", time.Since(start).Seconds(), numTxsPerPayload*numChains, numChains)
+	})
+
+	t.Run("benchmark extracting large(high network load) L2 txs from raw chain.Transactions in RoB payload stored in cache", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		redis := backend.GetRedis()
+
+		sizeLimitPerL2Tx := 400*1024 + overheadPackingTx
+		numTxsPerPayload := (2 * 1024 * 1024) / sizeLimitPerL2Tx
+		numChains := 50
+		robChainIDs := make([]*big.Int, 0, numChains)
+
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", 1, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
+
+		for i := 0; i < numChains; i++ {
+			chainID := big.NewInt(int64(45200 + i))
+			robChainIDs = append(robChainIDs, chainID)
+			// ToB payload
+			payload := common.AnchorPayload{
+				Slot:         slot,
+				Header:       blockHash,
+				Transactions: randomSEQTxsMsgForChains([]*big.Int{chainID}, numTxsPerPayload, sizeLimitPerL2Tx),
+				GasUsed:      0,
+				GasLimit:     0,
+			}
+			pipeline := redis.NewPipeline()
+			err := redis.SaveExecutionRoBAnchorPayload(context.TODO(), pipeline, payload.Slot, proposerPubkey, testParentHash, &payload, hexutil.EncodeBig(chainID))
+			require.NoError(t, err)
+		}
+
+		chainIDsMap := make(map[string]struct{})
+		for _, chainID := range robChainIDs {
+			chainIDsMap[hexutil.EncodeBig(chainID)] = struct{}{}
+		}
+
+		start := time.Now()
+		_, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, backend.baton.log)
+		require.NoError(t, err)
+
+		fmt.Printf("Used %f seconds to extract %d RoB txs of %d chains\n", time.Since(start).Seconds(), numTxsPerPayload*numChains, numChains)
+	})
+
 }
 
 // TODO: fix me soon

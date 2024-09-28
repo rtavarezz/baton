@@ -213,6 +213,7 @@ func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
 	actionRegistry, authRegistry := parser.Registry()
 	txSign, err := tx.Sign(authFactory, actionRegistry, authRegistry)
 	if err != nil {
+		fmt.Println("panicing here")
 		panic(err)
 	}
 	return txSign
