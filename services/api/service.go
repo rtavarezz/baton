@@ -507,6 +507,9 @@ func (api *BatonAPI) StartServer() (err error) {
 		return ErrServerAlreadyStarted
 	}
 
+	// Initialize block builder cache.
+	api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
+
 	// TODO: the following are related to beacon client, which are not used in Baton, commented out
 	// log := api.log.WithField("method", "StartServer")
 
@@ -516,9 +519,6 @@ func (api *BatonAPI) StartServer() (err error) {
 	// 	return err
 	// }
 	// currentSlot := syncStatus.HeadSlot
-
-	// // Initialize block builder cache.
-	// api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
 
 	// // Get genesis info
 	// api.genesisInfo, err = api.beaconClient.GetGenesis()
@@ -2152,10 +2152,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 
-	// TODO: Unmarshal hypersdk txs
 	var txs []*chain.Transaction
-	// TODO: figure out how to define and use parser to pass into chain.UnmarshalTxs
-	// note: left off here, parser keeps returning nil
 	parser := srpc.Parser{}
 	actionRegistry, authRegistry := parser.Registry()
 	_, txs, err = chain.UnmarshalTxs(
@@ -2180,12 +2177,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	isLargeRequest := len(payloadBytes) > fastTrackPayloadSizeLimit
 	slot := blockReq.Slot()
 
-	if slot < headSlot {
-		log.Error("TOB tx request for past slot!")
-		api.Respond(w, http.StatusBadRequest, "Submitted TOB tx request for past slot!")
-		return
-	}
-
 	// We only allow bidding for block 1 slot prior
 	if (slot - headSlot) > 1 {
 		log.Error("Slot's TOB bid not yet started!!")
@@ -2199,6 +2190,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, "slot details check failed")
 		return
 	}
+
 	// ToB will have varying chain id in txs, RoB will have uniform
 	// Also verifies len(txs) >= 2
 	isToB, err := api.checkBlockRequestIsToB(txs)
@@ -2207,6 +2199,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
 	if isToB {
 		// TODO: pass blockReq.Txs which will always be size 800+ after marshal or use txs type hypersdk below
 		if len(txs) > common.MaxTobTxs+1 {
@@ -2533,7 +2526,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		if !isToB {
 			api.robChainIDs[chainID] = struct{}{}
 		}
-		fmt.Println(api.robChainIDs)
 	}
 
 	defer func() {
@@ -2561,7 +2553,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			}
 		}
 	}()
-
 }
 
 func (api *BatonAPI) getChainIDsFromSEQTxs(ctx context.Context, txs []*chain.Transaction) map[string]struct{} {

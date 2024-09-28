@@ -62,6 +62,7 @@ var (
 	mockSecretKey, _     = bls.SecretKeyFromBytes(skBytes)
 	mockPublicKey, _     = bls.PublicKeyFromSecretKey(mockSecretKey)
 	testChainID          = GetTestChainId(0)
+	emptyPublicKey       = bls.PublicKey{}
 )
 
 type testBackend struct {
@@ -802,10 +803,7 @@ func createBackendHelper(t *testing.T) *testBackend {
 	return backend
 }
 
-// @TODO: Create test cases below, cover ALL cases
 func TestHandleSubmitNewBlockRequest(t *testing.T) {
-	//logger := logrus.New()
-	//logEntry := logrus.NewEntry(logger)
 	slot := uint64(1)
 	var err error
 
@@ -856,6 +854,21 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	tobBlockReq, _, _ := CreateTestChunkSubmission(t, tobBlockValue, &tobBlockOpts)
 	require.NoError(t, err)
 
+	// Default rob test block for use in tests
+	// Do not overwrite! Make your own copy for each test
+	robBlockOpts2 := CreateTestBlockSubmissionOpts{
+		Slot:           slot,
+		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		BuilderPubkey:  *testBuilderPublicKey,
+		ProposerPubkey: *testProposerPublicKey,
+		IsToB:          false,
+		robChainIndex:  2,
+		numTxs:         1,
+		withTransferTx: true,
+	}
+	robBlockValue2 := uint64(5)
+	robBlockReq2, _, _ := CreateTestChunkSubmission(t, robBlockValue2, &robBlockOpts2)
+
 	// Helper for processing block requests to the backend. Returns the status code of the request.
 	processBlockRequest := func(backend *testBackend, blockReq *common.SubmitNewBlockRequest) int {
 		// marshal the req body
@@ -888,6 +901,60 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
+	t.Run("Run valid base case, just ToB and multiple RoB", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		rrCode := processBlockRequest(backend, tobBlockReq)
+		require.Equal(t, http.StatusOK, rrCode)
+
+		rrCode = processBlockRequest(backend, robBlockReq)
+		require.Equal(t, http.StatusOK, rrCode)
+
+		rrCode = processBlockRequest(backend, robBlockReq2)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("RoB block with no txs should reject", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		robBlockReqNoTx := robBlockReq
+		robBlockReqNoTx.Chunk.Txs = nil
+
+		rrCode := processBlockRequest(backend, robBlockReq)
+
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("RoB block with slot equal to head slot", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		headSlot := uint64(5)
+		seqClient := backend.GetMockSeqClient()
+		seqClient.TriggerNextSlot(headSlot)
+
+		robBlockReqSlotHeadEqual := robBlockReq
+		robBlockReqSlotHeadEqual.Chunk.Slot = headSlot
+
+		rrCode := processBlockRequest(backend, robBlockReq)
+
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("RoB block with slot too far head compared to head slot", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		headSlot := uint64(5)
+		seqClient := backend.GetMockSeqClient()
+		seqClient.TriggerNextSlot(headSlot)
+
+		robBlockReqSlotHeadEqual := robBlockReq
+		robBlockReqSlotHeadEqual.Chunk.Slot = headSlot + 2
+
+		rrCode := processBlockRequest(backend, robBlockReq)
+
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
 	t.Run("Run invalid RoB without transfer tx", func(t *testing.T) {
 		backend := createBackendHelper(t)
 
@@ -906,6 +973,83 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.NoError(t, err)
 
 		rrCode := processBlockRequest(backend, robReq)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("ToB has too many txs", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			robChainIndex:  0,
+			numTxs:         common.MaxTobTxs + 1,
+			withTransferTx: true,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("ToB with number txs equal to max allowed is okay", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			robChainIndex:  0,
+			numTxs:         common.MaxTobTxs,
+			withTransferTx: true,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("RoB has no tx limit enforcement", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          false,
+			robChainIndex:  0,
+			numTxs:         common.MaxTobTxs + 1,
+			withTransferTx: true,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("RoB block with bad builder key should reject", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		robBlockReqNoTx := robBlockReq
+		robBlockReqNoTx.BuilderPubKey = emptyPublicKey
+
+		rrCode := processBlockRequest(backend, robBlockReq)
+
 		require.Equal(t, http.StatusBadRequest, rrCode)
 	})
 
