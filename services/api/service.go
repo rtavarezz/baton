@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ import (
 	"github.com/go-redis/redis/v9"
 
 	"github.com/AnomalyFi/nodekit-seq/actions"
+	"github.com/AnomalyFi/nodekit-seq/rpc"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	"github.com/NYTimes/gziphandler"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -818,6 +820,82 @@ func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 	}
 	log.Info("tracer successful")
 	return res, nil
+}
+
+func (api *BatonAPI) simulateL2Txs(
+	ctx context.Context,
+	blockNumber map[string]string, // chainID(hexutil.Encode(big.Int)) -> block number(0x...)
+	l2Txs map[string][]hexutil.Bytes,
+	log *logrus.Entry,
+) (gasUsed uint64, requestErr, validationErr error) {
+	t := time.Now()
+	var simResL sync.Mutex
+	simRes := make(map[string]struct {
+		gasUsed       uint64
+		requestErr    error
+		validationErr error
+	}, len(l2Txs))
+
+	var wg sync.WaitGroup
+	for chainID, otxs := range l2Txs {
+		wg.Add(1)
+		go func(chainID string, otxs []hexutil.Bytes) {
+			defer wg.Done()
+			blockReq := common.BlockValidationRequest{
+				Txs:              otxs,
+				BlockNumber:      "latest", // change to blockNumber[chainID] when we can, currently anchorPayload doesn't provide this field that originally provided by submitNewBatonBlock
+				StateBlockNumber: "latest",
+				Timestamp:        uint64(time.Now().UnixMilli()),
+			}
+
+			gasUsed, requestErr, validationErr = api.blockSimRateLimiter.SimBlockAndGetGasUsedForChain(ctx, chainID, &blockReq)
+			log = log.WithFields(logrus.Fields{
+				"durationMs": time.Since(t).Milliseconds(),
+				"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
+			})
+
+			simResL.Lock()
+			defer simResL.Unlock()
+			simRes[chainID] = struct {
+				gasUsed       uint64
+				requestErr    error
+				validationErr error
+			}{
+				gasUsed:       gasUsed,
+				requestErr:    requestErr,
+				validationErr: validationErr,
+			}
+
+		}(chainID, otxs)
+	}
+
+	wg.Wait()
+
+	gasUsed = 0
+	for chainID := range l2Txs {
+		r := simRes[chainID]
+		if validationErr != nil {
+			if api.ffIgnorableValidationErrors {
+				// Operators chooses to ignore certain validation errors
+				ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
+				if ignoreError {
+					log.WithError(validationErr).Warn("block validation failed with ignorable error")
+					return uint64(0), nil, nil
+				}
+			}
+			log.WithError(validationErr).Warn("block validation failed")
+			return 0, nil, validationErr
+		}
+		if requestErr != nil {
+			log.WithError(requestErr).Warn("block validation failed: request error")
+			return 0, requestErr, nil
+		}
+
+		gasUsed += r.gasUsed
+	}
+
+	// TODO: do we return the sum of used gas?
+	return gasUsed, nil, nil
 }
 
 // simulateBlock sends a request for a block simulation to blockSimRateLimiter.
@@ -2316,9 +2394,47 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}()
 
 	if !api.mockMode {
+		ctx := context.Background()
+		sctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		defer cancel()
+		var txs2simulate map[string][]hexutil.Bytes
+		slog := log.WithFields(logrus.Fields{
+			"slot":           blockReq.Slot,
+			"parentHash":     blockReq.ParentHash,
+			"proposerPubkey": blockReq.ProposerPubKeyAsStr(),
+			"isToB":          isToB,
+		})
+		if isToB {
+			chainIDs := api.getChainIDsFromSEQTxs(ctx, txs)
+			robTxs, err := api.getTopRoBsTxsByChainIDs(sctx, chainIDs, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
+			if err != nil {
+				log.WithError(err).Warn("unable to fetch top RoB txs from redis")
+				api.RespondError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			txs2simulate = robTxs // safe since txs2simulate is empty
+		} else {
+
+			tobTxs, err := api.getTopToBTxsByChainID(sctx, chainID, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
+			if err != nil {
+				log.WithError(err).Warn("unable to fetch top RoB txs from redis")
+				api.RespondError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			txs2simulate = tobTxs
+		}
+
+		// append txs from req
+		l2txs := api.seqTxs2EthTxs(ctx, txs)
+		for chainID, otxs := range l2txs {
+			l := txs2simulate[chainID]
+			l = append(l, otxs...)
+			txs2simulate[chainID] = l
+		}
+
 		// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 		// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
-		gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, txs, log)
+		gasUsed, reqErr, validErr = api.simulateL2Txs(sctx, nil, txs2simulate, slog)
 		if gasUsed != 0 && gasUsed > gasLimit {
 			errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
 			validErr = errors.New(errMsg)
@@ -2446,6 +2562,130 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}()
 
+}
+
+func (api *BatonAPI) getChainIDsFromSEQTxs(ctx context.Context, txs []*chain.Transaction) map[string]struct{} {
+	ret := make(map[string]struct{})
+	for _, tx := range txs {
+		for _, action := range tx.Actions {
+			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+				chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
+				chainID := big.NewInt(int64(chainIDu64))
+				chainIDstr := hexutil.EncodeBig(chainID)
+				if _, ok := ret[chainIDstr]; !ok {
+					ret[chainIDstr] = struct{}{}
+				}
+			}
+		}
+	}
+
+	return ret
+}
+
+func (api *BatonAPI) seqTxs2EthTxs(ctx context.Context, txs []*chain.Transaction) map[string][]hexutil.Bytes {
+	ret := make(map[string][]hexutil.Bytes)
+	for _, tx := range txs {
+		for _, action := range tx.Actions {
+			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+				chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
+				chainID := big.NewInt(int64(chainIDu64))
+				chainIDstr := hexutil.EncodeBig(chainID)
+
+				l := ret[chainIDstr]
+				l = append(l, seqMsg.Data)
+				ret[chainIDstr] = l
+			}
+		}
+	}
+
+	return ret
+}
+
+func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID string, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) (map[string][]hexutil.Bytes, error) {
+	header, err := api.redis.GetBestToBBid(slot, parentHash, proposerPubkey)
+	if err != nil {
+		return nil, err
+	}
+	var tobPayload *common.AnchorPayload
+	if header == nil {
+		return nil, nil
+	}
+
+	payload, err := api.datastore.GetGetToBPayloadResponse(log, slot, proposerPubkey, header.BlockHash)
+	if err != nil {
+		return nil, err
+	}
+	tobPayload = payload
+
+	txsRaw := tobPayload.Transactions
+	parser := rpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
+	actionRegistry, authRegistry := parser.Registry()
+	_, txs, err := chain.UnmarshalTxs(txsRaw, SeqUnmarshalTxsInitialCapacity, actionRegistry, authRegistry)
+	if err != nil {
+		return nil, err
+	}
+
+	// chainID str -> a list of txs
+	ret := make(map[string][]hexutil.Bytes)
+	for _, tx := range txs {
+		for _, action := range tx.Actions {
+			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+				chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
+				chainID := big.NewInt(int64(chainIDu64))
+				chainIDstr := hexutil.EncodeBig(chainID)
+				if chainIDstr != robChainID {
+					continue
+				}
+
+				l := ret[chainIDstr]
+				l = append(l, seqMsg.Data)
+				ret[chainIDstr] = l
+			}
+		}
+	}
+
+	return ret, nil
+}
+
+func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[string]struct{}, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) (map[string][]hexutil.Bytes, error) {
+	ret := make(map[string][]hexutil.Bytes, 0)
+	for chainID := range chainIDs {
+		header, err := api.redis.GetBestRoBBid(slot, parentHash, proposerPubkey, chainID)
+		if err != nil { // nil won't throw
+			return nil, err
+		}
+		var tobPayload *common.AnchorPayload
+		// top bid not exists, not one bid submitted for this chain
+		if header == nil {
+			continue
+		}
+		payload, err := api.datastore.GetGetRoBPayloadResponse(log, slot, proposerPubkey, header.BlockHash, chainID)
+		if err != nil {
+			return nil, err
+		}
+		tobPayload = payload
+
+		txsRaw := tobPayload.Transactions
+		parser := rpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
+		actionRegistry, authRegistry := parser.Registry()
+		_, txs, err := chain.UnmarshalTxs(txsRaw, SeqUnmarshalTxsInitialCapacity, actionRegistry, authRegistry)
+		if err != nil {
+			return nil, err
+		}
+
+		ret[chainID] = make([]hexutil.Bytes, 0, len(txs)-1)
+		for _, tx := range txs {
+			for _, action := range tx.Actions {
+				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+					l := ret[chainID]
+					l = append(l, seqMsg.Data)
+					ret[chainID] = l
+				}
+			}
+		}
+	}
+
+	return ret, nil
 }
 
 // ---------------
