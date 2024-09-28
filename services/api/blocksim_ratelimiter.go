@@ -41,8 +41,10 @@ type BlockSimulationRateLimiter struct {
 	cv      *sync.Cond
 	counter int64
 
-	blockSimURLs map[string]string // chainID -> builder url
-	client       http.Client
+	blockSimURLs  map[string]string // chainID -> builder url
+	blockSimURLsL sync.RWMutex
+
+	client http.Client
 
 	manager *bls.PublicKey
 }
@@ -60,7 +62,8 @@ func NewBlockSimulationRateLimiter(manager *bls.PublicKey) *BlockSimulationRateL
 }
 
 type SimulatorInfo struct {
-	URL string `json:"url"`
+	URL     string `json:"url"`
+	ChainID string `json:"chain_id"`
 }
 
 type SimulatorRegisterRequest struct {
@@ -96,11 +99,18 @@ func (b *BlockSimulationRateLimiter) RegisterSimulator(req *SimulatorRegisterReq
 	if err != nil {
 		return false, err
 	}
+	if verified {
+		b.blockSimURLsL.Lock()
+		b.blockSimURLs[req.Simulator.ChainID] = req.Simulator.URL
+		b.blockSimURLsL.Unlock()
+	}
 
 	return verified, nil
 }
 
 func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsedForChain(context context.Context, chainID string, req *common.BlockValidationRequest) (uint64, error, error) {
+	b.blockSimURLsL.RLock()
+	defer b.blockSimURLsL.RUnlock()
 	if _, ok := b.blockSimURLs[chainID]; !ok {
 		return 0, fmt.Errorf("unsupported chain %s", chainID), nil
 	}
