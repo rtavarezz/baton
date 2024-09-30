@@ -264,13 +264,13 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 		SimError:     simErrStr,
 		SimReqError:  requestErrStr,
 
-		Signature: blockReq.Signature.String(),
+		Signature: blockReq.Sig().String(),
 
 		Slot:       payload.Slot,
 		BlockHash:  blockReq.BlockHash().String(),
 		ParentHash: blockReq.ParentHash().String(),
 
-		BuilderPubkey:        blockReq.BuilderPubKey.String(),
+		BuilderPubkey:        blockReq.BuilderPubkey().String(),
 		ProposerPubkey:       blockReq.ProposerPubKeyAsStr(),
 		ProposerFeeRecipient: blockReq.ProposerPaymentAsStr(),
 

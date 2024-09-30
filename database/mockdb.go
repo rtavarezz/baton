@@ -4,9 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	eth "github.com/ethereum/go-ethereum/common"
 	"math/big"
 	"time"
+
+	eth "github.com/ethereum/go-ethereum/common"
 
 	"github.com/flashbots/mev-boost-relay/common"
 )
@@ -108,13 +109,13 @@ func (db MockDB) SaveBuilderBlockSubmission(
 		SimError:     simErrStr,
 		SimReqError:  requestErrStr,
 
-		Signature: blockReq.Signature.String(),
+		Signature: blockReq.Sig().String(),
 
 		Slot:       payload.Slot,
 		BlockHash:  blockReq.BlockHash().String(),
 		ParentHash: blockReq.ParentHash().String(),
 
-		BuilderPubkey:        blockReq.BuilderPubKey.String(),
+		BuilderPubkey:        blockReq.BuilderPubkey().String(),
 		ProposerPubkey:       blockReq.ProposerPubKeyAsStr(),
 		ProposerFeeRecipient: blockReq.ProposerPaymentAsStr(),
 

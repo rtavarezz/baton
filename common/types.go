@@ -476,8 +476,11 @@ func (r *SEQValidatorRegistration) Initialize() error {
 // Txs format is hypersdk transactions. The Eth transaction is stored in within Action.Data.
 type SubmitNewBlockRequest struct {
 	Chunk         BatonBlock
-	Signature     bls.Signature `json:"signature" ssz-size:"96"`
-	BuilderPubKey bls.PublicKey `json:"builder_pubkey" ssz-size:"48"`
+	Signature     []byte `json:"signature"`
+	BuilderPubKey []byte `json:"builder_pubkey"`
+
+	signature     *bls.Signature
+	builderPubkey *bls.PublicKey
 }
 
 type BatonBlock struct {
@@ -486,16 +489,32 @@ type BatonBlock struct {
 	ParentHash      common.Hash       `json:"parent_hash"`
 	BlockNumber     map[string]string `json:"blocknumber"`
 	BlockHash       common.Hash       `json:"block_hash" ssz-size:"32"`
-	ProposerPubkey  bls.PublicKey     `json:"proposer_pubkey" ssz-size:"48"`
+	ProposerPubkey  []byte            `json:"proposer_pubkey"`
 	ProposerPayment codec.Address     `json:"proposer_payment" ssz-size:"48"`
+
+	proposerPubkey *bls.PublicKey
 }
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
-		Chunk:         NewBatonBlockRequest(),
-		Signature:     bls.Signature{},
-		BuilderPubKey: bls.PublicKey{},
+		Chunk: NewBatonBlockRequest(),
 	}
+}
+
+func (r *SubmitNewBlockRequest) Initialize() error {
+	sig, err := bls.SignatureFromBytes(r.Signature)
+	if err != nil {
+		return err
+	}
+	bpk, err := bls.PublicKeyFromBytes(r.BuilderPubKey)
+	if err != nil {
+		return err
+	}
+
+	r.signature = sig
+	r.builderPubkey = bpk
+
+	return r.Chunk.Initialize()
 }
 
 func NewBatonBlockRequest() BatonBlock {
@@ -506,8 +525,17 @@ func NewBatonBlockRequest() BatonBlock {
 		BlockNumber:     make(map[string]string),
 		BlockHash:       common.Hash{},
 		ProposerPayment: codec.Address{},
-		ProposerPubkey:  bls.PublicKey{},
 	}
+}
+
+func (b *BatonBlock) Initialize() error {
+	pk, err := bls.PublicKeyFromBytes(b.ProposerPubkey)
+	if err != nil {
+		return err
+	}
+
+	b.proposerPubkey = pk
+	return nil
 }
 
 func (r *SubmitNewBlockRequest) FromJSON(data []byte) error {
@@ -534,20 +562,20 @@ func (r *SubmitNewBlockRequest) BlockNumber() *map[string]string {
 	return &r.Chunk.BlockNumber
 }
 
-func (r *SubmitNewBlockRequest) ProposerPubKey() bls.PublicKey {
-	return r.Chunk.ProposerPubkey
+func (r *SubmitNewBlockRequest) ProposerPubKey() *bls.PublicKey {
+	return r.Chunk.proposerPubkey
 }
 
 func (r *SubmitNewBlockRequest) ProposerPubKeyAsStr() string {
 	pk := r.ProposerPubKey()
-	proposerPubKeyBytes := (&pk).Bytes()
+	proposerPubKeyBytes := pk.Bytes()
 	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
 	return "0x" + proposerPubKeyBytesAsStr
 }
 
 func (r *SubmitNewBlockRequest) ProposerPubKeyAsBytes() []byte {
 	pk := r.ProposerPubKey()
-	pkBytes := (&pk).Bytes()
+	pkBytes := pk.Bytes()
 	return pkBytes[:]
 }
 
@@ -601,25 +629,25 @@ func Value(txs []*chain.Transaction) (*big.Int, error) {
 	return nil, errors.New("simulateBlock: could not retireve value and transfer action")
 }
 
-func (r *SubmitNewBlockRequest) BuilderPubkey() bls.PublicKey {
-	return r.BuilderPubKey
+func (r *SubmitNewBlockRequest) BuilderPubkey() *bls.PublicKey {
+	return r.builderPubkey
 }
 
 func (r *SubmitNewBlockRequest) BuilderPubkeyAsStr() string {
 	pk := r.BuilderPubkey()
-	builderPubKeyBytes := (&pk).Bytes()
+	builderPubKeyBytes := pk.Bytes()
 	builderPubKeyBytesAsStr := hex.EncodeToString(builderPubKeyBytes[:])
 	return "0x" + builderPubKeyBytesAsStr
 }
 
 func (r *SubmitNewBlockRequest) BuilderPubkeyAsBytes() []byte {
 	pk := r.BuilderPubkey()
-	pkBytes := (&pk).Bytes()
+	pkBytes := pk.Bytes()
 	return pkBytes[:]
 }
 
-func (r *SubmitNewBlockRequest) Sig() bls.Signature {
-	return r.Signature
+func (r *SubmitNewBlockRequest) Sig() *bls.Signature {
+	return r.signature
 }
 
 // callLog is the result of LOG opCode
