@@ -921,7 +921,6 @@ func (api *BatonAPI) simulateBlock(
 		gasUsed += r.gasUsed
 	}
 
-	// TODO: do we return the sum of used gas?
 	return gasUsed, nil, nil
 }
 
@@ -958,20 +957,6 @@ func (api *BatonAPI) processNewSlot(headSlot uint64) {
 	// store the head slot
 	api.headSlot.Store(headSlot)
 
-	// only for builder-api
-	// if api.opts.BlockBuilderAPI || api.opts.ProposerAPI {
-	// 	// update proposer duties in the background
-	// 	go api.updateProposerDuties(headSlot)
-
-	// 	// update the optimistic slot
-	// 	go api.prepareBuildersForSlot(headSlot)
-	// }
-
-	// TODO: to be removed as related to beacon client
-	// if api.opts.ProposerAPI {
-	// 	go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, headSlot)
-	// }
-
 	// log
 	epoch := headSlot / common.SlotsPerEpoch
 	api.log.WithFields(logrus.Fields{
@@ -980,92 +965,6 @@ func (api *BatonAPI) processNewSlot(headSlot uint64) {
 		"slotStartNextEpoch": (epoch + 1) * common.SlotsPerEpoch,
 	}).Infof("updated headSlot to %d", headSlot)
 }
-
-// TODO: may not needed as we know the duties of each validator from SEQ client
-// func (api *BatonAPI) updateProposerDuties(headSlot uint64) {
-// 	// Ensure only one updating is running at a time
-// 	if api.isUpdatingProposerDuties.Swap(true) {
-// 		return
-// 	}
-// 	defer api.isUpdatingProposerDuties.Store(false)
-
-// 	// Update once every 8 slots (or more, if a slot was missed)
-// 	if headSlot%8 != 0 && headSlot-api.proposerDutiesSlot < 8 {
-// 		return
-// 	}
-
-// 	// Load upcoming proposer duties from Redis
-// 	duties, err := api.redis.GetProposerDuties()
-// 	if err != nil {
-// 		api.log.WithError(err).Error("failed getting proposer duties from redis")
-// 		return
-// 	}
-
-// 	// Prepare raw bytes for HTTP response
-// 	respBytes, err := json.Marshal(duties)
-// 	if err != nil {
-// 		api.log.WithError(err).Error("error marshalling duties")
-// 	}
-
-// 	// Prepare the map for lookup by slot
-// 	dutiesMap := make(map[uint64]*common.BuilderGetValidatorsResponseEntry)
-// 	for index, duty := range duties {
-// 		dutiesMap[duty.Slot] = &duties[index]
-// 	}
-
-// 	// Update
-// 	api.proposerDutiesLock.Lock()
-// 	if len(respBytes) > 0 {
-// 		api.proposerDutiesResponse = &respBytes
-// 	}
-// 	api.proposerDutiesMap = dutiesMap
-// 	api.proposerDutiesSlot = headSlot
-// 	api.proposerDutiesLock.Unlock()
-
-// 	// pretty-print
-// 	_duties := make([]string, len(duties))
-// 	for i, duty := range duties {
-// 		_duties[i] = fmt.Sprint(duty.Slot)
-// 	}
-// 	sort.Strings(_duties)
-// 	api.log.Infof("proposer duties updated: %s", strings.Join(_duties, ", "))
-// }
-
-// TODO: may not needed
-// func (api *BatonAPI) prepareBuildersForSlot(headSlot uint64) {
-// 	// Wait until there are no optimistic blocks being processed. Then we can
-// 	// safely update the slot.
-// 	api.optimisticBlocksWG.Wait()
-// 	api.optimisticSlot.Store(headSlot + 1)
-
-// 	builders, err := api.db.GetBlockBuilders()
-// 	if err != nil {
-// 		api.log.WithError(err).Error("unable to read block builders from db, not updating builder cache")
-// 		return
-// 	}
-// 	api.log.Debugf("Updating builder cache with %d builders from database", len(builders))
-
-// 	newCache := make(map[string]*blockBuilderCacheEntry)
-// 	for _, v := range builders {
-// 		entry := &blockBuilderCacheEntry{ //nolint:exhaustruct
-// 			status: common.BuilderStatus{
-// 				IsHighPrio:    v.IsHighPrio,
-// 				IsBlacklisted: v.IsBlacklisted,
-// 				IsOptimistic:  v.IsOptimistic,
-// 			},
-// 		}
-// 		// Try to parse builder collateral string to big int.
-// 		builderCollateral, ok := big.NewInt(0).SetString(v.Collateral, 10)
-// 		if !ok {
-// 			api.log.WithError(err).Errorf("could not parse builder collateral string %s", v.Collateral)
-// 			entry.collateral = big.NewInt(0)
-// 		} else {
-// 			entry.collateral = builderCollateral
-// 		}
-// 		newCache[v.BuilderPubkey] = entry
-// 	}
-// 	api.blockBuildersCache = newCache
-// }
 
 func (api *BatonAPI) RespondError(w http.ResponseWriter, code int, message string) {
 	api.Respond(w, code, HTTPErrorResp{code, message})
@@ -1449,14 +1348,13 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		ParentHash:  parentHash,
 	}
 
-	// TODO: to be removed, we don't need to sign the header on Baton side
-	// err = common.SignAnchorGetHeaderResponse(&resp, api.blsSk)
-	// if err != nil {
-	// 	logMsg := "handleGetHeader: could not sign exec headers, err: " + err.Error()
-	// 	log.Error(logMsg)
-	// 	api.RespondError(w, http.StatusBadRequest, logMsg)
-	// 	return
-	// }
+	err = common.SignAnchorGetHeaderResponse(api.seqClient.GetChainID(), api.seqClient.GetNetworkID(), &resp, api.blsSk)
+	if err != nil {
+		logMsg := "handleGetHeader: could not sign exec headers, err: " + err.Error()
+		log.Error(logMsg)
+		api.RespondError(w, http.StatusBadRequest, logMsg)
+		return
+	}
 
 	// This sets the expected header we will compare against when we receive getPayloadRequest()
 	api.expectedHeader = &resp
@@ -2205,7 +2103,12 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	})
 
 	// Note this also validates slot validity
-	// var gasLimit uint64
+	var gasLimit uint64
+	if isToB {
+		gasLimit = 5_000_000
+	} else {
+		gasLimit = 25_000_000
+	}
 	// if !api.mockMode {
 	// 	gasLimit, ok = api.getValidatorGasLimit(w, log, slot)
 	// 	if !ok {
@@ -2359,10 +2262,10 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
 		// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
 		gasUsed, reqErr, validErr = api.simulateBlock(context.Background(), &blockReq, txs, log)
-		// if gasUsed != 0 && gasUsed > gasLimit {
-		// 	errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
-		// 	validErr = errors.New(errMsg)
-		// }
+		if gasUsed != 0 && gasUsed > gasLimit {
+			errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
+			validErr = errors.New(errMsg)
+		}
 
 		simResultC <- &blockSimResult{reqErr == nil, false, reqErr, validErr}
 		if reqErr != nil {

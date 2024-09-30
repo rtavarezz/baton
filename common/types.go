@@ -417,7 +417,7 @@ type SignedSEQValidatorRegistration struct {
 }
 
 func (sreg *SignedSEQValidatorRegistration) Signed() bool {
-	if sreg.signature == nil && sreg.Initialize() != nil {
+	if sreg.signature == nil || sreg.Initialize() != nil {
 		return false
 	}
 
