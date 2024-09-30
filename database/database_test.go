@@ -10,6 +10,7 @@ import (
 
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
+	"github.com/ava-labs/avalanchego/ids"
 	common2 "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/mev-boost-relay/common"
@@ -488,7 +489,7 @@ func TestTobSubmitProfile(t *testing.T) {
 
 	// insert one included tx
 	slot := uint64(12345)
-	parentHash := common2.HexToHash("0xad39ea469b48da684a52b00df333d8b9062aabc1a62742154b6af1a3c4b77369")
+	parentHash := ids.Empty
 	txHash1 := common2.HexToHash("0x5488c797fa93bc631b0183d6e4641aa4963df50e7b8e9b82b8ec09fd5851dd33")
 	txHash2 := common2.HexToHash("0xb27c9e69ab71624e3de141e29f4389ed390bf6fc970af5404808f401a18b8019")
 
@@ -499,7 +500,7 @@ func TestTobSubmitProfile(t *testing.T) {
 	tracerDuration := uint64(50)
 	simulationDuration := uint64(10)
 
-	err := db.InsertToBSubmitProfile(slot, parentHash, txHashes, simulationDuration, tracerDuration, totalReqDuration)
+	err := db.InsertToBSubmitProfile(slot, parentHash.String(), txHashes, simulationDuration, tracerDuration, totalReqDuration)
 	require.NoError(t, err)
 
 	tobSubmitProfile, err := db.GetToBSubmitProfile(slot, parentHash.String(), txHashes)

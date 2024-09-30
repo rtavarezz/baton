@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	eth "github.com/ethereum/go-ethereum/common"
 	"math/big"
 	"time"
 
@@ -108,13 +107,13 @@ func (db MockDB) SaveBuilderBlockSubmission(
 		SimError:     simErrStr,
 		SimReqError:  requestErrStr,
 
-		Signature: blockReq.Signature.String(),
+		Signature: blockReq.Sig().String(),
 
 		Slot:       payload.Slot,
 		BlockHash:  blockReq.BlockHash().String(),
 		ParentHash: blockReq.ParentHash().String(),
 
-		BuilderPubkey:        blockReq.BuilderPubKey.String(),
+		BuilderPubkey:        blockReq.BuilderPubkey().String(),
 		ProposerPubkey:       blockReq.ProposerPubKeyAsStr(),
 		ProposerFeeRecipient: blockReq.ProposerPaymentAsStr(),
 
@@ -349,12 +348,12 @@ func (db MockDB) GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(slot uin
 	return entries, nil
 }
 
-func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
-	key := fmt.Sprintf("tob,%d-%s-%s", slot, parentHash.String(), txHashes)
+func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
+	key := fmt.Sprintf("tob,%d-%s-%s", slot, parentHash, txHashes)
 	db.TobSubmitProfile[key] = &ToBSubmitProfileEntry{
 		TxHashes:             txHashes,
 		Slot:                 slot,
-		ParentHash:           parentHash.String(),
+		ParentHash:           parentHash,
 		SimulationDurationUs: simulationDuration,
 		TracerDurationUs:     tracerDuration,
 		TotalDurationUs:      totalDuration,
@@ -363,12 +362,12 @@ func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash eth.Hash, txHash
 	return nil
 }
 
-func (db MockDB) InsertRoBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
-	key := fmt.Sprintf("rob,%d-%s-%s", slot, parentHash.String(), txHashes)
+func (db MockDB) InsertRoBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
+	key := fmt.Sprintf("rob,%d-%s-%s", slot, parentHash, txHashes)
 	db.RobSubmitProfile[key] = &RoBSubmitProfileEntry{
 		TxHashes:             txHashes,
 		Slot:                 slot,
-		ParentHash:           parentHash.String(),
+		ParentHash:           parentHash,
 		SimulationDurationUs: simulationDuration,
 		TracerDurationUs:     tracerDuration,
 		TotalDurationUs:      totalDuration,

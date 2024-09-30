@@ -826,6 +826,7 @@ func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common
 	return res, nil
 }
 
+// TODO: to be updated, to return gasUsed as a map(chainID -> gasUsed)
 func (api *BatonAPI) simulateL2Txs(
 	ctx context.Context,
 	blockNumber map[string]string, // chainID(hexutil.Encode(big.Int)) -> block number(0x...)
@@ -2083,11 +2084,18 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 
+	// TODO: need to verify signature from builder
 	blockReq := common.NewSubmitNewBlockRequest()
 
 	err = blockReq.FromJSON(payloadBytes)
 	if err != nil {
 		log.WithError(err).Warn("could not parse payload into SubmitNewBlockRequest")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := blockReq.Initialize(); err != nil {
+		log.WithError(err).Warn("could not initialize SubmitNewBlockRequest")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -2105,7 +2113,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if txs == nil || len(txs) == 0 {
+	if len(txs) == 0 {
 		log.WithError(err).Warn("txs is nil or no txs")
 		api.RespondError(w, http.StatusNoContent, err.Error())
 		return
@@ -2157,7 +2165,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	builderPubkey := blockReq.BuilderPubkey()
-	pbCheck, err := utils.BlsPublicKeyToPublicKey(&builderPubkey)
+	pbCheck, err := utils.BlsPublicKeyToPublicKey(builderPubkey)
 	if err != nil {
 		log.WithError(err).Info(err.Error())
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -2182,16 +2190,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	} else {
 		gasLimit = 25_000_000
 	}
-	// if !api.mockMode {
-	// 	gasLimit, ok = api.getValidatorGasLimit(w, log, slot)
-	// 	if !ok {
-	// 		log.WithError(err).Info("fee recipient check failed")
-	// 		api.RespondError(w, http.StatusBadRequest, "fee recipient check failed")
-	// 		return
-	// 	}
-	// } else {
-	// 	gasLimit = uint64(10000000)
-	// }
 
 	var topBidValue *big.Int
 	var hasRoB, hasToB bool
@@ -2208,14 +2206,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	if isToB {
-		hasToB, err = api.redis.HasTopToBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
+		hasToB, err = api.redis.HasTopToBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey())
 		if err != nil {
 			log.WithError(err).Info("could not query tob for blockReq, returned err")
 			api.RespondError(w, http.StatusBadRequest, "could not query tob for blockReq, failed")
 			return
 		}
 		if hasToB {
-			topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey())
+			topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey())
 			if err != nil {
 				log.WithError(err).Info("could not get top tob bid val for blockReq, returned err")
 				api.RespondError(w, http.StatusBadRequest, "could not get top tob bid for blockReq, failed")
@@ -2230,14 +2228,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			bidIsTopBid = true
 		}
 	} else {
-		hasRoB, err = api.redis.HasTopRoBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey(), chainID)
+		hasRoB, err = api.redis.HasTopRoBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
 		if err != nil {
 			log.WithError(err).Info("could not query rob for blockReq, returned err")
 			api.RespondError(w, http.StatusBadRequest, "could not query rob for blockReq, failed")
 			return
 		}
 		if hasRoB {
-			topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), blockReq.ProposerPubKey(), chainID)
+			topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
 			if err != nil {
 				log.WithError(err).Info("could not get top rob bid val for blockReq, returned err")
 				api.RespondError(w, http.StatusBadRequest, "could not get top rob bid for blockReq, failed")
@@ -2260,7 +2258,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		"numTx":                  len(blockReq.Txs()),
 		"parentHash":             blockReq.ParentHash,
 		"blockHash":              blockReq.BlockHash,
-		"builderPubkey":          blockReq.BuilderPubKey.String(),
+		"builderPubkey":          blockReq.BuilderPubkey().String(),
 		"proposerPubkey":         blockReq.ProposerPubKeyAsStr(),
 		"proposerPayment":        blockReq.ProposerPayment,
 		"signature":              blockReq.Signature,
@@ -2370,8 +2368,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			txs2simulate[chainID] = l
 		}
 
-		// Simulate the block synchronously. If it simulates successfully, then we know we have a valid chunk.
-		// @TODO: add logic to group txs together(ex: 2 polygon txs and 2 optimism txs are grouped separately and then we simulate the txs in those groups)
 		gasUsed, reqErr, validErr = api.simulateL2Txs(sctx, nil, txs2simulate, slog)
 		if gasUsed != 0 && gasUsed > gasLimit {
 			errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
@@ -2487,12 +2483,12 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		txHashes := strings.Join(txHashList, ",")
 
 		if isToB {
-			err := api.db.InsertToBSubmitProfile(blockReq.Slot(), blockReq.ParentHash(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
+			err := api.db.InsertToBSubmitProfile(blockReq.Slot(), blockReq.ParentHashAsStr(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
 			if err != nil {
 				log.WithError(err).Error("failed to insert tob submit profile into db")
 			}
 		} else {
-			err := api.db.InsertRoBSubmitProfile(blockReq.Slot(), blockReq.ParentHash(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
+			err := api.db.InsertRoBSubmitProfile(blockReq.Slot(), blockReq.ParentHashAsStr(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
 			if err != nil {
 				log.WithError(err).Error("failed to insert tob submit profile into db")
 			}

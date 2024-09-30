@@ -410,7 +410,7 @@ func TestRegisterValidator(t *testing.T) {
 }
 */
 
-// NEW VERSION
+// TODO: to be udpated
 func TestRegisterValidator(t *testing.T) {
 	path := "/eth/v1/builder/validators"
 
@@ -829,7 +829,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	// Do not overwrite! Make your own copy for each test
 	robBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           slot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
@@ -844,7 +844,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	// Do not overwrite! Make your own copy for each test
 	tobBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           slot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          true,
@@ -860,7 +860,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	// Do not overwrite! Make your own copy for each test
 	robBlockOpts2 := CreateTestBlockSubmissionOpts{
 		Slot:           slot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
@@ -888,6 +888,16 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		backend.baton.getRouter().ServeHTTP(rr, httpReq)
 
 		return rr.Code
+	}
+
+	triggerNextSlot := func(backend *testBackend, slot uint64) {
+		seqClient := backend.GetMockSeqClient()
+		seqHead := chain.NewGenesisBlock(ids.Empty)
+		seqHead.Hght = 5
+		nextProposerInfo := hrpc.NextProposerReply{
+			PublicKey: robBlockReq.ProposerPubKeyAsBytes(),
+		}
+		seqClient.TriggerOnNextBlock(seqHead, &nextProposerInfo)
 	}
 
 	t.Run("Run valid base case, just RoB", func(t *testing.T) {
@@ -931,8 +941,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		backend := createBackendHelper(t)
 
 		headSlot := uint64(5)
-		seqClient := backend.GetMockSeqClient()
-		seqClient.TriggerNextSlot(headSlot)
+		triggerNextSlot(backend, headSlot)
 
 		robBlockReqSlotHeadEqual := robBlockReq
 		robBlockReqSlotHeadEqual.Chunk.Slot = headSlot
@@ -946,8 +955,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		backend := createBackendHelper(t)
 
 		headSlot := uint64(5)
-		seqClient := backend.GetMockSeqClient()
-		seqClient.TriggerNextSlot(headSlot)
+		triggerNextSlot(backend, headSlot)
 
 		robBlockReqSlotHeadEqual := robBlockReq
 		robBlockReqSlotHeadEqual.Chunk.Slot = headSlot + 2
@@ -962,7 +970,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
@@ -983,7 +991,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
@@ -1005,7 +1013,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
@@ -1027,7 +1035,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
@@ -1047,8 +1055,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	t.Run("RoB block with bad builder key should reject", func(t *testing.T) {
 		backend := createBackendHelper(t)
 
+		epbBytes := emptyPublicKey.Bytes()
 		robBlockReqNoTx := robBlockReq
-		robBlockReqNoTx.BuilderPubKey = emptyPublicKey
+		robBlockReqNoTx.BuilderPubKey = epbBytes[:]
 
 		rrCode := processBlockRequest(backend, robBlockReq)
 
@@ -1060,7 +1069,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
@@ -1102,7 +1111,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		wg.Wait()
 
 		chainIDs := GetTestChainIds(opts.IsToB, opts.robChainIndex)
-		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
+		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash.String(), opts.ProposerPubKeyAsStr(), chainIDs[0])
 		require.NoError(t, err)
 		require.NotNil(t, header)
 		require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
@@ -1630,7 +1639,7 @@ func TestOverallBasicFlow(t *testing.T) {
 	// Create a RoB chunk
 	robBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           expectedSlot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
@@ -1644,7 +1653,7 @@ func TestOverallBasicFlow(t *testing.T) {
 	// Create a ToB chunk
 	tobBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           expectedSlot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          true,

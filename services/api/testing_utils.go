@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -52,7 +53,7 @@ func GetNextTestNonce() uint64 {
 
 type CreateTestBlockSubmissionOpts struct {
 	Slot           uint64
-	ParentHash     string
+	ParentHash     ids.ID
 	BuilderPubkey  bls.PublicKey
 	ProposerPubkey bls.PublicKey
 	IsToB          bool
@@ -93,8 +94,9 @@ func CreateTestChunkSubmission(
 
 	slot := uint64(1)
 	proposerPk := bls.PublicKey{}
-	parentHash := eth.Hash{}
-	builderPubkey := bls.PublicKey{}
+	parentHash := opts.ParentHash
+	builderSecretKey, builderPubkey, err := bls.GenerateNewKeypair()
+	require.NoError(t, err)
 	chainIndex := 1
 
 	numTxs := 1
@@ -105,19 +107,10 @@ func CreateTestChunkSubmission(
 
 		numTxs = opts.numTxs
 		if opts.BuilderPubkey.String() != "" {
-			builderPubkey = opts.BuilderPubkey
+			builderPubkey = &opts.BuilderPubkey
 		}
 		if opts.ProposerPubkey.String() != "" {
 			proposerPk = opts.ProposerPubkey
-		}
-
-		if opts.ParentHash != "" {
-			var h eth.Hash
-			b, err := hexutil.Decode(opts.ParentHash)
-			require.NoError(t, err)
-			h.SetBytes(b)
-			parentHash = h
-			fmt.Printf("parnet hash: %s\n", hex.EncodeToString(parentHash[:]))
 		}
 	}
 
@@ -150,12 +143,22 @@ func CreateTestChunkSubmission(
 		txs = append(txs, transferAction)
 	}
 
+	builderPubkeyBytes := builderPubkey.Bytes()
+	proposerPubkeyBytes := proposerPk.Bytes()
+
 	blockReq := common.NewSubmitNewBlockRequest()
-	blockReq.BuilderPubKey = builderPubkey
+	blockReq.BuilderPubKey = builderPubkeyBytes[:]
 	blockReq.Chunk.Slot = slot
 	blockReq.Chunk.ParentHash = parentHash
-	blockReq.Chunk.ProposerPubkey = proposerPk
+	blockReq.Chunk.ProposerPubkey = proposerPubkeyBytes[:]
 	copy(blockReq.Chunk.ProposerPayment[:], TestAddress[:])
+
+	// blockReq.Signature = &bls.Signature{}
+	chunkBytes, err := json.Marshal(blockReq.Chunk)
+	require.NoError(t, err)
+	chunkSig := bls.Sign(builderSecretKey, chunkBytes)
+	chunkSigBytes := chunkSig.Bytes()
+	blockReq.Signature = chunkSigBytes[:]
 
 	//txsBytes, err := json.Marshal(txs)
 	//var signer ed25519.PrivateKey
@@ -168,6 +171,9 @@ func CreateTestChunkSubmission(
 	require.NoError(t, err)
 
 	anchorPayload, err := BuildPayload(&blockReq, blockReq.Txs())
+	require.NoError(t, err)
+
+	err = blockReq.Initialize()
 	require.NoError(t, err)
 
 	return &blockReq, &anchorHeader, anchorPayload
@@ -205,6 +211,9 @@ func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
 	}
 	base.Timestamp = int64(time.Now().Second() * 1000)
 	pkBytes, err := hex.DecodeString(KEYHEX)
+	if err != nil {
+		panic(err)
+	}
 	pk := ed25519.PrivateKey(pkBytes)
 	authFactory := auth.NewED25519Factory(pk)
 	actionList := []chain.Action{&seqMsg}
@@ -213,7 +222,6 @@ func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
 	actionRegistry, authRegistry := parser.Registry()
 	txSign, err := tx.Sign(authFactory, actionRegistry, authRegistry)
 	if err != nil {
-		fmt.Println("panicing here")
 		panic(err)
 	}
 	return txSign
