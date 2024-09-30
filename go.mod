@@ -167,3 +167,5 @@ retract (
 	v1.0.0-alpha2
 	v1.0.0-alpha1
 )
+
+replace github.com/metachris/flashbotsrpc => github.com/AnomalyFi/flashbotsrpc v0.5.3

@@ -333,7 +333,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 
 		proposerDutiesMap:      make(map[uint64]*common.BuilderGetSEQValidatorResponseEntry),
 		proposerDutiesResponse: &[]byte{},
-		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.BlockSimManager),
+		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.Log, opts.BlockSimManager),
 		tracer:                 NewTracer(opts.BlockSimURL), // TODO: check what the tracer does, since it depends on opts.BlockSimURL
 
 		validatorRegC: make(chan common.SignedSEQValidatorRegistration, 450_000),
@@ -547,7 +547,26 @@ func (api *BatonAPI) simulateL2Txs(
 	blockNumber map[string]string, // chainID(hexutil.Encode(big.Int)) -> block number(0x...)
 	l2Txs map[string][]hexutil.Bytes,
 	log *logrus.Entry,
-) (gasUsed uint64, requestErr, validationErr error) {
+) (uint64, error, error) {
+	// TODO: to be removed, only for testing, the system tx should be filtered out by javelin-builder
+	txsCnt := 0
+	for _, otxs := range l2Txs {
+		for _, otx := range otxs {
+			// Optimism system tx
+			if otx[0] == 126 {
+				continue
+			}
+
+			log.Debug(fmt.Sprintf("tx type: %+v", otx[0]))
+
+			txsCnt++
+		}
+	}
+
+	if txsCnt == 0 {
+		return 0, nil, nil
+	}
+
 	t := time.Now()
 	var simResL sync.Mutex
 	simRes := make(map[string]struct {
@@ -568,7 +587,7 @@ func (api *BatonAPI) simulateL2Txs(
 				Timestamp:        uint64(time.Now().UnixMilli()),
 			}
 
-			gasUsed, requestErr, validationErr = api.blockSimRateLimiter.SimBlockAndGetGasUsedForChain(ctx, chainID, &blockReq)
+			gasUsed, requestErr, validationErr := api.blockSimRateLimiter.SimBlockAndGetGasUsedForChain(ctx, chainID, &blockReq)
 			log = log.WithFields(logrus.Fields{
 				"durationMs": time.Since(t).Milliseconds(),
 				"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
@@ -591,24 +610,25 @@ func (api *BatonAPI) simulateL2Txs(
 
 	wg.Wait()
 
-	gasUsed = 0
+	gasUsed := uint64(0)
 	for chainID := range l2Txs {
 		r := simRes[chainID]
-		if validationErr != nil {
+		if r.validationErr != nil {
 			if api.ffIgnorableValidationErrors {
 				// Operators chooses to ignore certain validation errors
-				ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
+				ignoreError := r.validationErr.Error() == ErrBlockAlreadyKnown || r.validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(r.validationErr.Error(), ErrMissingTrieNode)
 				if ignoreError {
-					log.WithError(validationErr).Warn("block validation failed with ignorable error")
+					log.WithError(r.validationErr).Warn("block validation failed with ignorable error")
 					return uint64(0), nil, nil
 				}
 			}
-			log.WithError(validationErr).Warn("block validation failed")
-			return 0, nil, validationErr
+			log.WithError(r.validationErr).Warn("block validation failed")
+			return 0, nil, r.validationErr
 		}
-		if requestErr != nil {
-			log.WithError(requestErr).Warn("block validation failed: request error")
-			return 0, requestErr, nil
+
+		if r.requestErr != nil {
+			log.WithError(r.requestErr).Warn("request error")
+			return 0, r.requestErr, nil
 		}
 
 		gasUsed += r.gasUsed
@@ -1541,10 +1561,17 @@ func (api *BatonAPI) handleRegisterSimlator(w http.ResponseWriter, req *http.Req
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
 	var registerReq SimulatorRegisterRequest
 	err = json.Unmarshal(payloadBytes, &registerReq)
 	if err != nil {
 		log.WithError(err).Warn("could unmarshal payload to sim register request")
+		api.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := registerReq.Initialize(); err != nil {
+		log.WithError(err).Warn("could initialize sim regsiter request")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1687,24 +1714,25 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 
-	builderPubkey := blockReq.BuilderPubkey()
-	pbCheck, err := utils.BlsPublicKeyToPublicKey(builderPubkey)
-	if err != nil {
-		log.WithError(err).Info(err.Error())
-		api.RespondError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	builderEntry, ok := api.checkBuilderEntry(w, log, pbCheck)
-	if !ok {
-		log.WithError(err).Info("builder entry check failed")
-		api.RespondError(w, http.StatusBadRequest, "builder entry check failed")
-		return
-	}
+	// TODO: to be removed? seems we don't need to register builders
+	// builderPubkey := blockReq.BuilderPubkey()
+	// pbCheck, err := utils.BlsPublicKeyToPublicKey(builderPubkey)
+	// if err != nil {
+	// 	log.WithError(err).Info(err.Error())
+	// 	api.RespondError(w, http.StatusBadRequest, err.Error())
+	// 	return
+	// }
+	// builderEntry, ok := api.checkBuilderEntry(w, log, pbCheck)
+	// if !ok {
+	// 	log.WithError(err).Info("builder entry check failed")
+	// 	api.RespondError(w, http.StatusBadRequest, "builder entry check failed")
+	// 	return
+	// }
 
-	log = log.WithFields(logrus.Fields{
-		"builderIsHighPrio":     builderEntry.status.IsHighPrio,
-		"timestampAfterChecks1": time.Now().UTC().UnixMilli(),
-	})
+	// log = log.WithFields(logrus.Fields{
+	// 	"builderIsHighPrio":     builderEntry.status.IsHighPrio,
+	// 	"timestampAfterChecks1": time.Now().UTC().UnixMilli(),
+	// })
 
 	// Note this also validates slot validity
 	var gasLimit uint64
@@ -1770,7 +1798,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}
 
-	var validErr error
 	log = log.WithFields(logrus.Fields{
 		"timestampAfterDecoding": time.Now().UTC().UnixMilli(),
 		"slot":                   blockReq.Slot,
@@ -1780,7 +1807,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		"builderPubkey":          blockReq.BuilderPubkey().String(),
 		"proposerPubkey":         blockReq.ProposerPubKeyAsStr(),
 		"proposerPayment":        blockReq.ProposerPayment,
-		"signature":              blockReq.Signature,
 		"isLargeRequest":         isLargeRequest,
 		"isToB":                  isToB,
 	})
@@ -1803,8 +1829,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	// Perform block simulation which makes sure all txs are valid before we allow it to participate in the auction
 	simStartTime := time.Now().UTC()
-	var reqErr error
-
 	simResultC := make(chan *blockSimResult, 1)
 
 	// Once we process the sim, then we want to save the results to the redis database.
@@ -1838,7 +1862,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			simResult.optimisticSubmission,
 		)
 		if err != nil {
-			log.WithError(err).WithField("payload", blockReq).Error("saving builder block submission to database failed")
+			log.WithError(err).WithField("chainID", chainID).Error("saving builder block submission to database failed")
 			return
 		}
 
@@ -1848,6 +1872,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}()
 
+	var reqErr, validErr error
 	if !api.mockMode {
 		ctx := context.Background()
 		sctx, cancel := context.WithTimeout(ctx, 1*time.Second)
@@ -1855,7 +1880,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		var txs2simulate map[string][]hexutil.Bytes
 		slog := log.WithFields(logrus.Fields{
 			"slot":           blockReq.Slot,
-			"parentHash":     blockReq.ParentHash,
+			"parentHash":     blockReq.ParentHash().String(),
 			"proposerPubkey": blockReq.ProposerPubKeyAsStr(),
 			"isToB":          isToB,
 		})
@@ -1863,7 +1888,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			chainIDs := api.getChainIDsFromSEQTxs(ctx, txs)
 			robTxs, err := api.getTopRoBsTxsByChainIDs(sctx, chainIDs, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
 			if err != nil {
-				log.WithError(err).Warn("unable to fetch top RoB txs from redis")
+				slog.WithError(err).Warn("unable to fetch top RoB txs from redis")
 				api.RespondError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -1872,11 +1897,16 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 			tobTxs, err := api.getTopToBTxsByChainID(sctx, chainID, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
 			if err != nil {
-				log.WithError(err).Warn("unable to fetch top RoB txs from redis")
+				slog.WithError(err).Warn("unable to fetch top RoB txs from redis")
 				api.RespondError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			txs2simulate = tobTxs
+		}
+
+		// in case there's no record found in cache
+		if txs2simulate == nil {
+			txs2simulate = make(map[string][]hexutil.Bytes)
 		}
 
 		// append txs from req
@@ -1891,16 +1921,19 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		if gasUsed != 0 && gasUsed > gasLimit {
 			errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
 			validErr = errors.New(errMsg)
+			log.WithError(reqErr).Warn("could not simulate L2 txs on gas exceeding")
+			api.RespondError(w, http.StatusBadRequest, validErr.Error())
+			return
 		}
 
 		simResultC <- &blockSimResult{reqErr == nil, false, reqErr, validErr}
 		if reqErr != nil {
-			log.WithError(err).Warn("could not simulate TOB txs")
-			api.RespondError(w, http.StatusBadRequest, err.Error())
+			log.WithError(reqErr).Warn("could not simulate L2 txs on request error")
+			api.RespondError(w, http.StatusBadRequest, reqErr.Error())
 			return
 		}
 		if validErr != nil {
-			log.WithError(validErr).Warn("validation error during TOB txs simulation")
+			log.WithError(validErr).Warn("validation error during L2 txs simulation")
 			api.RespondError(w, http.StatusBadRequest, validErr.Error())
 			return
 		}
@@ -1986,7 +2019,11 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		if !isToB {
 			api.robChainIDs[chainID] = struct{}{}
 		}
+
+		log.Info(fmt.Sprintf("bid saved, slot: %+v, blockHash: %s", blockReq.Slot(), blockReq.BlockHash().String()))
 	}
+	// TODO: make a meaningful submitNewBlock response
+	api.RespondOK(w, "success")
 
 	defer func() {
 		totalDuration := time.Since(receivedAt).Microseconds()
@@ -2499,7 +2536,9 @@ func FirstChainID(txs []*chain.Transaction) (string, error) {
 		return "", errors.New("getFirstChainID: no actions in first tx")
 	}
 	if seqMsg, ok := seqActions[0].(*actions.SequencerMsg); ok {
-		return string(seqMsg.ChainID), nil
+		var chainID ids.ID
+		copy(chainID[:], seqMsg.ChainID)
+		return chainID.String(), nil
 	} else {
 		return "", errors.New("could not convert seq actions to seqMsg")
 	}

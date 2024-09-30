@@ -14,6 +14,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/sirupsen/logrus"
 
 	"github.com/AnomalyFi/baton/common"
 	"github.com/flashbots/go-boost-utils/bls"
@@ -41,6 +42,8 @@ type BlockSimulationRateLimiter struct {
 	cv      *sync.Cond
 	counter int64
 
+	logger *logrus.Entry
+
 	blockSimURLs  map[string]string // chainID -> builder url
 	blockSimURLsL sync.RWMutex
 
@@ -49,8 +52,9 @@ type BlockSimulationRateLimiter struct {
 	manager *bls.PublicKey
 }
 
-func NewBlockSimulationRateLimiter(manager *bls.PublicKey) *BlockSimulationRateLimiter {
+func NewBlockSimulationRateLimiter(logger *logrus.Entry, manager *bls.PublicKey) *BlockSimulationRateLimiter {
 	return &BlockSimulationRateLimiter{
+		logger:       logger,
 		cv:           sync.NewCond(&sync.Mutex{}),
 		counter:      0,
 		manager:      manager,
@@ -70,6 +74,25 @@ type SimulatorRegisterRequest struct {
 	Simulator SimulatorInfo `json:"simulator"`
 	Pubkey    []byte        `json:"pubkey"`
 	Signature []byte        `json:"signature"`
+
+	pubkey    *bls.PublicKey
+	signature *bls.Signature
+}
+
+func (r *SimulatorRegisterRequest) Initialize() error {
+	pk, err := bls.PublicKeyFromBytes(r.Pubkey)
+	if err != nil {
+		return err
+	}
+	sig, err := bls.SignatureFromBytes(r.Signature)
+	if err != nil {
+		return err
+	}
+
+	r.pubkey = pk
+	r.signature = sig
+
+	return nil
 }
 
 type SimulatorRegisterResponse struct {
@@ -77,17 +100,8 @@ type SimulatorRegisterResponse struct {
 }
 
 func (b *BlockSimulationRateLimiter) RegisterSimulator(req *SimulatorRegisterRequest) (bool, error) {
-	pubkey, err := bls.PublicKeyFromBytes(req.Pubkey)
-	if err != nil {
-		return false, err
-	}
-	if !pubkey.Equal(b.manager) {
+	if !req.pubkey.Equal(b.manager) {
 		return false, fmt.Errorf("unpriviliged request from %s", hexutil.Encode(req.Pubkey))
-	}
-
-	sig, err := bls.SignatureFromBytes(req.Signature)
-	if err != nil {
-		return false, err
 	}
 
 	msg, err := json.Marshal(req.Simulator)
@@ -95,15 +109,20 @@ func (b *BlockSimulationRateLimiter) RegisterSimulator(req *SimulatorRegisterReq
 		return false, err
 	}
 
-	verified, err := bls.VerifySignature(sig, pubkey, msg)
+	b.logger.Debug(fmt.Sprintf("req msg: %s", msg))
+
+	verified, err := bls.VerifySignature(req.signature, req.pubkey, msg)
 	if err != nil {
 		return false, err
 	}
-	if verified {
-		b.blockSimURLsL.Lock()
-		b.blockSimURLs[req.Simulator.ChainID] = req.Simulator.URL
-		b.blockSimURLsL.Unlock()
+
+	if !verified {
+		return false, fmt.Errorf("signature incorrect against to given payload")
 	}
+
+	b.blockSimURLsL.Lock()
+	b.blockSimURLs[req.Simulator.ChainID] = req.Simulator.URL
+	b.blockSimURLsL.Unlock()
 
 	return verified, nil
 }

@@ -27,6 +27,7 @@ services:
       --seq-uri=$SEQ_URL
       --seq-chain-id=$SEQ_CHAIN_ID
       --seq-network-id=$SEQ_NETWORK_ID
+      --loglevel=debug
     environment:
       - GENESIS_FORK_VERSION=0x00000000
       - GENESIS_VALIDATORS_ROOT=0x05a67bcb9b62c29b1fa06a5537c8e11684bf2ae9fbd683cae12e9b07e9e126d1

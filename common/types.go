@@ -508,11 +508,11 @@ func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 func (r *SubmitNewBlockRequest) Initialize() error {
 	sig, err := bls.SignatureFromBytes(r.Signature)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to parse SubmitNewBlockRequest.Signature: %+v", err)
 	}
 	bpk, err := bls.PublicKeyFromBytes(r.BuilderPubKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to parse SubmitNewBlockRequest.BuilderPubKey: %+v", err)
 	}
 
 	r.signature = sig
@@ -535,7 +535,7 @@ func NewBatonBlockRequest() BatonBlock {
 func (b *BatonBlock) Initialize() error {
 	pk, err := bls.PublicKeyFromBytes(b.ProposerPubkey)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to parse BatonBlock.ProposerPubkey: %+v", err)
 	}
 
 	b.proposerPubkey = pk

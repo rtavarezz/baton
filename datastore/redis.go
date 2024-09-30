@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/AnomalyFi/baton/common"
 	"math/big"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/AnomalyFi/baton/common"
 
 	"github.com/flashbots/go-boost-utils/bls"
 
@@ -1545,6 +1546,7 @@ func (r *RedisCache) HasTopRoBBidValue(
 ) (bool bool, err error) {
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerString, chainID)
+	//TODO: keyTopBidValue returns correct info, yet exists returns 0 meaning redis isn't finding the key
 	exists, err := r.client.Exists(ctx, keyTopBidValue).Result()
 	if err != nil {
 		return false, err

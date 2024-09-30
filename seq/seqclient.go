@@ -115,17 +115,16 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 				client.blockHeadL.Unlock()
 
 				// query next proposer on receiving a new block, this save us time while we do compuating during round trip
-				nextProposer, err := client.nextProposer(ctx)
+				nextProposer, err := client.nextProposer(bctx)
 
 				client.proposerInfoL.Lock()
-				defer client.proposerInfoL.Unlock()
-
 				if err != nil {
 					client.proposerInfo = nil // set next proposer to nil to notify the ToB block built on top of this is invalid
 					log.Error("unable to fetch next proposer", "err", err)
 				} else {
 					client.proposerInfo = nextProposer
 				}
+				client.proposerInfoL.Unlock()
 				log.Info("setting proposer", "proposer", nextProposer.NodeID.String())
 
 				go client.onNewBlockHandler(blk, nextProposer)
