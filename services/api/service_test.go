@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -63,6 +64,7 @@ var (
 	mockSecretKey, _     = bls.SecretKeyFromBytes(skBytes)
 	mockPublicKey, _     = bls.PublicKeyFromSecretKey(mockSecretKey)
 	testChainID          = GetTestChainId(0)
+	emptyPublicKey       = bls.PublicKey{}
 )
 
 type testBackend struct {
@@ -457,10 +459,18 @@ func TestGetHeader(t *testing.T) {
 	slot := uint64(1)
 	backend.baton.headSlot.Store(slot)
 
-	robIDs := backend.baton.GetRoBChainIDs()
+	backend.baton.robChainIDs[testChainID] = struct{}{}
+	// Build test builder keys
+	testBuilderSecretKey, err := bls.GenerateRandomSecretKey()
+	require.NoError(t, err)
+	testBuilderPublicKey, err := bls.PublicKeyFromSecretKey(testBuilderSecretKey)
+	require.NoError(t, err)
 
-	(*robIDs)[testChainID] = struct{}{}
-
+	// Build test proposer keys
+	testProposerSecretKey, err := bls.GenerateRandomSecretKey()
+	require.NoError(t, err)
+	testProposerPublicKey, err := bls.PublicKeyFromSecretKey(testProposerSecretKey)
+	require.NoError(t, err)
 	// TODO: change to ToB base case
 	t.Run("Run valid base case, just tob", func(t *testing.T) {
 		redis := backend.GetRedis()
@@ -526,6 +536,263 @@ func TestGetHeader(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, rr.Code)
 	})
+
+	t.Run("1 bid per slot. > 1 slot", func(t *testing.T) {
+		redis := backend.GetRedis()
+		// state how many bids you'd like below
+		numBids := 10
+		// no more than 3 ToBs
+		numToBs := 3
+		toBCount := 0
+		bidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		toBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		roBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		for i := 0; i < numBids; i++ {
+			headerHash, err := common.GenerateRandomHash()
+			if err != nil {
+				t.Error(err)
+			}
+			header := common.AnchorHeader{
+				Header:    headerHash,
+				BlockHash: generateRandomBlockHash(),
+				Value:     uint64(i + 1),
+			}
+
+			slot := uint64(i + 1)
+			bidsPerSlot[slot] = append(bidsPerSlot[slot], header)
+			if i%2 == 0 || toBCount >= numToBs {
+				// Set RoB bid
+				roBBidsPerSlot[slot] = append(roBBidsPerSlot[slot], header)
+				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, header)
+				if err != nil {
+					t.Error(err)
+				}
+
+				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey), testChainID)
+
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+				if err != nil {
+					t.Error(err)
+				}
+			} else {
+				// Set ToB bid
+				if len(toBBidsPerSlot[slot]) < 3 {
+					toBBidsPerSlot[slot] = append(toBBidsPerSlot[slot], header)
+					err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), header)
+					if err != nil {
+						t.Error(err)
+					}
+
+					keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
+
+					err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+					if err != nil {
+						t.Error(err)
+					}
+					toBCount++
+				}
+			}
+		}
+		rr := httptest.NewRecorder()
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(1, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
+
+		for slot, headers := range toBBidsPerSlot {
+			fmt.Printf("Slot: %d, ToB Bids: %v\n", slot, headers)
+
+			topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+			if err != nil {
+				t.Error(err)
+			}
+			fmt.Printf("Top ToB bid for slot %d: %v\n", slot, topToBBid)
+		}
+
+		for slot, headers := range roBBidsPerSlot {
+			fmt.Printf("Slot: %d, RoB Bids: %v\n", slot, headers)
+
+			topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+			if err != nil {
+				t.Error(err)
+			}
+			fmt.Printf("Top RoB bid for slot %d: %v\n", slot, topRoBBid)
+		}
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("multiple bids per slot. 2 slots only", func(t *testing.T) {
+		redis := backend.GetRedis()
+		// state how many bids you'd like below
+		numBids := 10
+		// no more than 3 ToBs
+		numToBs := 3
+		toBCount := 0
+		bidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		toBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		roBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		for i := 0; i < numBids; i++ {
+			headerHash, err := common.GenerateRandomHash()
+			if err != nil {
+				t.Error(err)
+			}
+			header := common.AnchorHeader{
+				Header:    headerHash,
+				BlockHash: generateRandomBlockHash(),
+				Value:     uint64(i + 1),
+			}
+			var slot uint64
+			if i%2 == 0 || toBCount >= numToBs {
+				// RoB slot
+				slot = 2
+				// Set RoB bid
+				roBBidsPerSlot[slot] = append(roBBidsPerSlot[slot], header)
+				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, header)
+				if err != nil {
+					t.Error(err)
+				}
+
+				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey), testChainID)
+
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+				if err != nil {
+					t.Error(err)
+				}
+			} else {
+				// ToB slot
+				slot = 1
+				// Set ToB bid
+				if len(toBBidsPerSlot[slot]) < 3 {
+					toBBidsPerSlot[slot] = append(toBBidsPerSlot[slot], header)
+					err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), header)
+					if err != nil {
+						t.Error(err)
+					}
+
+					keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
+
+					err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+					if err != nil {
+						t.Error(err)
+					}
+					toBCount++
+				}
+			}
+			bidsPerSlot[slot] = append(bidsPerSlot[slot], header)
+		}
+		rr := httptest.NewRecorder()
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(1, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
+
+		for slot, headers := range toBBidsPerSlot {
+			fmt.Printf("Slot: %d, ToB Bids: %v\n", slot, headers)
+
+			topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+			if err != nil {
+				t.Error(err)
+			}
+			fmt.Printf("Top ToB bid for slot %d: %v\n", slot, topToBBid)
+		}
+
+		for slot, headers := range roBBidsPerSlot {
+			fmt.Printf("Slot: %d, RoB Bids: %v\n", slot, headers)
+
+			topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+			if err != nil {
+				t.Error(err)
+			}
+			fmt.Printf("Top RoB bid for slot %d: %v\n", slot, topRoBBid)
+		}
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+	t.Run("multiple bids, 1 slot only", func(t *testing.T) {
+		redis := backend.GetRedis()
+		// state how many bids you'd like below
+		numBids := 10
+		// no more than 3 ToBs
+		numToBs := 3
+		toBCount := 0
+		bidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		toBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		roBBidsPerSlot := make(map[uint64][]common.AnchorHeader)
+		for i := 0; i < numBids; i++ {
+			headerHash, err := common.GenerateRandomHash()
+			if err != nil {
+				t.Error(err)
+			}
+			header := common.AnchorHeader{
+				Header:    headerHash,
+				BlockHash: generateRandomBlockHash(),
+				Value:     uint64(i + 1),
+			}
+			const slot = 1
+			if i%2 == 0 || toBCount >= numToBs {
+				// Set RoB bid
+				roBBidsPerSlot[slot] = append(roBBidsPerSlot[slot], header)
+				err = redis.SetRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID, header)
+				if err != nil {
+					t.Error(err)
+				}
+
+				keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey), testChainID)
+
+				err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+				if err != nil {
+					t.Error(err)
+				}
+			} else {
+				// Set ToB bid
+				if len(toBBidsPerSlot[slot]) < 3 {
+					toBBidsPerSlot[slot] = append(toBBidsPerSlot[slot], header)
+					err = redis.SetToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), header)
+					if err != nil {
+						t.Error(err)
+					}
+
+					keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), common.BuilderPubkeyAsStr(testBuilderPublicKey))
+
+					err = backend.redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+					if err != nil {
+						t.Error(err)
+					}
+					toBCount++
+				}
+			}
+			bidsPerSlot[slot] = append(bidsPerSlot[slot], header)
+		}
+		rr := httptest.NewRecorder()
+		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(1, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
+
+		fmt.Printf("Slot: %d, All Bids: %v\n", slot, bidsPerSlot[slot])
+		topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		if err != nil {
+			t.Error(err)
+		}
+		fmt.Printf("Top ToB bid for slot %d: %v\n", slot, topToBBid)
+
+		topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+		if err != nil {
+			t.Error(err)
+		}
+		fmt.Printf("Top RoB bid for slot %d: %v\n", slot, topRoBBid)
+		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
+		backend.baton.getRouter().ServeHTTP(rr, httpReq)
+		require.Equal(t, http.StatusOK, rr.Code)
+	})
+}
+
+func generateRandomBlockHash() string {
+	const charset = "abcdef0123456789"
+	const length = 64
+	result := make([]byte, length)
+	rand.Seed(uint64(time.Now().UnixNano()))
+	for i := range result {
+		result[i] = charset[rand.Intn(len(charset))]
+	}
+	return "0x" + string(result)
 }
 
 func createBackendHelper(t *testing.T) *testBackend {
@@ -538,10 +805,7 @@ func createBackendHelper(t *testing.T) *testBackend {
 	return backend
 }
 
-// @TODO: Create test cases below, cover ALL cases
 func TestHandleSubmitNewBlockRequest(t *testing.T) {
-	//logger := logrus.New()
-	//logEntry := logrus.NewEntry(logger)
 	slot := uint64(1)
 	var err error
 
@@ -592,6 +856,21 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	tobBlockReq, _, _ := CreateTestChunkSubmission(t, tobBlockValue, &tobBlockOpts)
 	require.NoError(t, err)
 
+	// Default rob test block for use in tests
+	// Do not overwrite! Make your own copy for each test
+	robBlockOpts2 := CreateTestBlockSubmissionOpts{
+		Slot:           slot,
+		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		BuilderPubkey:  *testBuilderPublicKey,
+		ProposerPubkey: *testProposerPublicKey,
+		IsToB:          false,
+		robChainIndex:  2,
+		numTxs:         1,
+		withTransferTx: true,
+	}
+	robBlockValue2 := uint64(5)
+	robBlockReq2, _, _ := CreateTestChunkSubmission(t, robBlockValue2, &robBlockOpts2)
+
 	// Helper for processing block requests to the backend. Returns the status code of the request.
 	processBlockRequest := func(backend *testBackend, blockReq *common.SubmitNewBlockRequest) int {
 		// marshal the req body
@@ -624,6 +903,60 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
+	t.Run("Run valid base case, just ToB and multiple RoB", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		rrCode := processBlockRequest(backend, tobBlockReq)
+		require.Equal(t, http.StatusOK, rrCode)
+
+		rrCode = processBlockRequest(backend, robBlockReq)
+		require.Equal(t, http.StatusOK, rrCode)
+
+		rrCode = processBlockRequest(backend, robBlockReq2)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("RoB block with no txs should reject", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		robBlockReqNoTx := robBlockReq
+		robBlockReqNoTx.Chunk.Txs = nil
+
+		rrCode := processBlockRequest(backend, robBlockReq)
+
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("RoB block with slot equal to head slot", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		headSlot := uint64(5)
+		seqClient := backend.GetMockSeqClient()
+		seqClient.TriggerNextSlot(headSlot)
+
+		robBlockReqSlotHeadEqual := robBlockReq
+		robBlockReqSlotHeadEqual.Chunk.Slot = headSlot
+
+		rrCode := processBlockRequest(backend, robBlockReq)
+
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("RoB block with slot too far head compared to head slot", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		headSlot := uint64(5)
+		seqClient := backend.GetMockSeqClient()
+		seqClient.TriggerNextSlot(headSlot)
+
+		robBlockReqSlotHeadEqual := robBlockReq
+		robBlockReqSlotHeadEqual.Chunk.Slot = headSlot + 2
+
+		rrCode := processBlockRequest(backend, robBlockReq)
+
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
 	t.Run("Run invalid RoB without transfer tx", func(t *testing.T) {
 		backend := createBackendHelper(t)
 
@@ -642,6 +975,83 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.NoError(t, err)
 
 		rrCode := processBlockRequest(backend, robReq)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("ToB has too many txs", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			robChainIndex:  0,
+			numTxs:         common.MaxTobTxs + 1,
+			withTransferTx: true,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("ToB with number txs equal to max allowed is okay", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			robChainIndex:  0,
+			numTxs:         common.MaxTobTxs,
+			withTransferTx: true,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("RoB has no tx limit enforcement", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          false,
+			robChainIndex:  0,
+			numTxs:         common.MaxTobTxs + 1,
+			withTransferTx: true,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("RoB block with bad builder key should reject", func(t *testing.T) {
+		backend := createBackendHelper(t)
+
+		robBlockReqNoTx := robBlockReq
+		robBlockReqNoTx.BuilderPubKey = emptyPublicKey
+
+		rrCode := processBlockRequest(backend, robBlockReq)
+
 		require.Equal(t, http.StatusBadRequest, rrCode)
 	})
 
@@ -829,6 +1239,190 @@ func TestRegisterSEQValidator(t *testing.T) {
 		rr := backend.request(http.MethodPost, path, req)
 		require.Equal(t, http.StatusBadRequest, rr.Code)
 	})
+}
+
+func TestGetCachedL2Txs(t *testing.T) {
+	randomSEQTxMsg := func(chainID string, limit int) *chain.Transaction {
+		minLength := 1
+		txRawLength := rand.Intn(limit-minLength) + minLength
+		txRaw := make([]byte, txRawLength)
+		_, err := rand.Read(txRaw)
+		require.NoError(t, err)
+
+		return CreateHypersdkTx(chainID, txRaw)
+	}
+
+	randomSEQTxsMsgForChains := func(chainIDs []*big.Int, numTxs int, limit int) []byte {
+		txs := make([]*chain.Transaction, 0, numTxs)
+		numTxsPerChain := numTxs / len(chainIDs)
+		if numTxsPerChain <= 0 {
+			numTxsPerChain = 1
+		}
+		for _, chainID := range chainIDs {
+			chainIDstr := hexutil.EncodeBig(chainID)
+			for i := 0; i < numTxsPerChain; i++ {
+				tx := randomSEQTxMsg(chainIDstr, limit)
+				txs = append(txs, tx)
+			}
+		}
+
+		// we have a 2MB bound for the packer used in this method, also the chain.UnmarshalTxs
+		txsRaw, err := chain.MarshalTxs(txs)
+		require.NoError(t, err)
+		return txsRaw
+	}
+
+	proposerPubkey := test2ProposerPubkey
+	var blockHash eth.Hash
+	slot := uint64(1)
+	overheadPackingTx := 512 // byte
+
+	t.Run("benchmark extracting small(high computation load) L2 txs from raw chain.Transactions in ToB payload stored in cache", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		redis := backend.GetRedis()
+
+		sizeLimitPerL2Tx := 20 + overheadPackingTx // some overhead for packing one tx is added
+		numTxsPerPayload := (2 * 1024 * 1024) / sizeLimitPerL2Tx
+		numChains := 10
+		tobChainIDs := make([]*big.Int, 0, numChains)
+		for i := 0; i < numChains; i++ {
+			chainID := big.NewInt(int64(45200 + i))
+			tobChainIDs = append(tobChainIDs, chainID)
+		}
+
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", numChains, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
+
+		// ToB payload
+		payload := common.AnchorPayload{
+			Slot:         slot,
+			Header:       blockHash,
+			Transactions: randomSEQTxsMsgForChains(tobChainIDs, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx),
+			GasUsed:      0,
+			GasLimit:     0,
+		}
+		pipeline := redis.NewPipeline()
+		err := redis.SaveExecutionToBAnchorPayload(context.TODO(), pipeline, payload.Slot, proposerPubkey, testParentHash, &payload)
+		require.NoError(t, err)
+
+		start := time.Now()
+		_, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, backend.baton.log)
+		require.NoError(t, err)
+
+		fmt.Printf("Used %f seconds to get ToB %d txs out of %d txs among %d chains\n", time.Since(start).Seconds(), numTxsPerPayload/numChains, numTxsPerPayload, numChains)
+	})
+
+	t.Run("benchmark extracting large(high network load) L2 txs from raw chain.Transactions in ToB payload stored in cache", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		redis := backend.GetRedis()
+
+		sizeLimitPerL2Tx := 400*1024 + overheadPackingTx
+		numTxsPerPayload := (2 * 1024 * 1024) / sizeLimitPerL2Tx
+		numChains := 1
+		tobChainIDs := make([]*big.Int, 0, numChains)
+		for i := 0; i < numChains; i++ {
+			chainID := big.NewInt(int64(45200 + i))
+			tobChainIDs = append(tobChainIDs, chainID)
+		}
+
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", numChains, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
+
+		// ToB payload
+		payload := common.AnchorPayload{
+			Slot:         slot,
+			Header:       blockHash,
+			Transactions: randomSEQTxsMsgForChains(tobChainIDs, numTxsPerPayload, sizeLimitPerL2Tx),
+			GasUsed:      0,
+			GasLimit:     0,
+		}
+		pipeline := redis.NewPipeline()
+		err := redis.SaveExecutionToBAnchorPayload(context.TODO(), pipeline, payload.Slot, proposerPubkey, testParentHash, &payload)
+		require.NoError(t, err)
+
+		start := time.Now()
+		_, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, backend.baton.log)
+		require.NoError(t, err)
+
+		fmt.Printf("Used %f seconds to get ToB %d txs out of %d txs among %d chains\n", time.Since(start).Seconds(), numTxsPerPayload/numChains, numTxsPerPayload, numChains)
+	})
+
+	t.Run("benchmark extracting small(high computation load) L2 txs from raw chain.Transactions in RoB payload stored in cache", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		redis := backend.GetRedis()
+
+		sizeLimitPerL2Tx := 20 + overheadPackingTx
+		numTxsPerPayload := (2 * 1024 * 1024) / sizeLimitPerL2Tx
+		numChains := 50
+		robChainIDs := make([]*big.Int, 0, numChains)
+
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", 1, numTxsPerPayload, sizeLimitPerL2Tx)
+
+		for i := 0; i < numChains; i++ {
+			chainID := big.NewInt(int64(45200 + i))
+			robChainIDs = append(robChainIDs, chainID)
+			// ToB payload
+			payload := common.AnchorPayload{
+				Slot:         slot,
+				Header:       blockHash,
+				Transactions: randomSEQTxsMsgForChains([]*big.Int{chainID}, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx),
+				GasUsed:      0,
+				GasLimit:     0,
+			}
+			pipeline := redis.NewPipeline()
+			err := redis.SaveExecutionRoBAnchorPayload(context.TODO(), pipeline, payload.Slot, proposerPubkey, testParentHash, &payload, hexutil.EncodeBig(chainID))
+			require.NoError(t, err)
+		}
+
+		chainIDsMap := make(map[string]struct{})
+		for _, chainID := range robChainIDs {
+			chainIDsMap[hexutil.EncodeBig(chainID)] = struct{}{}
+		}
+
+		start := time.Now()
+		_, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, backend.baton.log)
+		require.NoError(t, err)
+
+		fmt.Printf("Used %f seconds to extract %d RoB txs of %d chains\n", time.Since(start).Seconds(), numTxsPerPayload*numChains, numChains)
+	})
+
+	t.Run("benchmark extracting large(high network load) L2 txs from raw chain.Transactions in RoB payload stored in cache", func(t *testing.T) {
+		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+		redis := backend.GetRedis()
+
+		sizeLimitPerL2Tx := 400*1024 + overheadPackingTx
+		numTxsPerPayload := (2 * 1024 * 1024) / sizeLimitPerL2Tx
+		numChains := 50
+		robChainIDs := make([]*big.Int, 0, numChains)
+
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", 1, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
+
+		for i := 0; i < numChains; i++ {
+			chainID := big.NewInt(int64(45200 + i))
+			robChainIDs = append(robChainIDs, chainID)
+			// ToB payload
+			payload := common.AnchorPayload{
+				Slot:         slot,
+				Header:       blockHash,
+				Transactions: randomSEQTxsMsgForChains([]*big.Int{chainID}, numTxsPerPayload, sizeLimitPerL2Tx),
+				GasUsed:      0,
+				GasLimit:     0,
+			}
+			pipeline := redis.NewPipeline()
+			err := redis.SaveExecutionRoBAnchorPayload(context.TODO(), pipeline, payload.Slot, proposerPubkey, testParentHash, &payload, hexutil.EncodeBig(chainID))
+			require.NoError(t, err)
+		}
+
+		chainIDsMap := make(map[string]struct{})
+		for _, chainID := range robChainIDs {
+			chainIDsMap[hexutil.EncodeBig(chainID)] = struct{}{}
+		}
+
+		start := time.Now()
+		_, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, backend.baton.log)
+		require.NoError(t, err)
+
+		fmt.Printf("Used %f seconds to extract %d RoB txs of %d chains\n", time.Since(start).Seconds(), numTxsPerPayload*numChains, numChains)
+	})
+
 }
 
 // TODO: fix me soon

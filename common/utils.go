@@ -249,3 +249,15 @@ func VerifySEQSignature(chainID ids.ID, networkID uint32, pk *bls.PublicKey, sig
 	}
 	return bls.VerifySignature(sig, pk, uwm.Bytes())
 }
+
+func ProposerPubKeyAsStr(pk *bls.PublicKey) string {
+	proposerPubKeyBytes := pk.Bytes()
+	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
+	return "0x" + proposerPubKeyBytesAsStr
+}
+
+func BuilderPubkeyAsStr(pk *bls.PublicKey) string {
+	builderPubKeyBytes := pk.Bytes()
+	builderPubKeyBytesAsStr := "0x" + hex.EncodeToString(builderPubKeyBytes[:])
+	return builderPubKeyBytesAsStr
+}
