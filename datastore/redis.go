@@ -13,7 +13,6 @@ import (
 
 	"github.com/flashbots/go-boost-utils/bls"
 
-	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/go-redis/redis/v9"
@@ -1547,12 +1546,11 @@ func (r *RedisCache) GetTopBidValue(ctx context.Context, pipeliner redis.Pipelin
 func (r *RedisCache) HasTopToBBidValue(
 	ctx context.Context,
 	slot uint64,
-	parentHash eth.Hash,
+	parentHash string,
 	proposerPubkey bls.PublicKey,
 ) (bool, error) {
-	parentString := parentHash.String()
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
-	keyTopBidValue := r.keyTopToBBidValue(slot, parentString, proposerString)
+	keyTopBidValue := r.keyTopToBBidValue(slot, parentHash, proposerString)
 	fmt.Println("keyTopBidValue:", keyTopBidValue)
 	exists, err := r.client.Exists(ctx, keyTopBidValue).Result()
 	if err != nil {
@@ -1564,13 +1562,12 @@ func (r *RedisCache) HasTopToBBidValue(
 func (r *RedisCache) HasTopRoBBidValue(
 	ctx context.Context,
 	slot uint64,
-	parentHash eth.Hash,
+	parentHash string,
 	proposerPubkey bls.PublicKey,
 	chainID string,
 ) (bool bool, err error) {
-	parentString := parentHash.String()
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
-	keyTopBidValue := r.keyTopRoBBidValue(slot, parentString, proposerString, chainID)
+	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerString, chainID)
 	fmt.Println("keyTopBidValue:", keyTopBidValue)
 	//TODO: keyTopBidValue returns correct info, yet exists returns 0 meaning redis isn't finding the key
 	exists, err := r.client.Exists(ctx, keyTopBidValue).Result()
@@ -1584,12 +1581,11 @@ func (r *RedisCache) GetTopToBBidValue(
 	ctx context.Context,
 	pipeliner redis.Pipeliner,
 	slot uint64,
-	parentHash eth.Hash,
+	parentHash string,
 	proposerPubkey bls.PublicKey,
 ) (topBidValue *big.Int, err error) {
-	parentString := parentHash.String()
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
-	keyTopBidValue := r.keyTopToBBidValue(slot, parentString, proposerString)
+	keyTopBidValue := r.keyTopToBBidValue(slot, parentHash, proposerString)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
@@ -1611,13 +1607,12 @@ func (r *RedisCache) GetTopRoBBidValue(
 	ctx context.Context,
 	pipeliner redis.Pipeliner,
 	slot uint64,
-	parentHash eth.Hash,
+	parentHash string,
 	proposerPubkey bls.PublicKey,
 	chainID string,
 ) (topBidValue *big.Int, err error) {
-	parentString := parentHash.String()
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
-	keyTopBidValue := r.keyTopRoBBidValue(slot, parentString, proposerString, chainID)
+	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerString, chainID)
 	//fmt.Println("keyTopBidValue:", keyTopBidValue)
 	// TODO: keyTopBidValue returns correct info, yet exists returns 0 meaning redis isn't finding the key
 	//exists, err := pipeliner.Exists(ctx, keyTopBidValue).Result()

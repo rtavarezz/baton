@@ -53,7 +53,7 @@ func GetNextTestNonce() uint64 {
 
 type CreateTestBlockSubmissionOpts struct {
 	Slot           uint64
-	ParentHash     string
+	ParentHash     ids.ID
 	BuilderPubkey  bls.PublicKey
 	ProposerPubkey bls.PublicKey
 	IsToB          bool
@@ -94,7 +94,7 @@ func CreateTestChunkSubmission(
 
 	slot := uint64(1)
 	proposerPk := bls.PublicKey{}
-	parentHash := eth.Hash{}
+	parentHash := opts.ParentHash
 	builderSecretKey, builderPubkey, err := bls.GenerateNewKeypair()
 	require.NoError(t, err)
 	chainIndex := 1
@@ -111,15 +111,6 @@ func CreateTestChunkSubmission(
 		}
 		if opts.ProposerPubkey.String() != "" {
 			proposerPk = opts.ProposerPubkey
-		}
-
-		if opts.ParentHash != "" {
-			var h eth.Hash
-			b, err := hexutil.Decode(opts.ParentHash)
-			require.NoError(t, err)
-			h.SetBytes(b)
-			parentHash = h
-			fmt.Printf("parnet hash: %s\n", hex.EncodeToString(parentHash[:]))
 		}
 	}
 

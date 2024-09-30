@@ -829,7 +829,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	// Do not overwrite! Make your own copy for each test
 	robBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           slot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
@@ -844,7 +844,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	// Do not overwrite! Make your own copy for each test
 	tobBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           slot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          true,
@@ -860,7 +860,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 	// Do not overwrite! Make your own copy for each test
 	robBlockOpts2 := CreateTestBlockSubmissionOpts{
 		Slot:           slot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
@@ -970,7 +970,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
@@ -991,7 +991,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
@@ -1013,7 +1013,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
@@ -1035,7 +1035,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
@@ -1069,7 +1069,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
-			ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+			ParentHash:     ids.Empty,
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
@@ -1111,7 +1111,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		wg.Wait()
 
 		chainIDs := GetTestChainIds(opts.IsToB, opts.robChainIndex)
-		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash, opts.ProposerPubKeyAsStr(), chainIDs[0])
+		header, err := backend.redis.GetBestRoBBid(opts.Slot, opts.ParentHash.String(), opts.ProposerPubKeyAsStr(), chainIDs[0])
 		require.NoError(t, err)
 		require.NotNil(t, header)
 		require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
@@ -1639,7 +1639,7 @@ func TestOverallBasicFlow(t *testing.T) {
 	// Create a RoB chunk
 	robBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           expectedSlot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
@@ -1653,7 +1653,7 @@ func TestOverallBasicFlow(t *testing.T) {
 	// Create a ToB chunk
 	tobBlockOpts := CreateTestBlockSubmissionOpts{
 		Slot:           expectedSlot,
-		ParentHash:     "0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747",
+		ParentHash:     ids.Empty,
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          true,

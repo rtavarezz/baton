@@ -7,8 +7,6 @@ import (
 	"math/big"
 	"time"
 
-	eth "github.com/ethereum/go-ethereum/common"
-
 	"github.com/flashbots/mev-boost-relay/common"
 )
 
@@ -350,12 +348,12 @@ func (db MockDB) GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(slot uin
 	return entries, nil
 }
 
-func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
-	key := fmt.Sprintf("tob,%d-%s-%s", slot, parentHash.String(), txHashes)
+func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
+	key := fmt.Sprintf("tob,%d-%s-%s", slot, parentHash, txHashes)
 	db.TobSubmitProfile[key] = &ToBSubmitProfileEntry{
 		TxHashes:             txHashes,
 		Slot:                 slot,
-		ParentHash:           parentHash.String(),
+		ParentHash:           parentHash,
 		SimulationDurationUs: simulationDuration,
 		TracerDurationUs:     tracerDuration,
 		TotalDurationUs:      totalDuration,
@@ -364,12 +362,12 @@ func (db MockDB) InsertToBSubmitProfile(slot uint64, parentHash eth.Hash, txHash
 	return nil
 }
 
-func (db MockDB) InsertRoBSubmitProfile(slot uint64, parentHash eth.Hash, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
-	key := fmt.Sprintf("rob,%d-%s-%s", slot, parentHash.String(), txHashes)
+func (db MockDB) InsertRoBSubmitProfile(slot uint64, parentHash string, txHashes string, simulationDuration uint64, tracerDuration uint64, totalDuration uint64) error {
+	key := fmt.Sprintf("rob,%d-%s-%s", slot, parentHash, txHashes)
 	db.RobSubmitProfile[key] = &RoBSubmitProfileEntry{
 		TxHashes:             txHashes,
 		Slot:                 slot,
-		ParentHash:           parentHash.String(),
+		ParentHash:           parentHash,
 		SimulationDurationUs: simulationDuration,
 		TracerDurationUs:     tracerDuration,
 		TotalDurationUs:      totalDuration,

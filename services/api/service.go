@@ -2206,14 +2206,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	if isToB {
-		hasToB, err = api.redis.HasTopToBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHash(), *blockReq.ProposerPubKey())
+		hasToB, err = api.redis.HasTopToBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey())
 		if err != nil {
 			log.WithError(err).Info("could not query tob for blockReq, returned err")
 			api.RespondError(w, http.StatusBadRequest, "could not query tob for blockReq, failed")
 			return
 		}
 		if hasToB {
-			topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), *blockReq.ProposerPubKey())
+			topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey())
 			if err != nil {
 				log.WithError(err).Info("could not get top tob bid val for blockReq, returned err")
 				api.RespondError(w, http.StatusBadRequest, "could not get top tob bid for blockReq, failed")
@@ -2228,14 +2228,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			bidIsTopBid = true
 		}
 	} else {
-		hasRoB, err = api.redis.HasTopRoBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHash(), *blockReq.ProposerPubKey(), chainID)
+		hasRoB, err = api.redis.HasTopRoBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
 		if err != nil {
 			log.WithError(err).Info("could not query rob for blockReq, returned err")
 			api.RespondError(w, http.StatusBadRequest, "could not query rob for blockReq, failed")
 			return
 		}
 		if hasRoB {
-			topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHash(), *blockReq.ProposerPubKey(), chainID)
+			topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
 			if err != nil {
 				log.WithError(err).Info("could not get top rob bid val for blockReq, returned err")
 				api.RespondError(w, http.StatusBadRequest, "could not get top rob bid for blockReq, failed")
@@ -2483,12 +2483,12 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		txHashes := strings.Join(txHashList, ",")
 
 		if isToB {
-			err := api.db.InsertToBSubmitProfile(blockReq.Slot(), blockReq.ParentHash(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
+			err := api.db.InsertToBSubmitProfile(blockReq.Slot(), blockReq.ParentHashAsStr(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
 			if err != nil {
 				log.WithError(err).Error("failed to insert tob submit profile into db")
 			}
 		} else {
-			err := api.db.InsertRoBSubmitProfile(blockReq.Slot(), blockReq.ParentHash(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
+			err := api.db.InsertRoBSubmitProfile(blockReq.Slot(), blockReq.ParentHashAsStr(), txHashes, uint64(simulationDuration), 0, uint64(totalDuration))
 			if err != nil {
 				log.WithError(err).Error("failed to insert tob submit profile into db")
 			}

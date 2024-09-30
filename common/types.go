@@ -479,6 +479,7 @@ type SubmitNewBlockRequest struct {
 	Signature     []byte `json:"signature"`
 	BuilderPubKey []byte `json:"builder_pubkey"`
 
+	// populated by SubmitNewBlockRequest.Initialize by the corresponding bytes fields above
 	signature     *bls.Signature
 	builderPubkey *bls.PublicKey
 }
@@ -486,12 +487,13 @@ type SubmitNewBlockRequest struct {
 type BatonBlock struct {
 	Txs             []byte            `json:"txs"`
 	Slot            uint64            `json:"slot"`
-	ParentHash      common.Hash       `json:"parent_hash"`
+	ParentHash      ids.ID            `json:"parent_hash"` // parent of SEQ
 	BlockNumber     map[string]string `json:"blocknumber"`
 	BlockHash       common.Hash       `json:"block_hash" ssz-size:"32"`
 	ProposerPubkey  []byte            `json:"proposer_pubkey"`
 	ProposerPayment codec.Address     `json:"proposer_payment" ssz-size:"48"`
 
+	// populated by SubmitNewBlockRequest.Initialize by the corresponding bytes fields above
 	proposerPubkey *bls.PublicKey
 }
 
@@ -521,7 +523,7 @@ func NewBatonBlockRequest() BatonBlock {
 	return BatonBlock{
 		Txs:             make([]byte, 0),
 		Slot:            0,
-		ParentHash:      common.Hash{},
+		ParentHash:      ids.Empty,
 		BlockNumber:     make(map[string]string),
 		BlockHash:       common.Hash{},
 		ProposerPayment: codec.Address{},
@@ -587,14 +589,11 @@ func (r *SubmitNewBlockRequest) ProposerPaymentAsStr() string {
 	return string(r.Chunk.ProposerPayment[:])
 }
 
-func (r *SubmitNewBlockRequest) ParentHash() common.Hash {
+func (r *SubmitNewBlockRequest) ParentHash() ids.ID {
 	return r.Chunk.ParentHash
 }
 func (r *SubmitNewBlockRequest) ParentHashAsStr() string {
-	pk := r.ParentHash()
-	parentHashBytes := (&pk).Bytes()
-	parentHashBytesAsStr := hex.EncodeToString(parentHashBytes[:])
-	return "0x" + parentHashBytesAsStr
+	return r.ParentHash().String()
 }
 func (r *SubmitNewBlockRequest) Txs() []byte {
 	return r.Chunk.Txs
