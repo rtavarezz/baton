@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/mev-boost-relay/common"
@@ -43,6 +44,8 @@ var (
 	apiProposerAPI  bool
 	apiLogTag       string
 	apiSEQURI       string
+	apiSEQChainID   string
+	apiSEQNetworkID uint32
 )
 
 func init() {
@@ -69,6 +72,8 @@ func init() {
 	apiCmd.Flags().BoolVar(&apiInternalAPI, "internal-api", apiDefaultInternalAPIEnabled, "enable internal API (/internal/...)")
 	apiCmd.Flags().BoolVar(&apiProposerAPI, "proposer-api", apiDefaultProposerAPIEnabled, "enable proposer API (/proposer/...)")
 	apiCmd.Flags().StringVar(&apiSEQURI, "seq-uri", apiDefaultSEQURI, "SEQ rpc url")
+	apiCmd.Flags().Uint32Var(&apiSEQNetworkID, "seq-network-id", uint32(1337), "SEQ rpc url")
+	apiCmd.Flags().StringVar(&apiSEQChainID, "seq-chain-id", "2bJKVCnNxcpPHaHxtacZS9rwPL9NdyYnBuJjusfZgYBTE5ptSG", "SEQ rpc url")
 }
 
 var apiCmd = &cobra.Command{
@@ -147,6 +152,11 @@ var apiCmd = &cobra.Command{
 			log.WithError(err).Fatalf("Failed setting up prod datastore")
 		}
 
+		seqChainID, err := ids.FromString(apiSEQChainID)
+		if err != nil {
+			log.WithError(err).Fatalf("failed to parse seq chain id")
+		}
+
 		opts := api.BatonAPIOpts{
 			Log:        log,
 			ListenAddr: apiListenAddr,
@@ -158,6 +168,8 @@ var apiCmd = &cobra.Command{
 			EthNetDetails: *networkInfo,
 			BlockSimURL:   apiBlockSimURL,
 			SeqURL:        apiSEQURI,
+			SeqChainID:    seqChainID,
+			SeqNetworkID:  apiSEQNetworkID,
 
 			BlockBuilderAPI: apiBuilderAPI,
 			DataAPI:         apiDataAPI,

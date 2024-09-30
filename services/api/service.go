@@ -138,8 +138,10 @@ var chainID ids.ID
 
 // BatonAPIOpts contains the options for a baton
 type BatonAPIOpts struct {
-	Log    *logrus.Entry
-	SeqURL string
+	Log          *logrus.Entry
+	SeqURL       string
+	SeqChainID   ids.ID
+	SeqNetworkID uint32
 
 	ListenAddr      string
 	BlockSimURL     string
@@ -340,8 +342,8 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	config := seq.SeqClientConfig{
 		PrivateKey: ed25519.PrivateKey{},
 		URL:        opts.SeqURL,
-		ChainID:    ids.ID{},
-		NetworkID:  1332,
+		ChainID:    opts.SeqChainID,
+		NetworkID:  opts.SeqNetworkID,
 	}
 
 	var seqClient seq.BaseSeqClient

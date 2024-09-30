@@ -18,6 +18,7 @@ services:
       - 9062:9062
     command: >
       api
+      --listen-addr=0.0.0.0:9062
       --network=custom
       --redis-uri=redis:6379
       --db=postgresql://postgres:postgres@db:5432/postgres?sslmode=disable
