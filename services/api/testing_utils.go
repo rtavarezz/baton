@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AnomalyFi/baton/common"
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
 	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
@@ -22,7 +23,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flashbots/go-boost-utils/bls"
-	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/stretchr/testify/require"
 )
 

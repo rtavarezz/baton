@@ -3,8 +3,8 @@ package datastore
 import (
 	"testing"
 
+	"github.com/AnomalyFi/baton/database"
 	"github.com/alicebob/miniredis/v2"
-	"github.com/flashbots/mev-boost-relay/database"
 	"github.com/stretchr/testify/require"
 )
 

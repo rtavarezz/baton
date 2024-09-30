@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/flashbots/go-boost-utils/types"
-	"github.com/flashbots/mev-boost-relay/common"
+	"github.com/AnomalyFi/baton/common"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 )

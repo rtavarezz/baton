@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/flashbots/mev-boost-relay/database/migrations"
-	"github.com/flashbots/mev-boost-relay/database/vars"
+	"github.com/AnomalyFi/baton/common"
+	"github.com/AnomalyFi/baton/database/migrations"
+	"github.com/AnomalyFi/baton/database/vars"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	migrate "github.com/rubenv/sql-migrate"

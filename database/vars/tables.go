@@ -1,7 +1,7 @@
 // Package vars contains the database variables such as dynamic table names
 package vars
 
-import "github.com/flashbots/mev-boost-relay/common"
+import "github.com/AnomalyFi/baton/common"
 
 var (
 	tableBase = common.GetEnv("DB_TABLE_PREFIX", "dev")

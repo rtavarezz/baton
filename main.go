@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/flashbots/mev-boost-relay/cmd"
+	"github.com/AnomalyFi/baton/cmd"
 )
 
 var Version = "dev" // is set during build process

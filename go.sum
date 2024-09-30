@@ -31,6 +31,8 @@ github.com/alicebob/miniredis/v2 v2.31.0/go.mod h1:UB/T2Uztp7MlFSDakaX1sTXUv5CAS
 github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6/go.mod h1:grANhF5doyWs3UAsr3K4I6qtAmlQcZDesFNEHPZAzj8=
 github.com/attestantio/go-builder-client v0.4.2 h1:EycfAFqQV+ooc2z6hmTsbuH4TCLknr0aO0nHLHLMpJM=
 github.com/attestantio/go-builder-client v0.4.2/go.mod h1:e02i/WO4fjs3/u9oIZEjiC8CK1Qyxy4cpiMMGKx4VqQ=
+github.com/attestantio/go-builder-client v0.4.3-0.20240124194555-d44db06f45fa h1:Kj6d1tXAA+EAi7fK8z8NakBEpY4WYzZMuCmLZjwBpTM=
+github.com/attestantio/go-builder-client v0.4.3-0.20240124194555-d44db06f45fa/go.mod h1:e02i/WO4fjs3/u9oIZEjiC8CK1Qyxy4cpiMMGKx4VqQ=
 github.com/attestantio/go-eth2-client v0.19.10 h1:NLs9mcBvZpBTZ3du7Ey2NHQoj8d3UePY7pFBXX6C6qs=
 github.com/attestantio/go-eth2-client v0.19.10/go.mod h1:TTz7YF6w4z6ahvxKiHuGPn6DbQn7gH6HPuWm/DEQeGE=
 github.com/ava-labs/avalanchego v1.11.10 h1:QujciF5OEp5FwAoe/RciFF/i47rxU5rkEr6fVuUBS1Q=
@@ -66,6 +68,8 @@ github.com/btcsuite/snappy-go v0.0.0-20151229074030-0bdef8d06723/go.mod h1:8woku
 github.com/btcsuite/snappy-go v1.0.0/go.mod h1:8woku9dyThutzjeg+3xrA5iCpBRH8XEEg3lh6TiUghc=
 github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792/go.mod h1:ghJtEyQwv5/p4Mg4C0fgbePVuGr935/5ddU9Z3TmDRY=
 github.com/btcsuite/winsvc v1.0.0/go.mod h1:jsenWakMcC0zFBFurPLEAyrnc/teJEM1O46fmI40EZs=
+github.com/buger/jsonparser v1.1.1 h1:2PnMjfWD7wBILjqQbt530v576A/cAbQvEW9gGIpYMUs=
+github.com/buger/jsonparser v1.1.1/go.mod h1:6RYKKt7H4d4+iWqouImQ9R2FZql3VbhNgx27UK13J/0=
 github.com/celestiaorg/nmt v0.20.0 h1:9i7ultZ8Wv5ytt8ZRaxKQ5KOOMo4A2K2T/aPGjIlSas=
 github.com/celestiaorg/nmt v0.20.0/go.mod h1:Oz15Ub6YPez9uJV0heoU4WpFctxazuIhKyUtaYNio7E=
 github.com/cenkalti/backoff/v4 v4.2.1 h1:y4OZtCnogmCPw98Zjyt5a6+QwPLGkiQsYW5oUqylYbM=
@@ -151,6 +155,8 @@ github.com/flashbots/go-boost-utils v1.8.1 h1:AD+1+4oCbBjXLK8IqWHYznD95K6/MmqXho
 github.com/flashbots/go-boost-utils v1.8.1/go.mod h1:jFi2H1el7jGPr2ShkWpYPfKsY9vwsFNmBPJRCO7IPg8=
 github.com/flashbots/go-utils v0.5.0 h1:ldjWta9B9//DJU2QcwRbErez3+1aKhSn6EoFc6d5kPY=
 github.com/flashbots/go-utils v0.5.0/go.mod h1:LauDwifaRdSK0mS5X34GR59pJtUu1T/lOFNdff1BqtI=
+github.com/flashbots/mev-boost-relay v0.29.1 h1:BonYxtXy+OWDVERTScxFFTf3sdEcf6Nr4hKQFZ9AE/I=
+github.com/flashbots/mev-boost-relay v0.29.1/go.mod h1:ssOsocqiCuFqeseWRDWraIT01PYV69WgMzZimXquX2E=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
 github.com/fsnotify/fsnotify v1.4.9/go.mod h1:znqG4EE+3YCdAaPaxE2ZRY/06pZUdp0tY4IgpuI1SZQ=
 github.com/fsnotify/fsnotify v1.5.4/go.mod h1:OVB6XrOHzAwXMpEM7uPOzcehqUV2UqJxmVXmkdnm1bU=

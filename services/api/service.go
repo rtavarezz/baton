@@ -9,6 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AnomalyFi/baton/common"
+	"github.com/AnomalyFi/baton/contracts"
+	"github.com/AnomalyFi/baton/database"
+	"github.com/AnomalyFi/baton/datastore"
+	"github.com/AnomalyFi/baton/seq"
 	"io"
 	"math/big"
 	"net/http"
@@ -22,12 +27,11 @@ import (
 	hrpc "github.com/AnomalyFi/hypersdk/rpc"
 
 	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
-	"github.com/flashbots/mev-boost-relay/seq"
 
+	"github.com/AnomalyFi/baton/beaconclient"
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/flashbots/go-boost-utils/utils"
-	"github.com/flashbots/mev-boost-relay/beaconclient"
 	"github.com/go-redis/redis/v9"
 
 	"github.com/AnomalyFi/nodekit-seq/actions"
@@ -41,10 +45,6 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/go-utils/httplogger"
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/flashbots/mev-boost-relay/contracts"
-	"github.com/flashbots/mev-boost-relay/database"
-	"github.com/flashbots/mev-boost-relay/datastore"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	uberatomic "go.uber.org/atomic"
@@ -60,7 +60,6 @@ const (
 
 var (
 	ErrMissingLogOpt              = errors.New("log parameter is nil")
-	ErrMissingBeaconClientOpt     = errors.New("beacon-client is nil")
 	ErrMissingDatastoreOpt        = errors.New("proposer datastore is nil")
 	ErrRelayPubkeyMismatch        = errors.New("baton pubkey does not match existing one")
 	ErrServerAlreadyStarted       = errors.New("server was already started")
@@ -81,9 +80,6 @@ var (
 	// Block builder API
 	pathBuilderGetValidators  = "/baton/v1/builder/validators"
 	pathSubmitNewBlockRequest = "/baton/v1/builder/submit"
-	pathSubmitNewBlock        = "/baton/v1/builder/blocks"
-	pathSubmitNewRoBBlock     = "/baton/v1/builder/rob_blocks"
-	pathSubmitNewToBTxs       = "/baton/v1/builder/tob_txs"
 	pathGetTobGasReservations = "/baton/v1/builder/tob_gas_reservations"
 
 	// Data API
@@ -101,9 +97,6 @@ var (
 	pathGetSlot              = "/eth/v1/baton/get_head_slot"
 	pathGetParentHashForSlot = "/eth/v1/baton/get_parent_hash_for_slot/{slot:[0-9]+}"
 	pathGetProposerForSlot   = "/eth/v1/baton/get_proposer_for_slot/{slot:[0-9]+}"
-
-	// number of goroutines to save active validator
-	numValidatorRegProcessors = cli.GetEnvInt("NUM_VALIDATOR_REG_PROCESSORS", 10)
 
 	// various timings
 	timeoutGetPayloadRetryMs  = cli.GetEnvInt("GETPAYLOAD_RETRY_TIMEOUT_MS", 100)
@@ -184,11 +177,6 @@ type blockSimResult struct {
 type tracerOptions struct {
 	log *logrus.Entry
 	tx  *types.Transaction
-}
-
-type tracerResult struct {
-	tracerResponse *common.CallTraceResponse
-	tracerError    error
 }
 
 // BatonAPI represents a single Relay instance

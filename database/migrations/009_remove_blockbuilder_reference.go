@@ -1,7 +1,7 @@
 package migrations
 
 import (
-	"github.com/flashbots/mev-boost-relay/database/vars"
+	"github.com/AnomalyFi/baton/database/vars"
 	migrate "github.com/rubenv/sql-migrate"
 )
 

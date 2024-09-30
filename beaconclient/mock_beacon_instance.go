@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flashbots/mev-boost-relay/common"
+	"github.com/AnomalyFi/baton/common"
 )
 
 type MockBeaconInstance struct {

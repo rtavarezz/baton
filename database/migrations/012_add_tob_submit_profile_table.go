@@ -1,7 +1,7 @@
 package migrations
 
 import (
-	"github.com/flashbots/mev-boost-relay/database/vars"
+	"github.com/AnomalyFi/baton/database/vars"
 	migrate "github.com/rubenv/sql-migrate"
 )
 
@@ -15,7 +15,7 @@ var Migration012AddTobSubmitProfileTable = &migrate.Migration{
 			parent_hash varchar(66) NOT NULL,
 			slot varchar(66) NOT NULL,
 			simulation_duration_us bigint NOT NULL default 0,
-			
+
 			tracer_duration_us bigint NOT NULL default 0,
 			total_duration_us bigint NOT NULL default 0
 	);

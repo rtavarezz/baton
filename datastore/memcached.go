@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AnomalyFi/baton/common"
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/flashbots/go-utils/cli"
-	"github.com/flashbots/mev-boost-relay/common"
 )
 
 var (

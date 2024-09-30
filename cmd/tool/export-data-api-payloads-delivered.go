@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/flashbots/mev-boost-relay/database"
-	"github.com/flashbots/mev-boost-relay/database/vars"
+	"github.com/AnomalyFi/baton/common"
+	"github.com/AnomalyFi/baton/database"
+	"github.com/AnomalyFi/baton/database/vars"
 	"github.com/spf13/cobra"
 )
 

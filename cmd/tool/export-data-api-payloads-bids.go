@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/flashbots/mev-boost-relay/database"
+	"github.com/AnomalyFi/baton/common"
+	"github.com/AnomalyFi/baton/database"
 	"github.com/spf13/cobra"
 )
 

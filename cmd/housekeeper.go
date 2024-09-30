@@ -5,11 +5,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/flashbots/mev-boost-relay/beaconclient"
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/flashbots/mev-boost-relay/database"
-	"github.com/flashbots/mev-boost-relay/datastore"
-	"github.com/flashbots/mev-boost-relay/services/housekeeper"
+	"github.com/AnomalyFi/baton/beaconclient"
+	"github.com/AnomalyFi/baton/common"
+	"github.com/AnomalyFi/baton/database"
+	"github.com/AnomalyFi/baton/datastore"
+	"github.com/AnomalyFi/baton/services/housekeeper"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )

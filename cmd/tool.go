@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/flashbots/mev-boost-relay/cmd/tool"
+	"github.com/AnomalyFi/baton/cmd/tool"
 	"github.com/spf13/cobra"
 )
 

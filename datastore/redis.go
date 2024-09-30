@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AnomalyFi/baton/common"
 	"math/big"
 	"strconv"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 
 	"github.com/flashbots/go-utils/cli"
-	"github.com/flashbots/mev-boost-relay/common"
 	"github.com/go-redis/redis/v9"
 )
 

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AnomalyFi/baton/common"
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/utils"
-	"github.com/flashbots/mev-boost-relay/common"
 )
 
 func NewNullInt64(i int64) sql.NullInt64 {

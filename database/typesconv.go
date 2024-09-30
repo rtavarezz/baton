@@ -3,7 +3,7 @@ package database
 import (
 	"encoding/json"
 	"errors"
-	"github.com/flashbots/mev-boost-relay/common"
+	"github.com/AnomalyFi/baton/common"
 )
 
 var ErrUnsupportedExecutionPayload = errors.New("unsupported execution payload version")

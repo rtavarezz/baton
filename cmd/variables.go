@@ -3,7 +3,7 @@ package cmd
 import (
 	"os"
 
-	"github.com/flashbots/mev-boost-relay/common"
+	"github.com/AnomalyFi/baton/common"
 )
 
 var (

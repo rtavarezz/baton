@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AnomalyFi/baton/beaconclient"
+	"github.com/AnomalyFi/baton/common"
+	"github.com/AnomalyFi/baton/database"
 	"github.com/bradfitz/gomemcache/memcache"
-	"github.com/flashbots/mev-boost-relay/beaconclient"
-	"github.com/flashbots/mev-boost-relay/common"
-	"github.com/flashbots/mev-boost-relay/database"
 	"github.com/go-redis/redis/v9"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

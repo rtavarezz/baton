@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/flashbots/mev-boost-relay/common"
+	"github.com/AnomalyFi/baton/common"
 	"github.com/sirupsen/logrus"
 	uberatomic "go.uber.org/atomic"
 )

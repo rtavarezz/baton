@@ -1,7 +1,7 @@
 // Package tool exports tool subcommands
 package tool
 
-import "github.com/flashbots/mev-boost-relay/common"
+import "github.com/AnomalyFi/baton/common"
 
 var (
 	log                = common.LogSetup(false, "info")

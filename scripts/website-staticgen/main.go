@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/flashbots/mev-boost-relay/services/website"
+	"github.com/AnomalyFi/baton/services/website"
 )
 
 func main() {
