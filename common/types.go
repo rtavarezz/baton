@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	abls "github.com/ava-labs/avalanchego/utils/crypto/bls"
 	"golang.org/x/exp/rand"
 
 	"github.com/AnomalyFi/hypersdk/chain"
@@ -403,11 +404,24 @@ func (s *SignedBeaconBlock) BlockHash() string {
 	return ""
 }
 
+type BuilderGetSEQValidatorResponseEntry struct {
+	Slot  uint64                          `json:"slot,string"`
+	Entry *SignedSEQValidatorRegistration `json:"entry"`
+}
+
 type SignedSEQValidatorRegistration struct {
 	Message   *SEQValidatorRegistration `json:"message"`
 	Signature []byte                    `json:"signature"`
 
 	signature *bls.Signature
+}
+
+func (sreg *SignedSEQValidatorRegistration) Signed() bool {
+	if sreg.signature == nil || sreg.Initialize() != nil {
+		return false
+	}
+
+	return true
 }
 
 func (sreg *SignedSEQValidatorRegistration) Sig() *bls.Signature {
@@ -837,16 +851,32 @@ func VerifyPayloadSignature(response *AnchorGetPayloadResponse, pubKey bls.Publi
 	return bls.VerifySignatureBytes(payloadHash[:], payloadSignatureBytes[:], pubKeyBytes[:])
 }
 
-func GetExecHeaderSignature(headers *ExecHeadersInfo, secretKey *bls.SecretKey) (*bls.Signature, error) {
+func GetExecHeaderSignature(chainID ids.ID, networkID uint32, headers *ExecHeadersInfo, secretKey *bls.SecretKey) (*bls.Signature, error) {
 	// Step 1: Hash the ExecHeaders (ToBHash + RoBHashes) data
 	payloadHash, err := HashExecHeaders(headers)
 	if err != nil {
 		return nil, err
 	}
 
+	uwm, err := warp.NewUnsignedMessage(networkID, chainID, payloadHash[:])
+	if err != nil {
+		return nil, err
+	}
+
+	skBytes := secretKey.Bytes()
+	aSk, err := abls.SecretKeyFromBytes(skBytes[:])
+	if err != nil {
+		return nil, err
+	}
+	signer := warp.NewSigner(aSk, networkID, chainID)
+
 	// Step 2: Sign the hashed headers using the secret key
-	signature := bls.Sign(secretKey, payloadHash[:])
-	return signature, nil
+	sig, err := signer.Sign(uwm)
+	if err != nil {
+		return nil, err
+	}
+
+	return bls.SignatureFromBytes(sig)
 }
 
 func GetExecPayloadSignature(payloads *ExecPayloadsInfo, secretKey *bls.SecretKey) (*bls.Signature, error) {
@@ -865,8 +895,8 @@ func (r *AnchorGetHeaderResponse) SetExecPayloadsSig(sig *bls.Signature) {
 	r.ExecHeadersSig = signatureAsBytes[:]
 }
 
-func SignAnchorGetHeaderResponse(response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {
-	signature, err := GetExecHeaderSignature(&response.ExecHeaders, secretKey)
+func SignAnchorGetHeaderResponse(chainID ids.ID, networkID uint32, response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {
+	signature, err := GetExecHeaderSignature(chainID, networkID, &response.ExecHeaders, secretKey)
 	if err != nil {
 		return errors.New("failed to sign anchor header response, err: " + err.Error())
 	}
@@ -911,6 +941,8 @@ func HashExecPayloads(payloads *ExecPayloadsInfo) ([32]byte, error) {
 
 // VerifySignedHeaders verifies that the getHeader ExecHeaders have been signed with the given public key
 func VerifySignedHeaders(
+	chainID ids.ID,
+	networkID uint32,
 	expectedHeaders *ExecHeadersInfo,
 	payloadReq *AnchorGetPayloadRequest,
 	pubKey bls.PublicKey,
@@ -921,12 +953,20 @@ func VerifySignedHeaders(
 	}
 
 	payloadSignatureBytes := payloadReq.SignedHeaders
-	pubKeyBytes := pubKey.Bytes()
-
-	_, err = bls.VerifySignatureBytes(payloadHash[:], payloadSignatureBytes[:], pubKeyBytes[:])
+	sig, err := bls.SignatureFromBytes(payloadSignatureBytes)
 	if err != nil {
 		return false, err
 	}
+
+	verified, err := VerifySEQSignature(chainID, networkID, &pubKey, sig, payloadHash[:])
+	if err != nil {
+		return false, err
+	}
+
+	if !verified {
+		return false, fmt.Errorf("wrong signature against payload")
+	}
+
 	return true, nil
 }
 

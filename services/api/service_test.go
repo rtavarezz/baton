@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ava-labs/avalanchego/ids"
 	abls "github.com/ava-labs/avalanchego/utils/crypto/bls"
 	"github.com/ava-labs/avalanchego/vms/platformvm/warp"
 	"github.com/flashbots/mev-boost-relay/seq"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/AnomalyFi/hypersdk/chain"
 	"github.com/AnomalyFi/hypersdk/codec"
+	hrpc "github.com/AnomalyFi/hypersdk/rpc"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 
 	// "github.com/AnomalyFi/hypersdk/state"
@@ -1461,6 +1463,8 @@ func TestGetPayload(t *testing.T) {
 	backend.baton.headSlot.Store(slot)
 	requestPath := "/eth/v1/builder/blinded_blocks"
 	headerHash := eth.Hash([]byte(testHeaderHash))
+	seqChainID := backend.GetMockSeqClient().GetChainID()
+	seqNetworkID := backend.GetMockSeqClient().GetNetworkID()
 
 	robIDs := backend.baton.GetRoBChainIDs()
 	(*robIDs)[testChainID] = struct{}{}
@@ -1468,11 +1472,11 @@ func TestGetPayload(t *testing.T) {
 	// This is a default AnchorGetHeaderResp that can be used in our base case testing.
 	anchorGetHeaderResp := common.MakeRandomAnchorGetHeaderResponse(*mockPublicKey, slot)
 	anchorGetHeaderResp.ParentHash = eth.Hash([]byte(testHeaderHash))
-	err := common.SignAnchorGetHeaderResponse(anchorGetHeaderResp, mockSecretKey)
+	err := common.SignAnchorGetHeaderResponse(seqChainID, seqNetworkID, anchorGetHeaderResp, mockSecretKey)
 	if err != nil {
 		t.Error(err)
 	}
-	signedHeaders, err := common.GetExecHeaderSignature(&anchorGetHeaderResp.ExecHeaders, mockSecretKey)
+	signedHeaders, err := common.GetExecHeaderSignature(seqChainID, seqNetworkID, &anchorGetHeaderResp.ExecHeaders, mockSecretKey)
 	if err != nil {
 		t.Error(err)
 	}
@@ -1680,8 +1684,13 @@ func TestOverallBasicFlow(t *testing.T) {
 	rrCode = processBlockRequest(backend, tobBlockReq)
 	require.Equal(t, http.StatusOK, rrCode)
 
-	// process new expectedSlot 1
-	seqClient.TriggerNextSlot(expectedSlot)
+	// process new blk and proposer
+	seqHead := chain.NewGenesisBlock(ids.Empty)
+	seqHead.Hght = 1
+	nextProposerInfo := hrpc.NextProposerReply{
+		PublicKey: robBlockReq.ProposerPubKeyAsBytes(),
+	}
+	seqClient.TriggerOnNextBlock(seqHead, &nextProposerInfo)
 
 	// Now test getHeader()
 	rr := httptest.NewRecorder()
@@ -1703,7 +1712,10 @@ func TestOverallBasicFlow(t *testing.T) {
 	fmt.Println(rr.Body)
 	err = json.Unmarshal(rr.Body.Bytes(), resp)
 	require.NoError(t, err)
-	signedHeaders, err := common.GetExecHeaderSignature(&resp.ExecHeaders, mockSecretKey)
+
+	seqChainID := seqClient.GetChainID()
+	seqNetworkID := seqClient.GetNetworkID()
+	signedHeaders, err := common.GetExecHeaderSignature(seqChainID, seqNetworkID, &resp.ExecHeaders, testProposerSecretKey)
 	if err != nil {
 		t.Error(err)
 	}

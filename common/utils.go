@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ava-labs/avalanchego/ids"
+	"github.com/ava-labs/avalanchego/vms/platformvm/warp"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-boost-utils/ssz"
 
@@ -238,6 +240,14 @@ func BlsToPhase0PubKey(pk *bls.PublicKey) (*phase0.BLSPubKey, error) {
 	var phase0PubKey phase0.BLSPubKey
 	copy(phase0PubKey[:], pubKeyBytes[:phase0.PublicKeyLength])
 	return &phase0PubKey, nil
+}
+
+func VerifySEQSignature(chainID ids.ID, networkID uint32, pk *bls.PublicKey, sig *bls.Signature, payload []byte) (bool, error) {
+	uwm, err := warp.NewUnsignedMessage(networkID, chainID, payload)
+	if err != nil {
+		return false, err
+	}
+	return bls.VerifySignature(sig, pk, uwm.Bytes())
 }
 
 func ProposerPubKeyAsStr(pk *bls.PublicKey) string {

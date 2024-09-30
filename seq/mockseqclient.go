@@ -9,16 +9,8 @@ import (
 )
 
 type MockSeqClient struct {
-	headSlot       uint64
-	newSlotHandler func(uint64)
-}
-
-func (s *MockSeqClient) SetNewSlotHandler(handler func(uint64)) {
-	s.newSlotHandler = handler
-}
-
-func (s *MockSeqClient) TriggerNextSlot(slot uint64) {
-	s.newSlotHandler(slot)
+	headSlot          uint64
+	onNewBlockHandler func(*chain.StatefulBlock, *hrpc.NextProposerReply)
 }
 
 func NewMockSeqClient(_ *SeqClientConfig) (*MockSeqClient, error) {
@@ -50,4 +42,12 @@ func (s *MockSeqClient) GetNetworkID() uint32 {
 
 func (s *MockSeqClient) CurrentValidators(ctx context.Context) []*hrpc.Validator {
 	return nil
+}
+
+func (s *MockSeqClient) TriggerOnNextBlock(blk *chain.StatefulBlock, nextProposer *hrpc.NextProposerReply) {
+	s.onNewBlockHandler(blk, nextProposer)
+}
+
+func (s *MockSeqClient) SetOnNewBlockHandler(handler func(*chain.StatefulBlock, *hrpc.NextProposerReply)) {
+	s.onNewBlockHandler = handler
 }
