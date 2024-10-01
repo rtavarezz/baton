@@ -238,7 +238,7 @@ type BlockBuilderEntry struct {
 	IsHighPrio    bool `db:"is_high_prio"   json:"is_high_prio"`
 	IsBlacklisted bool `db:"is_blacklisted" json:"is_blacklisted"`
 	IsOptimistic  bool `db:"is_optimistic"  json:"is_optimistic"`
-	isToB         bool `db:"is_tob"         json:"is_tob"`
+	IsToB         bool `db:"is_tob"         json:"is_tob"`
 
 	Collateral string `db:"collateral" json:"collateral"`
 	BuilderID  string `db:"builder_id" json:"builder_id"`

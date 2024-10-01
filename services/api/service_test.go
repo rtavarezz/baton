@@ -235,43 +235,6 @@ func (be *testBackend) requestWithUA(method, path, userAgent string, payload any
 	return rr
 }
 
-/*
-func generateSignedValidatorRegistration(sk *bls.SecretKey, feeRecipient types.Address, timestamp uint64) (*types.SignedValidatorRegistration, error) {
-	var err error
-	if sk == nil {
-		sk, _, err = bls.GenerateNewKeypair()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	blsPubKey, _ := bls.PublicKeyFromSecretKey(sk)
-
-	var pubKey types.PublicKey
-	err = pubKey.FromSlice(bls.PublicKeyToBytes(blsPubKey))
-	if err != nil {
-		return nil, err
-	}
-	msg := &types.RegisterValidatorRequestMessage{
-		FeeRecipient: feeRecipient,
-		Timestamp:    timestamp,
-		Pubkey:       pubKey,
-		GasLimit:     278234191203,
-	}
-
-	sig, err := types.SignMessage(msg, builderSigningDomain, sk)
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.SignedValidatorRegistration{
-		Message:   msg,
-		Signature: sig,
-	}, nil
-}
-
-*/
-
 func TestWebserver(t *testing.T) {
 	t.Run("errors when webserver is already existing", func(t *testing.T) {
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
@@ -535,24 +498,18 @@ func TestGetHeader(t *testing.T) {
 		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(1, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
 
-		for slot, headers := range toBBidsPerSlot {
-			fmt.Printf("Slot: %d, ToB Bids: %v\n", slot, headers)
-
-			topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		for slot, _ := range toBBidsPerSlot {
+			_, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
 			if err != nil {
 				t.Error(err)
 			}
-			fmt.Printf("Top ToB bid for slot %d: %v\n", slot, topToBBid)
 		}
 
-		for slot, headers := range roBBidsPerSlot {
-			fmt.Printf("Slot: %d, RoB Bids: %v\n", slot, headers)
-
-			topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+		for slot, _ := range roBBidsPerSlot {
+			_, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
 			if err != nil {
 				t.Error(err)
 			}
-			fmt.Printf("Top RoB bid for slot %d: %v\n", slot, topRoBBid)
 		}
 		httpReq := httptest.NewRequest(http.MethodGet, requestPath, nil)
 		backend.baton.getRouter().ServeHTTP(rr, httpReq)
@@ -1655,10 +1612,6 @@ func TestOverallBasicFlow(t *testing.T) {
 	// Now test getPayload()
 	resp := new(common.AnchorGetHeaderResponse)
 	resp.ExecHeaders = common.NewExecutionHeader()
-	// TODO: fails below with 'can't parse into a big.Int: [0,0,0,0,0,0]'
-	fmt.Println(rr)
-	fmt.Println("BREAK")
-	fmt.Println(rr.Body)
 	err = json.Unmarshal(rr.Body.Bytes(), resp)
 	require.NoError(t, err)
 

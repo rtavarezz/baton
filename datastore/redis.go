@@ -1551,7 +1551,6 @@ func (r *RedisCache) HasTopToBBidValue(
 ) (bool, error) {
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopToBBidValue(slot, parentHash, proposerString)
-	fmt.Println("keyTopBidValue:", keyTopBidValue)
 	exists, err := r.client.Exists(ctx, keyTopBidValue).Result()
 	if err != nil {
 		return false, err
@@ -1568,8 +1567,6 @@ func (r *RedisCache) HasTopRoBBidValue(
 ) (bool bool, err error) {
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerString, chainID)
-	fmt.Println("keyTopBidValue:", keyTopBidValue)
-	//TODO: keyTopBidValue returns correct info, yet exists returns 0 meaning redis isn't finding the key
 	exists, err := r.client.Exists(ctx, keyTopBidValue).Result()
 	if err != nil {
 		return false, err
@@ -1613,17 +1610,7 @@ func (r *RedisCache) GetTopRoBBidValue(
 ) (topBidValue *big.Int, err error) {
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerString, chainID)
-	//fmt.Println("keyTopBidValue:", keyTopBidValue)
-	// TODO: keyTopBidValue returns correct info, yet exists returns 0 meaning redis isn't finding the key
-	//exists, err := pipeliner.Exists(ctx, keyTopBidValue).Result()
-	//if exists == 0 {
-	//	// dealing with tob already
-	//	fmt.Println("keyTopBidValue not found in Redis")
-	//	return big.NewInt(0), nil
-	//}
-	// otherwise key is rob
 	c := pipeliner.Get(ctx, keyTopBidValue)
-	//TODO: FAILS HERE since key is not found in redis
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
 		return big.NewInt(0), nil

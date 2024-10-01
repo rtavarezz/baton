@@ -643,7 +643,7 @@ func (s *DatabaseService) UpsertBlockBuilderEntryAfterSubmission(
 		NumSubmissionsTotal:    1,
 		NumSubmissionsSimError: 0,
 		Collateral:             "0", // required to satisfy numeric type, will not override collateral
-		isToB:                  isToB,
+		IsToB:                  isToB,
 		ChainID:                chainID,
 	}
 	if isError {

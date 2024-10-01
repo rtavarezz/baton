@@ -1071,7 +1071,7 @@ func (api *BatonAPI) handleStatus(w http.ResponseWriter, req *http.Request) {
 
 func (api *BatonAPI) handleRoot(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "MEV-Boost Relay API")
+	fmt.Fprintf(w, "Baton API")
 }
 
 func (api *BatonAPI) handleGetSlot(w http.ResponseWriter, req *http.Request) {
@@ -1086,16 +1086,6 @@ func (api *BatonAPI) handleGetParentHashForSlot(w http.ResponseWriter, req *http
 	if err != nil {
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 	}
-
-	/*
-	   	// get parent hash
-	   	res, ok := api.payloadAttributesBySlot[slot]
-	   	if !ok {
-	   		api.RespondError(w, http.StatusNotFound, "slot payload attributes not found")
-	   		return
-	   	}
-	     api.RespondOK(w, res.parentHash)
-	*/
 
 	api.RespondError(w, 500, "not implemented for slot "+strconv.FormatUint(slot, 10))
 }
@@ -1278,9 +1268,6 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	headSlot := api.headSlot.Load()
 	parentHashID := common.StrToParentHash(parentHash)
 
-	test := len(ids.Empty.String())
-	fmt.Println(test)
-
 	slot, err := strconv.ParseUint(slotStr, 10, 64)
 	if err != nil {
 		api.RespondError(w, http.StatusBadRequest, common.ErrInvalidSlot.Error())
@@ -1310,13 +1297,6 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		api.RespondError(w, http.StatusBadRequest, common.ErrInvalidPubkey.Error())
 		return
 	}
-
-	/*
-		if len(parentHash) != 66 {
-			api.RespondError(w, http.StatusBadRequest, common.ErrInvalidHash.Error())
-			return
-		}
-	*/
 
 	if slot < headSlot {
 		log.Warn("handleGetHeader: slot too old")
