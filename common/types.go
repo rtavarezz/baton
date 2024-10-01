@@ -592,9 +592,11 @@ func (r *SubmitNewBlockRequest) ProposerPaymentAsStr() string {
 func (r *SubmitNewBlockRequest) ParentHash() ids.ID {
 	return r.Chunk.ParentHash
 }
+
 func (r *SubmitNewBlockRequest) ParentHashAsStr() string {
-	return r.ParentHash().String()
+	return ParentHashToStr(r.ParentHash())
 }
+
 func (r *SubmitNewBlockRequest) Txs() []byte {
 	return r.Chunk.Txs
 }
@@ -725,7 +727,7 @@ type AnchorPayload struct {
 type AnchorGetHeaderResponse struct {
 	ExecHeaders ExecHeadersInfo `json:"exec_headers"`
 	BlockInfo   AnchorBlockInfo `json:"block_info"`
-	ParentHash  common.Hash     `json:"parent_hash"`
+	ParentHash  ids.ID          `json:"parent_hash"`
 	// Exec headers signed by baton's key.
 	ExecHeadersSig []byte `json:"exec_headers_sig"`
 }
@@ -736,6 +738,10 @@ func (h AnchorGetHeaderResponse) MarshalBinary() ([]byte, error) {
 
 func (h *AnchorGetHeaderResponse) UnmarshalBinary(data []byte) error {
 	return json.Unmarshal(data, h)
+}
+
+func (h AnchorGetHeaderResponse) ParentHashAsStr() string {
+	return ParentHashToStr(h.ParentHash)
 }
 
 type AnchorBlockInfo struct {
@@ -1009,6 +1015,16 @@ func GenerateRandomHash() (common.Hash, error) {
 
 	// Convert the random bytes to a common.Hash and return it
 	return common.BytesToHash(hashBytes[:]), nil
+}
+
+func StrToParentHash(hash string) ids.ID {
+	var parentHash ids.ID
+	copy(parentHash[:], hash)
+	return parentHash
+}
+
+func ParentHashToStr(parentHash ids.ID) string {
+	return string(parentHash[:])
 }
 
 func (r *AnchorGetPayloadRequest) GetPublicKey() (*bls.PublicKey, error) {

@@ -1272,27 +1272,29 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	// TODO: figure out slot(block number from seq) with rollups
 	slotStr := vars["slot"]
-	parentHashHex := vars["parent_hash"]
+	parentHash := vars["parent_hash"]
 	proposerPubkeyHex := vars["pubkey"]
 	ua := req.UserAgent()
 	headSlot := api.headSlot.Load()
+	parentHashID := common.StrToParentHash(parentHash)
+
+	test := len(ids.Empty.String())
+	fmt.Println(test)
 
 	slot, err := strconv.ParseUint(slotStr, 10, 64)
 	if err != nil {
 		api.RespondError(w, http.StatusBadRequest, common.ErrInvalidSlot.Error())
 		return
 	}
-	parentHash := common2.HexToHash(parentHashHex)
 
 	requestTime := time.Now().UTC()
 	slotStartTimestamp := api.genesisInfo.Data.GenesisTime + (slot * common.SecondsPerSlot)
 	msIntoSlot := requestTime.UnixMilli() - int64((slotStartTimestamp * 1000))
-
 	log := api.log.WithFields(logrus.Fields{
 		"method":           "getHeader",
 		"headSlot":         headSlot,
 		"slot":             slotStr,
-		"parentHash":       parentHashHex,
+		"parentHash":       parentHash,
 		"pubkey":           proposerPubkeyHex,
 		"ua":               ua,
 		"mevBoostV":        common.GetMevBoostVersionFromUserAgent(ua),
@@ -1304,16 +1306,20 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	log.Debug("request arrived")
 
 	if len(proposerPubkeyHex) != 98 {
+		log.Warn("handleGetHeader: pubkey arg had wrong length")
 		api.RespondError(w, http.StatusBadRequest, common.ErrInvalidPubkey.Error())
 		return
 	}
 
-	if len(parentHashHex) != 66 {
-		api.RespondError(w, http.StatusBadRequest, common.ErrInvalidHash.Error())
-		return
-	}
+	/*
+		if len(parentHash) != 66 {
+			api.RespondError(w, http.StatusBadRequest, common.ErrInvalidHash.Error())
+			return
+		}
+	*/
 
 	if slot < headSlot {
+		log.Warn("handleGetHeader: slot too old")
 		api.RespondError(w, http.StatusBadRequest, "slot is too old")
 		return
 	}
@@ -1321,7 +1327,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	log.Debug("getHeader request received")
 
 	if slices.Contains(apiNoHeaderUserAgents, ua) {
-		log.Info("rejecting getHeader by user agent")
+		log.Warn("handleGetHeader: rejecting getHeader ")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -1343,7 +1349,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	var hasToB bool
 	var hasRoB bool
 	// TODO: bid returns an empty AnchorHeader which causes code to fail, debug needed below
-	bid, err := api.redis.GetBestToBBid(slot, parentHashHex, proposerPubkeyHex)
+	bid, err := api.redis.GetBestToBBid(slot, parentHash, proposerPubkeyHex)
 	if err != nil {
 		log.WithError(err).Error("could not get bid for ToB")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -1354,15 +1360,6 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 
 	// Make sure the retrieved ToB block is valid
 	if hasToB {
-		/*
-			if bid.Header == nil {
-				log.Error("handleGetHeader ToB had nil header")
-				hasToB = false
-			} else if bid.Value == nil {
-				log.Error("handleGetHeader ToB had nil value")
-				hasToB = false
-			} else if bid.Header.Big().Cmp(big.NewInt(0)) == 0 {
-		*/
 		if bid.Header.Big().Cmp(big.NewInt(0)) == 0 {
 			log.Info("handleGetHeader ToB was removed due to header comparison")
 			hasToB = false
@@ -1376,7 +1373,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	}
 
 	for chainID := range api.robChainIDs {
-		bid, err := api.redis.GetBestRoBBid(slot, parentHashHex, proposerPubkeyHex, chainID)
+		bid, err := api.redis.GetBestRoBBid(slot, parentHash, proposerPubkeyHex, chainID)
 		if err != nil {
 			log.WithError(err).Error("could not get bid for RoB: " + chainID)
 			api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -1414,7 +1411,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	resp := common.AnchorGetHeaderResponse{
 		ExecHeaders: headers,
 		BlockInfo:   blockInfo,
-		ParentHash:  parentHash,
+		ParentHash:  parentHashID,
 	}
 
 	err = common.SignAnchorGetHeaderResponse(api.seqClient.GetChainID(), api.seqClient.GetNetworkID(), &resp, api.blsSk)

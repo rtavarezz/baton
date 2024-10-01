@@ -903,7 +903,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		pipeline,
 		payload.Slot(),
 		payload.ProposerPubKeyAsStr(),
-		payload.ParentHash().String(),
+		payload.ParentHashAsStr(),
 		getPayload)
 	if err != nil {
 		return state, err
@@ -1065,7 +1065,7 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 		pipeline,
 		payload.Slot(),
 		payload.ProposerPubKeyAsStr(),
-		payload.ParentHash().String(),
+		payload.ParentHashAsStr(),
 		getPayload,
 		chainID)
 	if err != nil {
