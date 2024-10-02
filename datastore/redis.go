@@ -596,6 +596,7 @@ func (r *RedisCache) SaveExecutionRoBAnchorPayload(
 	chainID string,
 ) (err error) {
 	key := r.keyExecRoBAnchorPayload(slot, proposerPubkey, parentHash, chainID)
+	fmt.Printf("keyPayload: %s\n", key)
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -633,6 +634,8 @@ func (r *RedisCache) GetExecutionRoBAnchorPayload(
 	resp := new(common.AnchorPayload)
 
 	key := r.keyExecRoBAnchorPayload(slot, proposerPubkey, blockHash, chainID)
+	fmt.Printf("keyPayload(GET): %s\n", key)
+
 	val, err := r.client.Get(context.Background(), key).Result()
 	if err != nil {
 		return nil, err

@@ -947,13 +947,13 @@ func (h *AnchorGetHeaderResponse) SetExecPayloadsSig(sig *bls.Signature) {
 	h.ExecHeadersSig = signatureAsBytes[:]
 }
 
-func SignAnchorGetHeaderResponse(chainID ids.ID, networkID uint32, response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {
-	signature, err := GetExecHeaderSignature(chainID, networkID, &response.ExecHeaders, secretKey)
+func SignAnchorGetHeaderResponse(response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {
+	payloadHash, err := HashExecHeaders(&response.ExecHeaders)
 	if err != nil {
-		return errors.New("failed to sign anchor header response, err: " + err.Error())
+		return err
 	}
-
-	response.SetExecPayloadsSig(signature)
+	sig := bls.Sign(secretKey, payloadHash[:])
+	response.SetExecPayloadsSig(sig)
 	return nil
 }
 

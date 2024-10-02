@@ -1349,9 +1349,10 @@ func TestGetPayload(t *testing.T) {
 	(*robIDs)[testChainID] = struct{}{}
 
 	// This is a default AnchorGetHeaderResp that can be used in our base case testing.
+	// TODO: the following unit tests have to be updated since the signature here is for verfity the identity of Baton for Anchor
 	anchorGetHeaderResp := common.MakeRandomAnchorGetHeaderResponse(*mockPublicKey, slot)
-	anchorGetHeaderResp.ParentHash = common.StrToParentHash(testHeaderHash)
-	err := common.SignAnchorGetHeaderResponse(seqChainID, seqNetworkID, anchorGetHeaderResp, mockSecretKey)
+	anchorGetHeaderResp.ParentHash = ids.Empty
+	err := common.SignAnchorGetHeaderResponse(anchorGetHeaderResp, mockSecretKey)
 	if err != nil {
 		t.Error(err)
 	}

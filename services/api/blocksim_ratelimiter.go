@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/AnomalyFi/flashbotsrpc"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/sirupsen/logrus"
 
 	"github.com/AnomalyFi/baton/common"
@@ -49,15 +50,17 @@ type BlockSimulationRateLimiter struct {
 
 	client http.Client
 
-	manager *bls.PublicKey
+	fbRPCKey *ecdsa.PrivateKey
+	manager  *bls.PublicKey
 }
 
-func NewBlockSimulationRateLimiter(logger *logrus.Entry, manager *bls.PublicKey) *BlockSimulationRateLimiter {
+func NewBlockSimulationRateLimiter(logger *logrus.Entry, manager *bls.PublicKey, fbRPCKey *ecdsa.PrivateKey) *BlockSimulationRateLimiter {
 	return &BlockSimulationRateLimiter{
 		logger:       logger,
 		cv:           sync.NewCond(&sync.Mutex{}),
 		counter:      0,
 		manager:      manager,
+		fbRPCKey:     fbRPCKey,
 		blockSimURLs: make(map[string]string),
 		client: http.Client{ //nolint:exhaustruct
 			Timeout: simRequestTimeout,
@@ -156,25 +159,53 @@ func (b *BlockSimulationRateLimiter) simBlockAndGetGasUsed(context context.Conte
 		return 0, fmt.Errorf("%w, %w", ErrRequestClosed, err), nil
 	}
 
-	var simReq *jsonrpc.JSONRPCRequest
-	var gasUsed uint64
+	b.logger.Debug("simBlockAndGetGasUsed called")
 
-	// Create and fire off JSON-RPC request
-	simReq = jsonrpc.NewJSONRPCRequest("1", "eth_callBundle", request)
-	resp, requestErr, validationErr := SendJSONRPCRequest(&b.client, *simReq, simURL, nil)
-
-	// read out gas used to simulate bundle
-	var callBundleResult common.FlashbotsCallBundleResult
-	if requestErr != nil && validationErr != nil {
-		err := json.Unmarshal(resp.Result, &callBundleResult)
-		if err != nil {
-			log.Error("simBlockAndGetGasUsed error unmarshaling call bundle json:", err)
-			return 0, fmt.Errorf("%w, %w", ErrJSONDecodeFailed, err), validationErr
-		}
-		gasUsed = uint64(callBundleResult.TotalGasUsed)
+	fbRPC := flashbotsrpc.NewFlashbotsRPC(simURL)
+	txStrings := make([]string, 0, len(request.Txs))
+	for _, otx := range request.Txs {
+		txStrings = append(txStrings, hexutil.Encode(otx))
 	}
 
-	return gasUsed, requestErr, validationErr
+	latestBlockNumber, err := fbRPC.EthBlockNumber()
+	if err != nil {
+		return 0, fmt.Errorf("cannot fetch latest block number: %w", err), nil
+	}
+
+	bundleRes, err := fbRPC.FlashbotsCallBundle(b.fbRPCKey, flashbotsrpc.FlashbotsCallBundleParam{
+		Txs:              txStrings,
+		BlockNumber:      fmt.Sprintf("0x%x", latestBlockNumber),
+		StateBlockNumber: fmt.Sprintf("0x%x", latestBlockNumber),
+	})
+
+	if err != nil {
+		b.logger.Debugf("eth_callBundle failed: %s", err)
+		return 0, err, nil
+	}
+	b.logger.Debug("eth_callBundle rest: %+v", bundleRes)
+
+	return uint64(bundleRes.TotalGasUsed), nil, nil
+	// // fbRPC.
+
+	// var simReq *jsonrpc.JSONRPCRequest
+	// var gasUsed uint64
+
+	// // // Create and fire off JSON-RPC request
+	// simReq = jsonrpc.NewJSONRPCRequest("1", "eth_callBundle", request)
+	// resp, requestErr, validationErr := SendJSONRPCRequest(&b.client, *simReq, simUrl, nil)
+
+	// // read out gas used to simulate bundle
+	// var callBundleResult common.FlashbotsCallBundleResult
+	// if requestErr != nil && validationErr != nil {
+	// 	err := json.Unmarshal(resp.Result, &callBundleResult)
+	// 	if err != nil {
+	// 		log.Error("simBlockAndGetGasUsed error unmarshaling call bundle json:", err)
+	// 		return 0, fmt.Errorf("%w, %w", ErrJSONDecodeFailed, err), validationErr
+	// 	}
+	// 	gasUsed = uint64(callBundleResult.TotalGasUsed)
+	// }
+
+	// return gasUsed, requestErr, validationErr
 }
 
 // CurrentCounter returns the number of waiting and active requests

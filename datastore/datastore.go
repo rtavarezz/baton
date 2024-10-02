@@ -4,7 +4,6 @@ package datastore
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -208,11 +207,11 @@ func (ds *Datastore) GetGetToBPayloadResponse(
 	blockHash string,
 ) (*common.AnchorPayload, error) {
 	log = log.WithField("datastoreMethod", "GetGetPayloadResponse")
-	_proposerPubkey := strings.ToLower(proposerPubkey)
-	_blockHash := strings.ToLower(blockHash)
+	// _proposerPubkey := strings.ToLower(proposerPubkey)
+	// _blockHash := strings.ToLower(blockHash)
 
 	// 1. try to get from Redis
-	resp, err := ds.redis.GetExecutionToBAnchorPayload(slot, _proposerPubkey, _blockHash)
+	resp, err := ds.redis.GetExecutionToBAnchorPayload(slot, proposerPubkey, blockHash)
 	if errors.Is(err, redis.Nil) {
 		log.WithError(err).Warn("execution payload not found in redis")
 	} else if err != nil {
@@ -224,7 +223,7 @@ func (ds *Datastore) GetGetToBPayloadResponse(
 
 	// 2. try to get from Memcached
 	if ds.memcached != nil {
-		resp, err = ds.memcached.GetToBAnchorPayload(slot, _proposerPubkey, _blockHash)
+		resp, err = ds.memcached.GetToBAnchorPayload(slot, proposerPubkey, blockHash)
 		if errors.Is(err, memcache.ErrCacheMiss) {
 			log.WithError(err).Warn("execution payload not found in memcached")
 		} else if err != nil {
@@ -258,11 +257,12 @@ func (ds *Datastore) GetGetRoBPayloadResponse(
 	chainID string,
 ) (*common.AnchorPayload, error) {
 	log = log.WithField("datastoreMethod", "GetGetPayloadResponse")
-	_proposerPubkey := strings.ToLower(proposerPubkey)
-	_blockHash := strings.ToLower(blockHash)
+	// TODO: to be removed, keep consistent with SavePayload
+	// _proposerPubkey := strings.ToLower(proposerPubkey)
+	// _blockHash := strings.ToLower(blockHash)
 
 	// 1. try to get from Redis
-	resp, err := ds.redis.GetExecutionRoBAnchorPayload(slot, _proposerPubkey, _blockHash, chainID)
+	resp, err := ds.redis.GetExecutionRoBAnchorPayload(slot, proposerPubkey, blockHash, chainID)
 	if errors.Is(err, redis.Nil) {
 		log.WithError(err).Warn("execution payload not found in redis")
 	} else if err != nil {
@@ -274,7 +274,7 @@ func (ds *Datastore) GetGetRoBPayloadResponse(
 
 	// 2. try to get from Memcached
 	if ds.memcached != nil {
-		resp, err = ds.memcached.GetRoBAnchorPayload(slot, _proposerPubkey, _blockHash, chainID)
+		resp, err = ds.memcached.GetRoBAnchorPayload(slot, proposerPubkey, blockHash, chainID)
 		if errors.Is(err, memcache.ErrCacheMiss) {
 			log.WithError(err).Warn("execution payload not found in memcached")
 		} else if err != nil {

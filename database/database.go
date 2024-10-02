@@ -237,7 +237,9 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 	}
 
 	if saveExecPayload {
+		// TODO: update this, execPayloadEntry.ID didn't initialized, the Scan(query) here will fail
 		err = s.nstmtInsertExecutionPayload.QueryRow(execPayloadEntry).Scan(&execPayloadEntry.ID)
+		fmt.Printf("error querying here")
 		if err != nil {
 			return nil, err
 		}

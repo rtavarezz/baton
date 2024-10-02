@@ -3,6 +3,7 @@ module github.com/AnomalyFi/baton
 go 1.22.5
 
 require (
+	github.com/AnomalyFi/flashbotsrpc v0.5.3
 	github.com/AnomalyFi/hypersdk v0.9.6-anchor.2
 	github.com/AnomalyFi/nodekit-seq v0.9.16-anchor.2
 	github.com/NYTimes/gziphandler v1.1.1

@@ -13,6 +13,7 @@ import (
 	"github.com/AnomalyFi/baton/services/api"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ import (
 var (
 	apiDefaultListenAddr = common.GetEnv("LISTEN_ADDR", "localhost:9062")
 	apiDefaultBlockSim   = common.GetEnv("BLOCKSIM_URI", "http://localhost:8545")
+	apiDefaultFBRPCKey   = common.GetEnv("FBRPC_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 	apiDefaultSecretKey  = common.GetEnv("SECRET_KEY", "")
 	apiDefaultLogTag     = os.Getenv("LOG_TAG")
 	apiDefaultSEQURI     = common.GetEnv("SEQ_URL", "http://seq.url")
@@ -33,19 +35,20 @@ var (
 	apiDefaultDataAPIEnabled     = os.Getenv("DISABLE_DATA_API") != "1"
 	apiDefaultProposerAPIEnabled = os.Getenv("DISABLE_PROPOSER_API") != "1"
 
-	apiListenAddr   string
-	apiPprofEnabled bool
-	apiSecretKey    string
-	apiBlockSimURL  string
-	apiDebug        bool
-	apiBuilderAPI   bool
-	apiDataAPI      bool
-	apiInternalAPI  bool
-	apiProposerAPI  bool
-	apiLogTag       string
-	apiSEQURI       string
-	apiSEQChainID   string
-	apiSEQNetworkID uint32
+	apiListenAddr       string
+	apiPprofEnabled     bool
+	apiSecretKey        string
+	apiBlockSimURL      string
+	apiBlockSimFbRPCKey string
+	apiDebug            bool
+	apiBuilderAPI       bool
+	apiDataAPI          bool
+	apiInternalAPI      bool
+	apiProposerAPI      bool
+	apiLogTag           string
+	apiSEQURI           string
+	apiSEQChainID       string
+	apiSEQNetworkID     uint32
 )
 
 func init() {
@@ -64,6 +67,7 @@ func init() {
 		"Enable memcached, typically used as secondary backup to Redis for redundancy")
 	apiCmd.Flags().StringVar(&apiSecretKey, "secret-key", apiDefaultSecretKey, "secret key for signing bids")
 	apiCmd.Flags().StringVar(&apiBlockSimURL, "blocksim", apiDefaultBlockSim, "URL for block simulator")
+	apiCmd.Flags().StringVar(&apiBlockSimFbRPCKey, "fbrpc-key", apiDefaultFBRPCKey, "fb rpc signing key")
 	apiCmd.Flags().StringVar(&network, "network", defaultNetwork, "Which network to use")
 
 	apiCmd.Flags().BoolVar(&apiPprofEnabled, "pprof", apiDefaultPprofEnabled, "enable pprof API")
@@ -157,19 +161,26 @@ var apiCmd = &cobra.Command{
 			log.WithError(err).Fatalf("failed to parse seq chain id")
 		}
 
+		fbSkHex := strings.TrimLeft(apiBlockSimFbRPCKey, "0x")
+		fbSk, err := crypto.HexToECDSA(fbSkHex)
+		if err != nil {
+			log.WithError(err).Fatalf("failed to parse fb rpc signing key")
+		}
+
 		opts := api.BatonAPIOpts{
 			Log:        log,
 			ListenAddr: apiListenAddr,
 			// BeaconClient:  beaconClient,
-			Datastore:     ds,
-			Redis:         redis,
-			Memcached:     mem,
-			DB:            db,
-			EthNetDetails: *networkInfo,
-			BlockSimURL:   apiBlockSimURL,
-			SeqURL:        apiSEQURI,
-			SeqChainID:    seqChainID,
-			SeqNetworkID:  apiSEQNetworkID,
+			Datastore:          ds,
+			Redis:              redis,
+			Memcached:          mem,
+			DB:                 db,
+			EthNetDetails:      *networkInfo,
+			BlockSimURL:        apiBlockSimURL,
+			BlockSimSigningKey: fbSk,
+			SeqURL:             apiSEQURI,
+			SeqChainID:         seqChainID,
+			SeqNetworkID:       apiSEQNetworkID,
 
 			BlockBuilderAPI: apiBuilderAPI,
 			DataAPI:         apiDataAPI,

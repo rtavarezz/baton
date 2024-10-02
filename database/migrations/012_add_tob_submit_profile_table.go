@@ -13,7 +13,7 @@ var Migration012AddTobSubmitProfileTable = &migrate.Migration{
 			inserted_at timestamp NOT NULL default current_timestamp,
 			tx_hashes            text NOT NULL,
 			parent_hash varchar(66) NOT NULL,
-			slot varchar(66) NOT NULL,
+			slot bigint NOT NULL,
 			simulation_duration_us bigint NOT NULL default 0,
 
 			tracer_duration_us bigint NOT NULL default 0,
