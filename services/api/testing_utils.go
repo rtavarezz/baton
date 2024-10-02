@@ -15,7 +15,6 @@ import (
 	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
 	"github.com/AnomalyFi/nodekit-seq/actions"
 	"github.com/AnomalyFi/nodekit-seq/auth"
-	_ "github.com/AnomalyFi/nodekit-seq/auth"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	"github.com/ava-labs/avalanchego/ids"
 	eth "github.com/ethereum/go-ethereum/common"
@@ -89,12 +88,13 @@ func CreateTestChunkSubmission(
 	*common.AnchorHeader,
 	*common.AnchorPayload,
 ) {
+
 	t.Helper()
 	var err error
+	var parentHash ids.ID
 
 	slot := uint64(1)
 	proposerPk := bls.PublicKey{}
-	parentHash := opts.ParentHash
 	builderSecretKey, builderPubkey, err := bls.GenerateNewKeypair()
 	require.NoError(t, err)
 	chainIndex := 1
@@ -104,6 +104,7 @@ func CreateTestChunkSubmission(
 	if opts != nil {
 		slot = opts.Slot
 		chainIndex = opts.robChainIndex
+		parentHash = opts.ParentHash
 
 		numTxs = opts.numTxs
 		if opts.BuilderPubkey.String() != "" {
@@ -179,7 +180,7 @@ func CreateTestChunkSubmission(
 	return &blockReq, &anchorHeader, anchorPayload
 }
 
-func GetTestChainId(i int) string {
+func GetTestChainID(i int) string {
 	return fmt.Sprintf("test-chain-%d", i)
 }
 
@@ -187,11 +188,11 @@ func GetTestChainIds(isToB bool, c int) []string {
 	if isToB {
 		testChainIDs := make([]string, c)
 		for i := 0; i < c; i++ {
-			testChainIDs[i] = GetTestChainId(i)
+			testChainIDs[i] = GetTestChainID(i)
 		}
 		return testChainIDs
 	}
-	return []string{GetTestChainId(c)}
+	return []string{GetTestChainID(c)}
 }
 
 func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
@@ -240,12 +241,18 @@ func CreateTestProposerTransfer(chainID string, value uint64) *chain.Transaction
 		MaxFee:    TestMaxFee,
 	}
 	base.Timestamp = int64(time.Now().Second() * 1000)
+
 	pkBytes, err := hex.DecodeString(KEYHEX)
+	if err != nil {
+		panic(err)
+	}
+
 	pk := ed25519.PrivateKey(pkBytes)
 	authFactory := auth.NewED25519Factory(pk)
 	var parser = srpc.Parser{}
 	actionRegistry, authRegistry := parser.Registry()
 	actionList := []chain.Action{&transfer}
+
 	tx := chain.NewTx(&base, actionList)
 	txSign, err := tx.Sign(authFactory, actionRegistry, authRegistry)
 	if err != nil {

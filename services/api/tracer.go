@@ -18,15 +18,15 @@ type ITracer interface {
 }
 
 type Tracer struct {
-	tracerUrl string
+	tracerURL string
 	client    http.Client
 }
 
-func NewTracer(tracerUrl string) *Tracer {
+func NewTracer(tracerURL string) *Tracer {
 	// TODO: Verify if this timeout is okay
 	timeout := time.Second * 5
 	return &Tracer{
-		tracerUrl: tracerUrl,
+		tracerURL: tracerURL,
 		client: http.Client{ //nolint:exhaustruct
 			Timeout: timeout,
 		},
@@ -66,7 +66,7 @@ func (t *Tracer) TraceTx(context context.Context, tx *types.Transaction) (*commo
 	}
 
 	// Send the HTTP POST request to the Ethereum client
-	resp, err := http.Post(t.tracerUrl, "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post(t.tracerURL, "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		fmt.Printf("Failed to send HTTP request: %v\n", err)
 		return nil, err

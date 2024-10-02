@@ -2,15 +2,13 @@ package datastore
 
 import (
 	"errors"
-	"github.com/AnomalyFi/baton/common"
-	"os"
 	"testing"
 )
 
 // TODO: standardize integration tests to run with single flag/env var - consolidate with RUN_DB_TESTS
 var (
-	runIntegrationTests = os.Getenv("RUN_INTEGRATION_TESTS") == "1"
-	memcachedEndpoints  = common.GetSliceEnv("MEMCACHED_URIS", nil)
+	//runIntegrationTests = os.Getenv("RUN_INTEGRATION_TESTS") == "1"
+	//memcachedEndpoints  = common.GetSliceEnv("MEMCACHED_URIS", nil)
 
 	ErrNoMemcachedServers = errors.New("no memcached servers specified")
 )
@@ -66,28 +64,29 @@ var (
 //return common.BuilderSubmitBlockRequest{}
 //}
 
+/*
 func initMemcached(t *testing.T) (mem *Memcached, err error) {
-	t.Helper()
-	if !runIntegrationTests {
-		t.Skip("Skipping integration tests for memcached")
-	}
+  t.Helper()
+  if !runIntegrationTests {
+    t.Skip("Skipping integration tests for memcached")
+  }
 
-	if len(memcachedEndpoints) == 0 {
-		err = ErrNoMemcachedServers
-		return
-	}
+  if len(memcachedEndpoints) == 0 {
+    err = ErrNoMemcachedServers
+    return
+  }
 
-	mem, err = NewMemcached("test", memcachedEndpoints...)
-	if err != nil {
-		return
-	}
+  mem, err = NewMemcached("test", memcachedEndpoints...)
+  if err != nil {
+    return
+  }
 
-	// reset cache to avoid conflicts between tests
-	err = mem.client.DeleteAll()
-	return
+  // reset cache to avoid conflicts between tests
+  err = mem.client.DeleteAll()
+  return
 }
+*/
 
-// TODO: FIX ME
 // TestMemcached performs integration tests when RUN_INTEGRATION_TESTS is true, using
 // a comma separated list of endpoints specified by the environment variable MEMCACHED_URIS.
 // Example:

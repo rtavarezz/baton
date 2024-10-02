@@ -43,13 +43,6 @@ func _HexToSignature(s string) (ret phase0.BLSSignature) {
 	return ret
 }
 
-// _HexToHash converts a hexadecimal string to a Hash
-func _HexToHash(s string) (ret phase0.Hash32) {
-	ret, err := utils.HexToHash(s)
-	check(err, " _HexToHash: ", s)
-	return ret
-}
-
 var ValidPayloadRegisterValidator = builderApiV1.SignedValidatorRegistration{
 	Message: &builderApiV1.ValidatorRegistration{
 		FeeRecipient: _HexToAddress("0xdb65fEd33dc262Fe09D9a2Ba8F80b329BA25f941"),

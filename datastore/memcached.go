@@ -66,7 +66,7 @@ func (m *Memcached) SaveRoBAnchorPayload(slot uint64, proposerPubKey, blockHash 
 	return m.client.Set(&memcache.Item{Key: key, Value: bytes, Expiration: defaultMemcachedExpirySeconds})
 }
 
-// GetExecutionPayload attempts to fetch execution engine payload from memcached using composite key of slot,
+// GetToBAnchorPayload attempts to fetch execution engine payload from memcached using composite key of slot,
 // proposer public key, block hash, and cache prefix if specified.
 func (m *Memcached) GetToBAnchorPayload(
 	slot uint64,

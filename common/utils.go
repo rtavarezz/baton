@@ -195,15 +195,6 @@ func GetMethodArgs(data []byte, method string, contractAbi *abi.ABI) (interface{
 	return res[0], nil
 }
 
-// Generic function to convert map values to a slice
-func MapValuesToSlice[K comparable, V any](m map[K]V) []V {
-	values := make([]V, 0, len(m)) // Preallocate slice with the map's length
-	for _, v := range m {
-		values = append(values, v)
-	}
-	return values
-}
-
 func PublicKeyToByteString(pk *bls.PublicKey) string {
 	pubKeyBytes := pk.Bytes()
 	// pubKeyBytesAsStr := string(pubKeyBytes[:])

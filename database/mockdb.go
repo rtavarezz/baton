@@ -137,7 +137,6 @@ func (db MockDB) SaveBuilderBlockSubmission(
 	return blockSubmissionEntry, err
 }
 
-// TODO: Fill me in later if needed
 func (db MockDB) SaveDeliveredAnchorPayload(
 	bidTrace *common.BidTraceV3,
 	payloadResp *common.AnchorGetPayloadResponse,

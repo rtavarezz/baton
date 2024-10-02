@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -21,7 +20,6 @@ import (
 	"github.com/ava-labs/avalanchego/vms/platformvm/warp"
 
 	apiv1 "github.com/attestantio/go-builder-client/api/v1"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"golang.org/x/exp/rand"
 
 	"github.com/AnomalyFi/hypersdk/chain"
@@ -57,14 +55,11 @@ const (
 )
 
 var (
-	builderSigningDomain = phase0.Domain([32]byte{0, 0, 0, 1, 245, 165, 253, 66, 209, 106, 32, 48, 39, 152, 239, 110, 211, 9, 151, 155, 67, 0, 61, 35, 32, 217, 240, 232, 234, 152, 49, 169})
-	testAddress          = eth.Address([20]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
-	testAddress2         = eth.Address([20]byte{1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
-	skBytes, _           = hexutil.Decode(mockSecretKeyHex)
-	mockSecretKey, _     = bls.SecretKeyFromBytes(skBytes)
-	mockPublicKey, _     = bls.PublicKeyFromSecretKey(mockSecretKey)
-	testChainID          = GetTestChainId(0)
-	emptyPublicKey       = bls.PublicKey{}
+	skBytes, _       = hexutil.Decode(mockSecretKeyHex)
+	mockSecretKey, _ = bls.SecretKeyFromBytes(skBytes)
+	mockPublicKey, _ = bls.PublicKeyFromSecretKey(mockSecretKey)
+	testChainID      = GetTestChainID(0)
+	emptyPublicKey   = bls.PublicKey{}
 )
 
 type testBackend struct {
@@ -179,24 +174,6 @@ func (be *testBackend) TriggerNextSlot(slot uint64) {
 	mockSeqClient.TriggerOnNextBlock(&nextBlk, &proposerReply)
 }
 
-func (be *testBackend) requestBytes(method, path string, payload []byte, headers map[string]string) *httptest.ResponseRecorder {
-	var req *http.Request
-	var err error
-
-	req, err = http.NewRequest(method, path, bytes.NewReader(payload))
-	require.NoError(be.t, err)
-
-	// Set headers
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	// lfg
-	rr := httptest.NewRecorder()
-	be.baton.getRouter().ServeHTTP(rr, req)
-	return rr
-}
-
 func (be *testBackend) request(method, path string, payload any) *httptest.ResponseRecorder {
 	var req *http.Request
 	var err error
@@ -211,25 +188,6 @@ func (be *testBackend) request(method, path string, payload any) *httptest.Respo
 	require.NoError(be.t, err)
 
 	// lfg
-	rr := httptest.NewRecorder()
-	be.baton.getRouter().ServeHTTP(rr, req)
-	return rr
-}
-
-func (be *testBackend) requestWithUA(method, path, userAgent string, payload any) *httptest.ResponseRecorder {
-	var req *http.Request
-	var err error
-
-	if payload == nil {
-		req, err = http.NewRequest(method, path, bytes.NewReader(nil))
-	} else {
-		payloadBytes, err2 := json.Marshal(payload)
-		require.NoError(be.t, err2)
-		req, err = http.NewRequest(method, path, bytes.NewReader(payloadBytes))
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	require.NoError(be.t, err)
 	rr := httptest.NewRecorder()
 	be.baton.getRouter().ServeHTTP(rr, req)
 	return rr
@@ -393,6 +351,7 @@ func TestGetHeader(t *testing.T) {
 		keyTopBidValue := redis.KeyLatestToBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey)
 
 		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+		require.NoError(t, err)
 
 		rr := httptest.NewRecorder()
 
@@ -426,6 +385,7 @@ func TestGetHeader(t *testing.T) {
 		keyTopBidValue := redis.KeyLatestRoBBidByBuilder(slot, testParentHash, testProposerPubkey, testBuilderPubKey, testChainID)
 
 		err = redis.GetClient().Set(context.Background(), keyTopBidValue, header, 0).Err()
+		require.NoError(t, err)
 
 		rr := httptest.NewRecorder()
 
@@ -498,14 +458,14 @@ func TestGetHeader(t *testing.T) {
 		requestPath := fmt.Sprintf("/eth/v1/builder/header/%s/%s/%s", strconv.FormatUint(1, 10), testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
 
-		for slot, _ := range toBBidsPerSlot {
+		for slot := range toBBidsPerSlot {
 			_, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
 			if err != nil {
 				t.Error(err)
 			}
 		}
 
-		for slot, _ := range roBBidsPerSlot {
+		for slot := range roBBidsPerSlot {
 			_, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
 			if err != nil {
 				t.Error(err)
@@ -1971,13 +1931,3 @@ func TestUpdateRedis(t *testing.T) {
 	}
 }
 */
-
-func gzipBytes(t *testing.T, b []byte) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	_, err := zw.Write(b)
-	require.NoError(t, err)
-	require.NoError(t, zw.Close())
-	return buf.Bytes()
-}

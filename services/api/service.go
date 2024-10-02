@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/AnomalyFi/baton/common"
-	"github.com/AnomalyFi/baton/contracts"
 	"github.com/AnomalyFi/baton/database"
 	"github.com/AnomalyFi/baton/datastore"
 	"github.com/AnomalyFi/baton/seq"
@@ -35,13 +34,11 @@ import (
 	"github.com/go-redis/redis/v9"
 
 	"github.com/AnomalyFi/nodekit-seq/actions"
-	"github.com/AnomalyFi/nodekit-seq/rpc"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	"github.com/NYTimes/gziphandler"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	common2 "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/go-utils/httplogger"
@@ -100,9 +97,7 @@ var (
 
 	// various timings
 	timeoutGetPayloadRetryMs  = cli.GetEnvInt("GETPAYLOAD_RETRY_TIMEOUT_MS", 100)
-	getHeaderRequestCutoffMs  = cli.GetEnvInt("GETHEADER_REQUEST_CUTOFF_MS", 3000)
 	getPayloadRequestCutoffMs = cli.GetEnvInt("GETPAYLOAD_REQUEST_CUTOFF_MS", 4000)
-	getPayloadResponseDelayMs = cli.GetEnvInt("GETPAYLOAD_RESPONSE_DELAY_MS", 1000)
 
 	// api settings
 	apiReadTimeoutMs       = cli.GetEnvInt("API_TIMEOUT_READ_MS", 1500)
@@ -125,9 +120,6 @@ var (
 		"mev-boost/v1.5.0 Go-http-client/1.1", // Prysm v4.0.1 (Shapella signing issue)
 	})
 )
-var uri string
-var networkID uint32
-var chainID ids.ID
 
 // BatonAPIOpts contains the options for a baton
 type BatonAPIOpts struct {
@@ -174,11 +166,6 @@ type blockSimResult struct {
 	validationErr        error
 }
 
-type tracerOptions struct {
-	log *logrus.Entry
-	tx  *types.Transaction
-}
-
 // BatonAPI represents a single Relay instance
 type BatonAPI struct {
 	opts BatonAPIOpts  `jjj:"opts"`
@@ -198,16 +185,12 @@ type BatonAPI struct {
 	memcached *datastore.Memcached      `jjj:"memcached"`
 	db        database.IDatabaseService `jjj:"db"`
 
-	headSlot     uberatomic.Uint64                `jjj:"head_slot"`
-	genesisInfo  *beaconclient.GetGenesisResponse `jjj:"genesis_info"`
-	capellaEpoch uint64                           `jjj:"capella_epoch"`
-	denebEpoch   uint64                           `jjj:"deneb_epoch"`
+	headSlot    uberatomic.Uint64                `jjj:"head_slot"`
+	genesisInfo *beaconclient.GetGenesisResponse `jjj:"genesis_info"`
 
-	proposerDutiesLock       sync.RWMutex                                           `jjj:"proposer_duties_lock"`
-	proposerDutiesResponse   *[]byte                                                `jjj:"proposer_duties_response"` // raw http response
-	proposerDutiesMap        map[uint64]*common.BuilderGetSEQValidatorResponseEntry `jjj:"proposer_duties_map"`
-	proposerDutiesSlot       uint64                                                 `jjj:"proposer_duties_slot"`
-	isUpdatingProposerDuties uberatomic.Bool                                        `jjj:"is_updating_proposer_duties"`
+	proposerDutiesLock     sync.RWMutex                                           `jjj:"proposer_duties_lock"`
+	proposerDutiesResponse *[]byte                                                `jjj:"proposer_duties_response"` // raw http response
+	proposerDutiesMap      map[uint64]*common.BuilderGetSEQValidatorResponseEntry `jjj:"proposer_duties_map"`
 
 	blockSimRateLimiter IBlockSimRateLimiter `jjj:"block_sim_rate_limiter"`
 	tracer              ITracer              `jjj:"tracer"`
@@ -227,14 +210,6 @@ type BatonAPI struct {
 	ffIgnorableValidationErrors  bool `jjj:"ff_ignorable_validation_errors"`     // whether to enable ignorable validation errors
 	ffMockSimulation             bool `jjj:"ff_mock_simulation"`                 // simulations always pass, intended for testing internal server functionality
 
-	payloadAttributesLock sync.RWMutex `jjj:"payload_attributes_lock"`
-
-	// The slot we are currently optimistically simulating.
-	optimisticSlot uberatomic.Uint64 `jjj:"optimistic_slot"`
-	// The number of optimistic blocks being processed (only used for logging).
-	optimisticBlocksInFlight uberatomic.Uint64 `jjj:"optimistic_blocks_in_flight"`
-	// Wait group used to monitor status of per-slot optimistic processing.
-	optimisticBlocksWG sync.WaitGroup `jjj:"optimistic_blocks_wg"`
 	// Cache for builder statuses and collaterals.
 	blockBuildersCache map[string]*blockBuilderCacheEntry `jjj:"block_builders_cache"`
 	// stores DeFi contract addresses rquired for state interference checks
@@ -502,97 +477,6 @@ func (api *BatonAPI) StartServer() (err error) {
 	// Initialize block builder cache.
 	api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
 
-	// TODO: the following are related to beacon client, which are not used in Baton, commented out
-	// log := api.log.WithField("method", "StartServer")
-
-	// Get best beacon-node status by head slot, process current slot and start slot updates
-	// syncStatus, err := api.beaconClient.BestSyncStatus()
-	// if err != nil {
-	// 	return err
-	// }
-	// currentSlot := syncStatus.HeadSlot
-
-	// // Get genesis info
-	// api.genesisInfo, err = api.beaconClient.GetGenesis()
-	// if err != nil {
-	// 	return err
-	// }
-	// log.Infof("genesis info: %d", api.genesisInfo.Data.GenesisTime)
-
-	// // Get and prepare fork schedule
-	// forkSchedule, err := api.beaconClient.GetForkSchedule()
-	// if err != nil {
-	// 	return err
-	// }
-
-	// var foundCapellaEpoch, foundDenebEpoch bool
-	// for _, fork := range forkSchedule.Data {
-	// 	log.Infof("forkSchedule: version=%s / epoch=%d", fork.CurrentVersion, fork.Epoch)
-	// 	switch fork.CurrentVersion {
-	// 	case api.opts.EthNetDetails.CapellaForkVersionHex:
-	// 		foundCapellaEpoch = true
-	// 		api.capellaEpoch = fork.Epoch
-	// 	case api.opts.EthNetDetails.DenebForkVersionHex:
-	// 		foundDenebEpoch = true
-	// 		api.denebEpoch = fork.Epoch
-	// 	}
-	// }
-
-	// Print fork version information
-	// if foundDenebEpoch && hasReachedFork(currentSlot, api.denebEpoch) {
-	// 	log.Infof("deneb fork detected (currentEpoch: %d / denebEpoch: %d)", common.SlotToEpoch(currentSlot), api.denebEpoch)
-	// } else if foundCapellaEpoch && hasReachedFork(currentSlot, api.capellaEpoch) {
-	// 	log.Infof("capella fork detected (currentEpoch: %d / capellaEpoch: %d)", common.SlotToEpoch(currentSlot), api.capellaEpoch)
-	// }
-
-	// TODO: Figure out what to do with this.
-	// start proposer API specific things
-	// if api.opts.ProposerAPI {
-	// 	// Update known validators (which can take 10-30 sec). This is a requirement for service readiness, because without them,
-	// 	// getPayload() doesn't have the information it needs (known validators), which could lead to missed slots.
-	// 	go api.datastore.RefreshKnownValidators(api.log, api.beaconClient, currentSlot)
-
-	// 	// Start the validator registration db-save processor
-	// 	api.log.Infof("starting %d validator registration processors", numValidatorRegProcessors)
-	// 	for i := 0; i < numValidatorRegProcessors; i++ {
-	// 		go api.startValidatorRegistrationDBProcessor()
-	// 	}
-	// }
-
-	// TODO: Verify we don't need anything here for our purposes
-	// start block-builder API specific things
-	// if api.opts.BlockBuilderAPI {
-	// 	// Get current proposer duties blocking before starting, to have them ready
-	// 	api.updateProposerDuties(syncStatus.HeadSlot)
-
-	// 	/*
-	// 		// TODO: We shouldn't need payload attributes event. Remove when absolutely sure.
-	// 		// Subscribe to payload attributes events (only for builder-api)
-	// 		go func() {
-	// 			c := make(chan beaconclient.PayloadAttributesEvent)
-	// 			api.beaconClient.SubscribeToPayloadAttributesEvents(c)
-	// 			for {
-	// 				payloadAttributes := <-c
-	// 				api.processPayloadAttributes(payloadAttributes)
-	// 			}
-	// 		}()
-	// 	*/
-	// }
-
-	// @TODO: Figure out what to do with this here. Recall slots should come from SEQ.
-	// Process current slot
-	// api.processNewSlot(currentSlot)
-
-	// Start regular slot updates
-	// go func() {
-	// 	c := make(chan beaconclient.HeadEventData)
-	// 	api.beaconClient.SubscribeToHeadEvents(c)
-	// 	for {
-	// 		headEvent := <-c
-	// 		api.processNewSlot(headEvent.Slot)
-	// 	}
-	// }()
-
 	// create and start HTTP server
 	api.srv = &http.Server{
 		Addr:    api.opts.ListenAddr,
@@ -655,163 +539,6 @@ func (api *BatonAPI) StopServer() (err error) {
 
 	// shutdown
 	return api.srv.Shutdown(context.Background())
-}
-
-func (api *BatonAPI) startValidatorRegistrationDBProcessor() {
-	for valReg := range api.validatorRegC {
-		err := api.datastore.SaveValidatorRegistration(valReg)
-		if err != nil {
-			api.log.WithError(err).WithFields(logrus.Fields{
-				"reg_pubkey":       valReg.Message.Pubkey,
-				"reg_feeRecipient": valReg.Message.FeeRecipient,
-				"reg_timestamp":    valReg.Message.Timestamp,
-			}).Error("error saving validator registration")
-		}
-	}
-}
-
-func (api *BatonAPI) TobTxChecks(trace *common.CallTrace) (bool, error) {
-	if api.opts.EthNetDetails.Name == common.EthNetworkCustom {
-		return api.TraceChecker(trace, api.IsTraceToWEthDaiPair)
-	} else if api.opts.EthNetDetails.Name == common.EthNetworkGoerli {
-		return api.TraceChecker(trace, api.IsTraceUniV3EthUsdcSwap)
-	}
-
-	return false, fmt.Errorf("state interference checks not implemented for %s", api.opts.EthNetDetails.Name)
-}
-
-// just check if it goes to the DaiWethPair with a swap tx
-func (api *BatonAPI) TraceChecker(trace *common.CallTrace, f common.NetworkTobTxChecker) (bool, error) {
-	stack := []common.CallTrace{*trace}
-
-	for len(stack) > 0 {
-		current := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-
-		res, err := f(current)
-		if err != nil {
-			return false, err
-		}
-		if res {
-			return true, nil
-		}
-
-		for _, call := range current.Calls {
-			stack = append(stack, call)
-		}
-	}
-
-	return false, nil
-}
-
-func (api *BatonAPI) BaseTraceChecks(callTrace common.CallTrace) (bool, error) {
-	if callTrace.To == nil {
-		return false, nil
-	}
-	if callTrace.Type == "STATICCALL" {
-		return false, nil
-	}
-	if len(callTrace.Input) < 4 {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func (api *BatonAPI) IsTraceUniV3EthUsdcSwap(callTrace common.CallTrace) (bool, error) {
-	isValid, err := api.BaseTraceChecks(callTrace)
-	if err != nil {
-		return false, err
-	}
-	if !isValid {
-		return false, nil
-	}
-
-	if *callTrace.To != api.defiAddresses[common.UniV3SwapRouter] {
-		return false, nil
-	}
-
-	uniV3SwapRouterAbi, err := contracts.UniswapV3SwapRouterMetaData.GetAbi()
-	if err != nil {
-		return false, err
-	}
-	exactInputSingleId := uniV3SwapRouterAbi.Methods["exactInputSingle"].ID
-	if !bytes.Equal(callTrace.Input[:4], exactInputSingleId) {
-		return false, nil
-	}
-
-	// unpack the args
-	args, err := common.GetMethodArgs(callTrace.Input, "exactInputSingle", uniV3SwapRouterAbi)
-	if err != nil {
-		return false, err
-	}
-	argBytes, err := json.Marshal(args)
-	swapRouterParams := new(contracts.ISwapRouterExactInputSingleParams)
-	err = json.Unmarshal(argBytes, swapRouterParams)
-	if err != nil {
-		return false, err
-	}
-
-	validTokenPairs := [][2]common2.Address{
-		{api.defiAddresses[common.WethToken], api.defiAddresses[common.UsdcToken]},
-		{api.defiAddresses[common.WethToken], api.defiAddresses[common.WbtcToken]},
-		{api.defiAddresses[common.WethToken], api.defiAddresses[common.DaiToken]},
-	}
-
-	// check if (tokenIn, tokenOut) == (WETH, USDC) or (USDC, WETH) or (WETH, WBTC) or (WBTC, WETH) or (WETH, DAI) or (DAI, WETH)
-	for _, tokenPairs := range validTokenPairs {
-		if swapRouterParams.TokenIn == tokenPairs[0] && swapRouterParams.TokenOut == tokenPairs[1] {
-			return true, nil
-		}
-		if swapRouterParams.TokenIn == tokenPairs[1] && swapRouterParams.TokenOut == tokenPairs[0] {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-// This will change based on the state interference check
-func (api *BatonAPI) IsTraceToWEthDaiPair(callTrace common.CallTrace) (bool, error) {
-	isValid, err := api.BaseTraceChecks(callTrace)
-	if err != nil {
-		return false, err
-	}
-	if !isValid {
-		return false, nil
-	}
-
-	uniswapDaiWethAddress1 := api.defiAddresses[common.DaiWethPair1]
-	uniswapDaiWethAddress2 := api.defiAddresses[common.DaiWethPair2]
-	if *callTrace.To != uniswapDaiWethAddress1 && *callTrace.To != uniswapDaiWethAddress2 {
-		return false, nil
-	}
-
-	// this will be the same across all environments
-	uniswapPairAbi, err := contracts.UniswapPairMetaData.GetAbi()
-	if err != nil {
-		return false, err
-	}
-	swapId := uniswapPairAbi.Methods["swap"].ID
-	if !bytes.Equal(callTrace.Input[:4], swapId) {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func (api *BatonAPI) getTraces(ctx context.Context, opts tracerOptions) (*common.CallTraceResponse, error) {
-	t := time.Now()
-	res, err := api.tracer.TraceTx(ctx, opts.tx)
-	log := opts.log.WithFields(logrus.Fields{
-		"durationMs": time.Since(t).Milliseconds(),
-	})
-	if err != nil {
-		log.WithError(err).Warn("tracer failed")
-		return nil, err
-	}
-	log.Info("tracer successful")
-	return res, nil
 }
 
 // TODO: to be updated, to return gasUsed as a map(chainID -> gasUsed)
@@ -888,108 +615,6 @@ func (api *BatonAPI) simulateL2Txs(
 	}
 
 	// TODO: do we return the sum of used gas?
-	return gasUsed, nil, nil
-}
-
-// simulateBlock sends a request for a block simulation to blockSimRateLimiter.
-func (api *BatonAPI) simulateBlock(
-	ctx context.Context,
-	req *common.SubmitNewBlockRequest,
-	origTxs []*chain.Transaction,
-	log *logrus.Entry,
-) (gasUsed uint64, requestErr, validationErr error) {
-	t := time.Now()
-	txsByNamespace := make(map[string][]hexutil.Bytes)
-
-	for i, tx := range origTxs {
-		// case 1: checking if last tx(proposer tx)
-		if i == (len(req.Chunk.Txs) - 1) {
-			// checking that len returns 1 action since proposer tx should only have transfer action itself
-			if len(tx.Actions) != 1 {
-				return 0, errors.New("simulateBlock: transfer action had multiple ethTxs"), nil
-			}
-		} else {
-			for _, action := range tx.Actions {
-				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-					ns := string(seqMsg.ChainID)
-					txsByNamespace[ns] = append(txsByNamespace[ns], seqMsg.Data)
-				} else {
-					log.Error("simulateBlock: tx is not sequencer message")
-					return 0, errors.New("simulateBlock: tx is not sequencer message"), nil
-				}
-			}
-		}
-	}
-
-	// TODO: might need to gauge the sum of time used for simulation even if they are simulated concurrently
-	var wg sync.WaitGroup
-	blockNumber := *req.BlockNumber()
-	if blockNumber == nil {
-		log.Error("simulateBlock: BlockNumber is nil")
-		return 0, errors.New("simulateBlock: BlockNumber is nil"), nil
-	}
-	var simResL sync.Mutex
-	simRes := make(map[string]struct {
-		gasUsed       uint64
-		requestErr    error
-		validationErr error
-	}, len(blockNumber))
-	for chainID, ethTxs := range txsByNamespace {
-		wg.Add(1)
-		go func(chainID string, txs []hexutil.Bytes) {
-			defer wg.Done()
-
-			blockReq := common.BlockValidationRequest{
-				Txs:              txs,
-				BlockNumber:      blockNumber[chainID],
-				StateBlockNumber: "latest",
-				Timestamp:        uint64(time.Now().UnixMilli()),
-			}
-
-			gasUsed, requestErr, validationErr = api.blockSimRateLimiter.SimBlockAndGetGasUsedForChain(ctx, chainID, &blockReq)
-			log = log.WithFields(logrus.Fields{
-				"durationMs": time.Since(t).Milliseconds(),
-				"numWaiting": api.blockSimRateLimiter.CurrentCounter(),
-			})
-
-			simResL.Lock()
-			defer simResL.Unlock()
-			simRes[chainID] = struct {
-				gasUsed       uint64
-				requestErr    error
-				validationErr error
-			}{
-				gasUsed:       gasUsed,
-				requestErr:    requestErr,
-				validationErr: validationErr,
-			}
-		}(chainID, ethTxs)
-	}
-	wg.Wait()
-
-	gasUsed = 0
-	for chainID := range txsByNamespace {
-		r := simRes[chainID]
-		if validationErr != nil {
-			if api.ffIgnorableValidationErrors {
-				// Operators chooses to ignore certain validation errors
-				ignoreError := validationErr.Error() == ErrBlockAlreadyKnown || validationErr.Error() == ErrBlockRequiresReorg || strings.Contains(validationErr.Error(), ErrMissingTrieNode)
-				if ignoreError {
-					log.WithError(validationErr).Warn("block validation failed with ignorable error")
-					return uint64(0), nil, nil
-				}
-			}
-			log.WithError(validationErr).Warn("block validation failed")
-			return 0, nil, validationErr
-		}
-		if requestErr != nil {
-			log.WithError(requestErr).Warn("block validation failed: request error")
-			return 0, requestErr, nil
-		}
-
-		gasUsed += r.gasUsed
-	}
-
 	return gasUsed, nil, nil
 }
 
@@ -1563,7 +1188,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			}
 
 			var robFirstChainID string
-			for k, _ := range getPayloadResp.ExecPayloads.RoBPayloads {
+			for k := range getPayloadResp.ExecPayloads.RoBPayloads {
 				robFirstChainID = k
 			}
 			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, proposerPubkey.String(), payload.ParentHash, robFirstChainID)
@@ -1892,72 +1517,6 @@ func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry,
 	}
 
 	return builderEntry, true
-}
-
-// Checks the quality of the TOB txs, if it is the txs expected in a TOB
-func (api *BatonAPI) checkTobTxsStateInterference(txs []*types.Transaction, log *logrus.Entry) error {
-	var wg sync.WaitGroup
-
-	//// get traces
-	tracerErrors := make([]error, len(txs))
-	validationErrors := make([]error, len(txs))
-	for i, tx := range txs {
-		// some sanity checks
-		if tx.To() == nil {
-			return fmt.Errorf("contract creation cannot be a TOB tx")
-		}
-		if i == len(txs)-1 {
-			continue
-		}
-
-		threadIndex := i
-		threadTx := tx
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			txTraces, err := api.getTraces(context.Background(), tracerOptions{
-				log: log,
-				tx:  threadTx,
-			})
-			if err != nil {
-				tracerErrors[threadIndex] = fmt.Errorf("failed to get traces: %s", err.Error())
-				return
-			}
-
-			res, err := api.TobTxChecks(&txTraces.Result)
-			if err != nil {
-				validationErrors[threadIndex] = fmt.Errorf("state interference checks failed with: %s", err.Error())
-				return
-			}
-			if !res {
-				validationErrors[threadIndex] = fmt.Errorf("not a valid tob tx")
-				return
-			}
-		}()
-	}
-
-	wg.Wait()
-
-	//if len(tracerErrors) > 0 {
-	//	return fmt.Errorf("failed to get traces")
-	//}
-	for _, err := range tracerErrors {
-		if err != nil {
-			return fmt.Errorf("failed to get traces")
-		}
-	}
-
-	for _, err := range validationErrors {
-		if err != nil {
-			return fmt.Errorf("not a valid tob tx")
-		}
-	}
-
-	//if len(validationErrors) > 0 {
-	//	return fmt.Errorf("not a valid tob tx")
-	//}
-
-	return nil
 }
 
 func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
@@ -2515,7 +2074,7 @@ func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID strin
 	tobPayload = payload
 
 	txsRaw := tobPayload.Transactions
-	parser := rpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
+	parser := srpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
 	actionRegistry, authRegistry := parser.Registry()
 	_, txs, err := chain.UnmarshalTxs(txsRaw, SeqUnmarshalTxsInitialCapacity, actionRegistry, authRegistry)
 	if err != nil {
@@ -2563,7 +2122,7 @@ func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[s
 		tobPayload = payload
 
 		txsRaw := tobPayload.Transactions
-		parser := rpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
+		parser := srpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
 		actionRegistry, authRegistry := parser.Registry()
 		_, txs, err := chain.UnmarshalTxs(txsRaw, SeqUnmarshalTxsInitialCapacity, actionRegistry, authRegistry)
 		if err != nil {

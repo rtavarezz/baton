@@ -28,6 +28,7 @@ func NewBuilderToBBidsFromRedis(ctx context.Context, r *RedisCache, pipeline red
 	return NewBuilderBids(bidValueMap), nil
 }
 
+/*
 func (b *BuilderBids) getTopToBBid() (string, *big.Int) {
 	topBidBuilderPubkey := ""
 	topBidValue := big.NewInt(0)
@@ -39,6 +40,7 @@ func (b *BuilderBids) getTopToBBid() (string, *big.Int) {
 	}
 	return topBidBuilderPubkey, topBidValue
 }
+*/
 
 func NewToBBuilderBidsFromRedis(ctx context.Context, r *RedisCache, pipeline redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (*BuilderBids, error) {
 	keyBidValues := r.keyBlockBuilderLatestToBBidsValue(slot, parentHash, proposerPubkey)

@@ -5,7 +5,6 @@
 // - Saving metrics
 // - Deleting old bids
 // - ...
-
 package housekeeper
 
 import (

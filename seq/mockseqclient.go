@@ -1,3 +1,4 @@
+// Package seq contains logic to interface with seq types
 package seq
 
 import (
@@ -9,7 +10,6 @@ import (
 )
 
 type MockSeqClient struct {
-	headSlot          uint64
 	onNewBlockHandler func(*chain.StatefulBlock, *hrpc.NextProposerReply)
 }
 

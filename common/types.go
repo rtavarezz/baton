@@ -559,9 +559,8 @@ func (r *SubmitNewBlockRequest) BlockHash() common.Hash {
 	return r.Chunk.BlockHash
 }
 
-// TODO: can just return map without pointer, map is always passed by reference
-func (r *SubmitNewBlockRequest) BlockNumber() *map[string]string {
-	return &r.Chunk.BlockNumber
+func (r *SubmitNewBlockRequest) BlockNumber() map[string]string {
+	return r.Chunk.BlockNumber
 }
 
 func (r *SubmitNewBlockRequest) ProposerPubKey() *bls.PublicKey {
@@ -602,13 +601,14 @@ func (r *SubmitNewBlockRequest) Txs() []byte {
 }
 
 func (r *SubmitNewBlockRequest) BlockNumberAsStr() (string, error) {
-	blockNumberJson, err := json.Marshal(r.BlockNumber())
+	blockNumberJSON, err := json.Marshal(r.BlockNumber())
 	if err != nil {
 		return "", errors.New("could not marshal block number into string")
 	}
-	return string(blockNumberJson), nil
+	return string(blockNumberJSON), nil
 }
 
+// Value gets from the list of hypersdk tx
 // Note the value should come from the transfer action.
 func Value(txs []*chain.Transaction) (*big.Int, error) {
 	if len(txs) == 0 {
@@ -651,7 +651,7 @@ func (r *SubmitNewBlockRequest) Sig() *bls.Signature {
 	return r.signature
 }
 
-// callLog is the result of LOG opCode
+// CallLog is the result of LOG opCode
 type CallLog struct {
 	Address common.Address `json:"address"`
 	Topics  []common.Hash  `json:"topics"`
@@ -687,7 +687,7 @@ type BlockValidationRequest struct {
 	Timestamp        uint64          `json:"timestamp"`        // Optional number. the timestamp to use for this bundle simulation
 }
 
-// Used in simulating bundle and getting gas used
+// FlashbotsCallBundleResult is used in simulating bundle and getting gas used
 type FlashbotsCallBundleResult struct {
 	BundleGasPrice    string          `json:"bundleGasPrice"`
 	BundleHash        string          `json:"bundleHash"`
@@ -751,7 +751,7 @@ type AnchorBlockInfo struct {
 	ProposerPubkey []byte     `json:"proposer_pubkey"`
 }
 
-// SEQ validator should sign this
+// ExecHeadersInfo should be signed by the validator
 type ExecHeadersInfo struct {
 	// Make signature based off ToBHash + RoBHashes then we use this signature for Baton/Anchor to check against
 	ToBHash   *AnchorHeader            `json:"tobhash"`
@@ -809,20 +809,20 @@ func (r *AnchorGetPayloadResponse) SetExecPayloadsSig(sig *bls.Signature) {
 	r.ExecPayloadsSig = signatureAsBytes[:]
 }
 
-func (msg *AnchorGetPayloadResponse) IsEmpty() bool {
-	return msg.ExecPayloads.ToBPayload == nil && len(msg.ExecPayloads.RoBPayloads) == 0
+func (r *AnchorGetPayloadResponse) IsEmpty() bool {
+	return r.ExecPayloads.ToBPayload == nil && len(r.ExecPayloads.RoBPayloads) == 0
 }
 
-func (msg *AnchorGetPayloadResponse) NumToBTxs() int {
-	if msg.ExecPayloads.ToBPayload == nil {
+func (r *AnchorGetPayloadResponse) NumToBTxs() int {
+	if r.ExecPayloads.ToBPayload == nil {
 		return 0
 	}
-	return len(msg.ExecPayloads.ToBPayload.Transactions)
+	return len(r.ExecPayloads.ToBPayload.Transactions)
 }
 
-func (msg *AnchorGetPayloadResponse) NumRoBTxs() int {
+func (r *AnchorGetPayloadResponse) NumRoBTxs() int {
 	var numTxs int
-	for _, txs := range msg.ExecPayloads.RoBPayloads {
+	for _, txs := range r.ExecPayloads.RoBPayloads {
 		numTxs = numTxs + len(txs.Transactions)
 	}
 	return numTxs
@@ -859,13 +859,13 @@ func NewExecutionHeader() ExecHeadersInfo {
 }
 
 // VerifyHeaderSignature verifies that the getHeader ExecHeaders have been signed with the given public key
-func VerifyHeaderSignature(response *AnchorGetHeaderResponse, pubKey bls.PublicKey) (bool, error) {
-	payloadHash, err := HashExecHeaders(&response.ExecHeaders)
+func VerifyHeaderSignature(h *AnchorGetHeaderResponse, pubKey bls.PublicKey) (bool, error) {
+	payloadHash, err := HashExecHeaders(&h.ExecHeaders)
 	if err != nil {
 		return false, err
 	}
 
-	payloadSignatureBytes := response.ExecHeadersSig
+	payloadSignatureBytes := h.ExecHeadersSig
 	pubKeyBytes := pubKey.Bytes()
 
 	return bls.VerifySignatureBytes(payloadHash[:], payloadSignatureBytes[:], pubKeyBytes[:])
@@ -923,9 +923,9 @@ func GetExecPayloadSignature(payloads *ExecPayloadsInfo, secretKey *bls.SecretKe
 	signature := bls.Sign(secretKey, payloadHash[:])
 	return signature, nil
 }
-func (r *AnchorGetHeaderResponse) SetExecPayloadsSig(sig *bls.Signature) {
+func (h *AnchorGetHeaderResponse) SetExecPayloadsSig(sig *bls.Signature) {
 	signatureAsBytes := sig.Bytes()
-	r.ExecHeadersSig = signatureAsBytes[:]
+	h.ExecHeadersSig = signatureAsBytes[:]
 }
 
 func SignAnchorGetHeaderResponse(chainID ids.ID, networkID uint32, response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {

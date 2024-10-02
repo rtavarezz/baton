@@ -118,7 +118,7 @@ func (b *BlockSimulationRateLimiter) SimBlockAndGetGasUsedForChain(context conte
 	return b.simBlockAndGetGasUsed(context, b.blockSimURLs[chainID], req)
 }
 
-func (b *BlockSimulationRateLimiter) simBlockAndGetGasUsed(context context.Context, simUrl string, request *common.BlockValidationRequest) (uint64, error, error) {
+func (b *BlockSimulationRateLimiter) simBlockAndGetGasUsed(context context.Context, simURL string, request *common.BlockValidationRequest) (uint64, error, error) {
 	b.cv.L.Lock()
 	cnt := atomic.AddInt64(&b.counter, 1)
 	if maxConcurrentBlocks > 0 && cnt > maxConcurrentBlocks {
@@ -142,7 +142,7 @@ func (b *BlockSimulationRateLimiter) simBlockAndGetGasUsed(context context.Conte
 
 	// Create and fire off JSON-RPC request
 	simReq = jsonrpc.NewJSONRPCRequest("1", "eth_callBundle", request)
-	resp, requestErr, validationErr := SendJSONRPCRequest(&b.client, *simReq, simUrl, nil)
+	resp, requestErr, validationErr := SendJSONRPCRequest(&b.client, *simReq, simURL, nil)
 
 	// read out gas used to simulate bundle
 	var callBundleResult common.FlashbotsCallBundleResult

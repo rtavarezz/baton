@@ -3,7 +3,6 @@ package api
 import (
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/AnomalyFi/baton/common"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
@@ -11,17 +10,6 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 
 	eth "github.com/ethereum/go-ethereum/common"
-)
-
-var (
-	ErrBlockHashMismatch  = errors.New("blockHash mismatch")
-	ErrParentHashMismatch = errors.New("parentHash mismatch")
-
-	ErrNoPayloads               = errors.New("no payloads")
-	ErrNoWithdrawals            = errors.New("no withdrawals")
-	ErrPayloadMismatchBellatrix = errors.New("bellatrix beacon-block but no bellatrix payload")
-	ErrPayloadMismatchCapella   = errors.New("capella beacon-block but no capella payload")
-	ErrHeaderHTRMismatch        = errors.New("beacon-block and payload header mismatch")
 )
 
 func checkBLSPublicKeyHex(pkHex string) error {
@@ -38,11 +26,6 @@ func ConvertPhase0ToBLSPubKey(phase0PubKey phase0.BLSPubKey) (*bls.PublicKey, er
 		return nil, fmt.Errorf("failed to deserialize BLS public key: %w", err)
 	}
 	return blsPubKey, nil
-}
-
-func hasReachedFork(slot, forkEpoch uint64) bool {
-	currentEpoch := slot / common.SlotsPerEpoch
-	return currentEpoch >= forkEpoch
 }
 
 func Sha256ToCommonHash(data []byte) eth.Hash {

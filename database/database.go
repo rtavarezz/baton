@@ -334,6 +334,7 @@ func (s *DatabaseService) GetToBAnchorPayloadEntryBySlotPkHash(
 	return entry, err
 }
 
+// GetRoBAnchorPayloadEntryBySlotPkHash saves payload by slot pk hash
 // @TODO: Fix me later. Needs to use chain id.
 func (s *DatabaseService) GetRoBAnchorPayloadEntryBySlotPkHash(
 	slot uint64,
@@ -355,7 +356,7 @@ func (s *DatabaseService) SaveDeliveredAnchorPayload(
 	signedAt time.Time,
 	publishMs uint64,
 ) error {
-	payloadRespJson, err := json.Marshal(payloadResp)
+	payloadRespJSON, err := json.Marshal(payloadResp)
 	if err != nil {
 		return err
 	}
@@ -363,7 +364,7 @@ func (s *DatabaseService) SaveDeliveredAnchorPayload(
 	deliveredPayloadEntry := DeliveredPayloadEntry2{
 		SignedAt: NewNullTime(signedAt),
 
-		Payload: string(payloadRespJson),
+		Payload: string(payloadRespJSON),
 		Slot:    bidTrace.Slot,
 		Epoch:   bidTrace.Slot / common.SlotsPerEpoch,
 

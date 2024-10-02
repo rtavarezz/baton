@@ -2,12 +2,9 @@ package datastore
 
 import (
 	"testing"
-
-	"github.com/AnomalyFi/baton/database"
-	"github.com/alicebob/miniredis/v2"
-	"github.com/stretchr/testify/require"
 )
 
+/*
 func setupTestDatastore(t *testing.T, mockDB *database.MockDB) *Datastore {
 	t.Helper()
 
@@ -22,6 +19,7 @@ func setupTestDatastore(t *testing.T, mockDB *database.MockDB) *Datastore {
 
 	return ds
 }
+*/
 
 // TODO: Fix me
 func TestGetPayloadFailure(t *testing.T) {

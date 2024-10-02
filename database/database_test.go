@@ -41,7 +41,6 @@ var (
 		RedisUpdate: 45,
 		Total:       46,
 	}
-	errFoo = fmt.Errorf("fake simulation error")
 )
 
 func createValidatorRegistration(pubKey string) ValidatorRegistrationEntry {
