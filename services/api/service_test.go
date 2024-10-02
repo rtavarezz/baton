@@ -1139,6 +1139,10 @@ func TestGetCachedL2Txs(t *testing.T) {
 	overheadPackingTx := 512 // byte
 
 	t.Run("benchmark extracting small(high computation load) L2 txs from raw chain.Transactions in ToB payload stored in cache", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping benchmark test in small mode(high computation load)")
+		}
+
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 		redis := backend.GetRedis()
 
@@ -1173,6 +1177,10 @@ func TestGetCachedL2Txs(t *testing.T) {
 	})
 
 	t.Run("benchmark extracting large(high network load) L2 txs from raw chain.Transactions in ToB payload stored in cache", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping benchmark test in large mode(high network load)")
+		}
+
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 		redis := backend.GetRedis()
 
@@ -1207,6 +1215,10 @@ func TestGetCachedL2Txs(t *testing.T) {
 	})
 
 	t.Run("benchmark extracting small(high computation load) L2 txs from raw chain.Transactions in RoB payload stored in cache", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping benchmark test in small(high computation load) mode")
+		}
+
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 		redis := backend.GetRedis()
 
@@ -1246,6 +1258,10 @@ func TestGetCachedL2Txs(t *testing.T) {
 	})
 
 	t.Run("benchmark extracting large(high network load) L2 txs from raw chain.Transactions in RoB payload stored in cache", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping benchmark test in large mode(high network load)")
+		}
+
 		backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 		redis := backend.GetRedis()
 

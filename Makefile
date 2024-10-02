@@ -9,12 +9,18 @@ clean:
 	git clean -fdx
 
 build:
-	go build -trimpath -ldflags "-s -X cmd.Version=${VERSION} -X main.Version=${VERSION}" -v -o mev-boost-relay .
+	go build -trimpath -ldflags "-s -X cmd.Version=${VERSION} -X main.Version=${VERSION}" -v -o baton .
 
 test:
+	go test -short ./...
+
+test-full:
 	go test ./...
 
 test-race:
+	go test -short -race ./...
+
+test-full-race:
 	go test -race ./...
 
 lint:
@@ -34,7 +40,7 @@ fmt:
 	go mod tidy
 
 test-coverage:
-	go test -race -v -covermode=atomic -coverprofile=coverage.out ./...
+	go test -short -race -v -covermode=atomic -coverprofile=coverage.out ./...
 	go tool cover -func coverage.out
 
 cover-html:
@@ -43,7 +49,7 @@ cover-html:
 	unlink /tmp/boost-relay.cover.tmp
 
 docker-image:
-	DOCKER_BUILDKIT=1 docker build --platform linux/amd64 --build-arg VERSION=${VERSION} . -t flashbots/mev-boost-relay
+	DOCKER_BUILDKIT=1 docker build --platform linux/amd64 --build-arg VERSION=${VERSION} . -t AnomalyFi/baton
 
 lt: lint test
 flt: fmt lint test
