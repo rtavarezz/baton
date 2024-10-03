@@ -115,7 +115,7 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 				client.blockHeadL.Unlock()
 
 				// query next proposer on receiving a new block, this save us time while we do compuating during round trip
-				nextProposer, err := client.nextProposer(bctx)
+				nextProposer, err := client.nextProposer(bctx, blk.Hght+1)
 
 				client.proposerInfoL.Lock()
 				if err != nil {
@@ -157,8 +157,8 @@ func (s *SeqClient) NextProposer(ctx context.Context) *hrpc.NextProposerReply {
 	return s.proposerInfo
 }
 
-func (s *SeqClient) nextProposer(ctx context.Context) (*hrpc.NextProposerReply, error) {
-	return s.hrpc.NextProposer(ctx)
+func (s *SeqClient) nextProposer(ctx context.Context, height uint64) (*hrpc.NextProposerReply, error) {
+	return s.hrpc.NextProposer(ctx, height)
 }
 
 func (s *SeqClient) CurrentValidators(ctx context.Context) []*hrpc.Validator {

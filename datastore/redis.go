@@ -431,6 +431,7 @@ func (r *RedisCache) GetRelayConfig(field string) (string, error) {
 
 func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
+	fmt.Printf("keyTopBid(GET): %s\n", key)
 	resp := new(common.AnchorHeader)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
@@ -441,6 +442,8 @@ func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey strin
 
 func (r *RedisCache) GetBestRoBBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
+	fmt.Printf("keyTopBid-RoB(GET): %s\n", key)
+
 	resp := new(common.AnchorHeader)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
@@ -579,6 +582,7 @@ func (r *RedisCache) SaveExecutionToBAnchorPayload(
 	payload *common.AnchorPayload,
 ) (err error) {
 	key := r.keyExecToBAnchorPayload(slot, proposerPubkey, parentHash)
+	fmt.Printf("keyAnchorPayload: %s\n", key)
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -612,6 +616,7 @@ func (r *RedisCache) GetExecutionToBAnchorPayload(
 	resp := new(common.AnchorPayload)
 
 	key := r.keyExecToBAnchorPayload(slot, proposerPubkey, blockHash)
+	fmt.Printf("keyAnchorPayload(GET): %s\n", key)
 	val, err := r.client.Get(context.Background(), key).Result()
 	if err != nil {
 		return nil, err
@@ -1400,6 +1405,7 @@ func (r *RedisCache) _updateToBTopBid(
 
 	// Copy winning bid to top bid cache
 	keyTopBid := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
+	fmt.Printf("keyTopBid(SET): %s\n", keyTopBid)
 	c := pipeliner.Copy(context.Background(), keyBidToBSource, keyTopBid, 0, true)
 	_, err = pipeliner.Exec(ctx)
 	if err != nil {
@@ -1471,7 +1477,7 @@ func (r *RedisCache) _updateRoBTopBid(
 
 	// Copy winning bid to top bid cache
 	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	fmt.Printf("keyTopBid (header): %s\n", keyTopBid)
+	fmt.Printf("keyTopBid-RoB(SET): %s\n", keyTopBid)
 	c := pipeline.Copy(context.Background(), keyBidRoBSource, keyTopBid, 0, true)
 	_, err = pipeline.Exec(ctx)
 	if err != nil {

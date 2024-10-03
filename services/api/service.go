@@ -979,6 +979,8 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		hasToB = bid != nil
 	}
 
+	log.Debugf("getHeader has ToB: %+v", hasToB)
+
 	// Make sure the retrieved ToB block is valid
 	if hasToB {
 		if bid.Header.Big().Cmp(big.NewInt(0)) == 0 {
