@@ -1446,7 +1446,6 @@ func TestGetPayload(t *testing.T) {
 			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
 			SignedHeaders: signedHeaderBytes[:],
 		}
-		payloadReq.GetPublicKey()
 		rr := backend.request(http.MethodPost, requestPath, payloadReq)
 		require.Equal(t, http.StatusOK, rr.Code)
 	})
@@ -1608,7 +1607,6 @@ func TestOverallBasicFlow(t *testing.T) {
 		// Exec headers signed by validator's key. Should be [48]byte bls.signature.
 		SignedHeaders: signedHeadersBytes[:],
 	}
-	payloadReq.GetPublicKey()
 	requestPath := "/eth/v1/builder/blinded_blocks"
 	rr = backend.request(http.MethodPost, requestPath, payloadReq)
 	require.Equal(t, http.StatusOK, rr.Code)

@@ -82,7 +82,9 @@ func TestU256StrToUint256(t *testing.T) {
 
 func TestGetEnvStrSlice(t *testing.T) {
 	testEnvVar := "TESTENV_TestGetEnvStrSlice"
-	os.Unsetenv(testEnvVar)
+	err := os.Unsetenv(testEnvVar)
+	require.NoError(t, err)
+
 	r := GetEnvStrSlice(testEnvVar, nil)
 	require.Len(t, r, 0)
 
@@ -96,5 +98,6 @@ func TestGetEnvStrSlice(t *testing.T) {
 	require.Len(t, r, 2)
 	require.Equal(t, "str1", r[0])
 	require.Equal(t, "str2", r[1])
-	os.Unsetenv(testEnvVar)
+	err = os.Unsetenv(testEnvVar)
+	require.NoError(t, err)
 }

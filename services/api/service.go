@@ -1644,7 +1644,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 	nextTime = time.Now().UTC()
 	pf.Decode = uint64(nextTime.Sub(prevTime).Microseconds())
-	prevTime = nextTime
 
 	isLargeRequest := len(payloadBytes) > fastTrackPayloadSizeLimit
 	slot := blockReq.Slot()
@@ -1748,8 +1747,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 				"topBidValue":    topBidValue.String(),
 				"newBidIsTopBid": bidIsTopBid,
 			})
-		} else {
-			bidIsTopBid = true
 		}
 	} else {
 		hasRoB, err = api.redis.HasTopRoBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
@@ -1770,8 +1767,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 				"topBidValue":    topBidValue.String(),
 				"newBidIsTopBid": bidIsTopBid,
 			})
-		} else {
-			bidIsTopBid = true
 		}
 	}
 

@@ -189,7 +189,7 @@ func (db MockDB) GetBlockSubmissionEntry(slot uint64, proposerPubkey, blockHash 
 	key := fmt.Sprintf("%d-%s-%s", slot, proposerPubkey, blockHash)
 	entry, ok := db.BlockSubmissions[key]
 	if !ok {
-		return nil, fmt.Errorf(sql.ErrNoRows.Error())
+		return nil, errors.New(sql.ErrNoRows.Error())
 	}
 
 	return entry, nil
@@ -341,7 +341,7 @@ func (db MockDB) GetIncludedTobTxsForGivenSlotAndParentHashAndBlockHash(slot uin
 	key := fmt.Sprintf("%d-%s-%s", slot, parentHash, blockHash)
 	entries, ok := db.IncludedTobTxs[key]
 	if !ok {
-		return nil, fmt.Errorf(sql.ErrNoRows.Error())
+		return nil, errors.New(sql.ErrNoRows.Error())
 	}
 
 	return entries, nil
@@ -380,7 +380,7 @@ func (db MockDB) GetToBSubmitProfile(slot uint64, parentHash string, txHashes st
 
 	res, ok := db.TobSubmitProfile[key]
 	if !ok {
-		return nil, fmt.Errorf(sql.ErrNoRows.Error())
+		return nil, errors.New(sql.ErrNoRows.Error())
 	}
 
 	return res, nil
@@ -391,7 +391,7 @@ func (db MockDB) GetRoBSubmitProfile(slot uint64, parentHash string, txHashes st
 
 	res, ok := db.RobSubmitProfile[key]
 	if !ok {
-		return nil, fmt.Errorf(sql.ErrNoRows.Error())
+		return nil, errors.New(sql.ErrNoRows.Error())
 	}
 
 	return res, nil

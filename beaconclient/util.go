@@ -64,7 +64,9 @@ func fetchBeacon(method, url string, payload, dst any, timeout *time.Duration, h
 	if err != nil {
 		return 0, fmt.Errorf("client refused for %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
