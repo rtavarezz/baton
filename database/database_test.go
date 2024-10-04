@@ -1,11 +1,17 @@
 package database
 
-// TODO: For now, comment out this test. Fix later.
-
-/*
 import (
+	"database/sql"
+	"fmt"
+	"github.com/AnomalyFi/baton/database/migrations"
+	"github.com/AnomalyFi/baton/database/vars"
+	v1 "github.com/attestantio/go-builder-client/api/v1"
+	"github.com/ava-labs/avalanchego/ids"
+	common2 "github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,9 +104,7 @@ func resetDatabase(t *testing.T) *DatabaseService {
 	require.NoError(t, err)
 	return db
 }
-*/
 
-/*
 func TestSaveValidatorRegistration(t *testing.T) {
 	db := resetDatabase(t)
 
@@ -186,9 +190,7 @@ func TestSaveValidatorRegistration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), cnt)
 }
-*/
 
-/*
 func TestMigrations(t *testing.T) {
 	db := resetDatabase(t)
 	query := `SELECT COUNT(*) FROM ` + vars.TableMigrations + `;`
@@ -197,9 +199,7 @@ func TestMigrations(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, len(migrations.Migrations.Migrations), rowCount)
 }
-*/
 
-/*
 func TestSetBlockBuilderStatus(t *testing.T) {
 	db := resetDatabase(t)
 	// Four test builders, 2 with matching builder id, 2 with no builder id.
@@ -263,9 +263,7 @@ func TestSetBlockBuilderStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, builder.IsOptimistic)
 }
-*/
 
-/*
 func TestSetBlockBuilderCollateral(t *testing.T) {
 	db := resetDatabase(t)
 	pubkey := insertTestBuilder(t, db)
@@ -285,10 +283,8 @@ func TestSetBlockBuilderCollateral(t *testing.T) {
 	require.Equal(t, builderID, builder.BuilderID)
 	require.Equal(t, collateralStr, builder.Collateral)
 }
-*/
 
 // TODO: Add back when we add builder demotion
-/*
 func TestInsertBuilderDemotion(t *testing.T) {
 	db := resetDatabase(t)
 	pk, sk := getTestKeyPair(t)
@@ -316,10 +312,8 @@ func TestInsertBuilderDemotion(t *testing.T) {
 	require.Equal(t, pk.String(), entry.BuilderPubkey)
 	require.Equal(t, blockHashStr, entry.BlockHash)
 }
-*/
 
 // TODO: Add back when we add builder demotion
-/*
 func TestUpdateBuilderDemotion(t *testing.T) {
 	db := resetDatabase(t)
 
@@ -372,9 +366,7 @@ func TestUpdateBuilderDemotion(t *testing.T) {
 	require.True(t, demotion.SignedValidatorRegistration.Valid)
 	require.NotEmpty(t, demotion.SignedValidatorRegistration.String)
 }
-*/
 
-/*
 func TestGetBlockSubmissionEntry(t *testing.T) {
 	db := resetDatabase(t)
 	pubkey := insertTestBuilder(t, db)
@@ -391,9 +383,7 @@ func TestGetBlockSubmissionEntry(t *testing.T) {
 	require.True(t, entry.OptimisticSubmission)
 	require.True(t, entry.EligibleAt.Valid)
 }
-*/
 
-/*
 func TestGetBuilderSubmissions(t *testing.T) {
 	db := resetDatabase(t)
 	pubkey := insertTestBuilder(t, db)
@@ -410,9 +400,7 @@ func TestGetBuilderSubmissions(t *testing.T) {
 	require.Equal(t, feeRecipient.String(), e.ProposerFeeRecipient)
 	require.Equal(t, fmt.Sprint(collateral), e.Value)
 }
-*/
 
-/*
 func TestUpsertTooLateGetPayload(t *testing.T) {
 	db := resetDatabase(t)
 	slot := uint64(12345)
@@ -450,9 +438,7 @@ func TestUpsertTooLateGetPayload(t *testing.T) {
 	entry = entries[1]
 	require.Equal(t, hash2, entry.BlockHash)
 }
-*/
 
-/*
 func TestIncludedTobTxs(t *testing.T) {
 	db := resetDatabase(t)
 
@@ -495,9 +481,7 @@ func TestIncludedTobTxs(t *testing.T) {
 	require.Equal(t, len(entries), 0)
 
 }
-*/
 
-/*
 func TestTobSubmitProfile(t *testing.T) {
 	db := resetDatabase(t)
 
@@ -526,4 +510,3 @@ func TestTobSubmitProfile(t *testing.T) {
 	require.Equal(t, tobSubmitProfile.SimulationDurationUs, simulationDuration)
 	require.Equal(t, tobSubmitProfile.TracerDurationUs, tracerDuration)
 }
-*/
