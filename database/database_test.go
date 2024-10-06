@@ -1,16 +1,13 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/AnomalyFi/baton/database/migrations"
 	"github.com/AnomalyFi/baton/database/vars"
-	v1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/ava-labs/avalanchego/ids"
 	common2 "github.com/ethereum/go-ethereum/common"
-	"github.com/holiman/uint256"
+	"github.com/flashbots/go-boost-utils/bls"
 	"math/big"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -24,16 +21,18 @@ import (
 )
 
 const (
-	slot                 = uint64(42)
-	collateral           = 1000
-	collateralStr        = "1000"
-	builderID            = "builder0x69"
-	randao               = "01234567890123456789012345678901"
-	optimisticSubmission = true
+	slot                  = uint64(42)
+	collateral            = 1000
+	collateralStr         = "1000"
+	builderID             = "builder0x69"
+	randao                = "01234567890123456789012345678901"
+	optimisticSubmission  = true
+	testProposerRecipient = "0x7f6d156912a4cb1e74ee37e492ad88123"
 )
 
 var (
-	runDBTests   = os.Getenv("RUN_DB_TESTS") == "1" //|| true
+	runDBTests = true
+	//runDBTests   = os.Getenv("RUN_DB_TESTS") == "1" //|| true
 	feeRecipient = bellatrix.ExecutionAddress{0x02}
 	blockHashStr = "0xa645370cc112c2e8e3cce121416c7dc849e773506d4b6fb9b752ada711355369"
 	testDBDSN    = common.GetEnv("TEST_DB_DSN", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
@@ -56,6 +55,18 @@ func createValidatorRegistration(pubKey string) ValidatorRegistrationEntry {
 	}
 }
 
+func getTestKeyPair(t *testing.T) (*phase0.BLSPubKey, *bls.SecretKey) {
+	t.Helper()
+	sk, _, err := bls.GenerateNewKeypair()
+	require.NoError(t, err)
+	blsPubkey, err := bls.PublicKeyFromSecretKey(sk)
+	require.NoError(t, err)
+	var pubkey phase0.BLSPubKey
+	bytes := blsPubkey.Bytes()
+	copy(pubkey[:], bytes[:])
+	return &pubkey, sk
+}
+
 func insertTestBuilder(t *testing.T, db *DatabaseService) string {
 	t.Helper()
 	var testBlockHash phase0.Hash32
@@ -63,11 +74,14 @@ func insertTestBuilder(t *testing.T, db *DatabaseService) string {
 	require.NoError(t, err)
 	copy(testBlockHash[:], hashSlice)
 
-	req := common.SubmitNewBlockRequest{}
+	req := common.NewSubmitNewBlockRequest()
+	copy(req.Chunk.ProposerPayment[:], testProposerRecipient)
+
+	payload := common.NewAnchorPayload()
 
 	entry, err := db.SaveBuilderBlockSubmission(
 		&req,
-		nil,
+		&payload,
 		10,
 		100000,
 		true,
@@ -82,6 +96,7 @@ func insertTestBuilder(t *testing.T, db *DatabaseService) string {
 		profile,
 		optimisticSubmission)
 	require.NoError(t, err)
+
 	err = db.UpsertBlockBuilderEntryAfterSubmission(entry, true, "chain1", false)
 	require.NoError(t, err)
 	pk := req.BuilderPubkey()
@@ -282,89 +297,6 @@ func TestSetBlockBuilderCollateral(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, builderID, builder.BuilderID)
 	require.Equal(t, collateralStr, builder.Collateral)
-}
-
-// TODO: Add back when we add builder demotion
-func TestInsertBuilderDemotion(t *testing.T) {
-	db := resetDatabase(t)
-	pk, sk := getTestKeyPair(t)
-	var testBlockHash phase0.Hash32
-	hashSlice, err := hexutil.Decode(blockHashStr)
-	require.NoError(t, err)
-	copy(testBlockHash[:], hashSlice)
-	trace := &common.BidTraceV2{
-		BidTrace: v1.BidTrace{
-			BlockHash:            testBlockHash,
-			Slot:                 slot,
-			BuilderPubkey:        *pk,
-			ProposerPubkey:       *pk,
-			ProposerFeeRecipient: feeRecipient,
-			Value:                uint256.NewInt(collateral),
-		},
-	}
-	req := common.TestBuilderSubmitBlockRequest(sk, trace)
-	err = db.InsertBuilderDemotion(&req, errFoo)
-	require.NoError(t, err)
-
-	entry, err := db.GetBuilderDemotion(trace)
-	require.NoError(t, err)
-	require.Equal(t, slot, entry.Slot)
-	require.Equal(t, pk.String(), entry.BuilderPubkey)
-	require.Equal(t, blockHashStr, entry.BlockHash)
-}
-
-// TODO: Add back when we add builder demotion
-func TestUpdateBuilderDemotion(t *testing.T) {
-	db := resetDatabase(t)
-
-	pk, sk := getTestKeyPair(t)
-	var testBlockHash phase0.Hash32
-	hashSlice, err := hexutil.Decode(blockHashStr)
-	require.NoError(t, err)
-	copy(testBlockHash[:], hashSlice)
-	bt := &common.BidTraceV2{
-		BidTrace: v1.BidTrace{
-			BlockHash:            testBlockHash,
-			Slot:                 slot,
-			BuilderPubkey:        *pk,
-			ProposerFeeRecipient: feeRecipient,
-			Value:                uint256.NewInt(collateral),
-		},
-	}
-	req := common.TestBuilderSubmitBlockRequest(sk, bt)
-	// Should return ErrNoRows because there is no demotion yet.
-	demotion, err := db.GetBuilderDemotion(bt)
-	require.Equal(t, sql.ErrNoRows, err)
-	require.Nil(t, demotion)
-
-	// Insert demotion
-	err = db.InsertBuilderDemotion(&req, errFoo)
-	require.NoError(t, err)
-
-	// Now demotion should show up.
-	demotion, err = db.GetBuilderDemotion(bt)
-	require.NoError(t, err)
-
-	// Signed block and validation should be invalid and empty.
-	require.False(t, demotion.SignedBeaconBlock.Valid)
-	require.Empty(t, demotion.SignedBeaconBlock.String)
-	require.False(t, demotion.SignedValidatorRegistration.Valid)
-	require.Empty(t, demotion.SignedValidatorRegistration.String)
-
-	// Update demotion with the signedBlock and signedRegistration.
-	bb := &common.SignedBeaconBlock{
-		Capella: &consensuscapella.SignedBeaconBlock{},
-	}
-	err = db.UpdateBuilderDemotion(bt, bb, &types.SignedValidatorRegistration{})
-	require.NoError(t, err)
-
-	// Signed block and validation should now be valid and non-empty.
-	demotion, err = db.GetBuilderDemotion(bt)
-	require.NoError(t, err)
-	require.True(t, demotion.SignedBeaconBlock.Valid)
-	require.NotEmpty(t, demotion.SignedBeaconBlock.String)
-	require.True(t, demotion.SignedValidatorRegistration.Valid)
-	require.NotEmpty(t, demotion.SignedValidatorRegistration.String)
 }
 
 func TestGetBlockSubmissionEntry(t *testing.T) {

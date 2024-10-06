@@ -72,7 +72,7 @@ func (db MockDB) SaveBuilderBlockSubmission(
 ) (entry *BuilderBlockSubmissionEntry, err error) {
 	key := fmt.Sprintf("%d-%s-%s", payload.Slot, blockReq.ProposerPubKeyAsStr(), blockReq.BlockHash().String())
 
-	execPayloadEntry, err := AnchorPayloadToExecPayloadEntry(payload, blockReq)
+	execPayloadEntry, err := AnchorPayloadToExecPayloadEntry(payload, blockReq, isToB, robChainID)
 	if err != nil {
 		return nil, err
 	}

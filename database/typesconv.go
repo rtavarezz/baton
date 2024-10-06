@@ -11,22 +11,28 @@ var ErrUnsupportedExecutionPayload = errors.New("unsupported execution payload v
 func AnchorPayloadToExecPayloadEntry(
 	payload *common.AnchorPayload,
 	blockReq *common.SubmitNewBlockRequest,
+	isToB bool,
+	robChainID string,
 ) (*ExecutionPayloadEntry, error) {
 	var _payload []byte
 	var version string
 	var err error
+	var slot uint64
 
 	if payload != nil {
 		_payload, err = json.Marshal(payload)
+		slot = payload.Slot
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	return &ExecutionPayloadEntry{
-		Slot:           payload.Slot,
+		Slot:           slot,
 		ProposerPubkey: blockReq.ProposerPubKeyAsStr(),
 		BlockHash:      blockReq.BlockHash().String(),
+		IsToB:          isToB,
+		ChainID:        robChainID,
 		Version:        version,
 		Payload:        string(_payload),
 	}, nil

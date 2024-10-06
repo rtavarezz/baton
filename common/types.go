@@ -499,7 +499,9 @@ type BatonBlock struct {
 
 func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
-		Chunk: NewBatonBlockRequest(),
+		Chunk:         NewBatonBlockRequest(),
+		Signature:     make([]byte, 96),
+		BuilderPubKey: make([]byte, 32),
 	}
 }
 
@@ -569,6 +571,9 @@ func (r *SubmitNewBlockRequest) ProposerPubKey() *bls.PublicKey {
 
 func (r *SubmitNewBlockRequest) ProposerPubKeyAsStr() string {
 	pk := r.ProposerPubKey()
+	if pk == nil {
+		return "null"
+	}
 	proposerPubKeyBytes := pk.Bytes()
 	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
 	return "0x" + proposerPubKeyBytesAsStr
@@ -636,6 +641,10 @@ func (r *SubmitNewBlockRequest) BuilderPubkey() *bls.PublicKey {
 
 func (r *SubmitNewBlockRequest) BuilderPubkeyAsStr() string {
 	pk := r.BuilderPubkey()
+	if pk == nil {
+		return "null"
+	}
+
 	builderPubKeyBytes := pk.Bytes()
 	builderPubKeyBytesAsStr := hex.EncodeToString(builderPubKeyBytes[:])
 	return "0x" + builderPubKeyBytesAsStr
@@ -643,6 +652,10 @@ func (r *SubmitNewBlockRequest) BuilderPubkeyAsStr() string {
 
 func (r *SubmitNewBlockRequest) BuilderPubkeyAsBytes() []byte {
 	pk := r.BuilderPubkey()
+	if pk == nil {
+		return make([]byte, 0)
+	}
+
 	pkBytes := pk.Bytes()
 	return pkBytes[:]
 }
@@ -722,6 +735,12 @@ type AnchorPayload struct {
 
 	GasUsed  uint64 `json:"gasused" db:"gas_used"`
 	GasLimit uint64 `json:"gaslimit" db:"gas_limit"`
+}
+
+func NewAnchorPayload() AnchorPayload {
+	payload := AnchorPayload{}
+	payload.Transactions = make([]byte, 0)
+	return payload
 }
 
 type AnchorGetHeaderResponse struct {

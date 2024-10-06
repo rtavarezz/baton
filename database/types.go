@@ -106,6 +106,9 @@ type ExecutionPayloadEntry struct {
 	ProposerPubkey string `db:"proposer_pubkey"`
 	BlockHash      string `db:"block_hash"`
 
+	IsToB   bool   `db:"is_tob"`
+	ChainID string `db:"chain_id"`
+
 	Version string `db:"version"`
 	Payload string `db:"payload"`
 }
@@ -126,8 +129,8 @@ func (e *ExecutionPayloadEntry) ToCSVRecord() []string {
 
 type BuilderBlockSubmissionEntry struct {
 	ID         int64        `db:"id"`
-	chainID    string       `db:"chain_id"`
-	isToB      bool         `db:"is_tob"`
+	ChainID    string       `db:"chain_id"`
+	IsToB      bool         `db:"is_tob"`
 	InsertedAt time.Time    `db:"inserted_at"`
 	ReceivedAt sql.NullTime `db:"received_at"`
 	EligibleAt sql.NullTime `db:"eligible_at"`

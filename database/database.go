@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/AnomalyFi/baton/common"
 	"github.com/AnomalyFi/baton/database/migrations"
@@ -118,9 +119,9 @@ func NewDatabaseService(dsn string) (*DatabaseService, error) {
 func (s *DatabaseService) prepareNamedQueries() (err error) {
 	// Insert execution payload
 	query := `INSERT INTO ` + vars.TableExecutionPayload + `
-	(slot, proposer_pubkey, block_hash, version, payload) VALUES
-	(:slot, :proposer_pubkey, :block_hash, :version, :payload)
-	ON CONFLICT (slot, proposer_pubkey, block_hash) DO UPDATE SET slot=:slot
+	(slot, proposer_pubkey, block_hash, chain_id, is_tob, version, payload) VALUES
+	(:slot, :proposer_pubkey, :block_hash, :chain_id, :is_tob, :version, :payload)
+	ON CONFLICT (slot, proposer_pubkey, block_hash, chain_id, is_tob) DO UPDATE SET slot=:slot
 	RETURNING id`
 	s.nstmtInsertExecutionPayload, err = s.DB.PrepareNamed(query)
 	if err != nil {
@@ -222,8 +223,15 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 	profile common.Profile,
 	optimisticSubmission bool,
 ) (entry *BuilderBlockSubmissionEntry, err error) {
+	if blockReq == nil {
+		return nil, errors.New("invalid block request")
+	}
+	if payload == nil {
+		return nil, errors.New("invalid payload")
+	}
+
 	// Save execution_payload: insert, or if already exists update to be able to return the id ('on conflict do nothing' doesn't return an id)
-	execPayloadEntry, err := AnchorPayloadToExecPayloadEntry(payload, blockReq)
+	execPayloadEntry, err := AnchorPayloadToExecPayloadEntry(payload, blockReq, isToB, robChainID)
 	if err != nil {
 		return nil, err
 	}
@@ -236,12 +244,12 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 	}
 
 	// Save block_submission
-	simErrStr := ""
+	simErrStr := "null"
 	if validationError != nil {
 		simErrStr = validationError.Error()
 	}
 
-	requestErrStr := ""
+	requestErrStr := "null"
 	if requestError != nil {
 		requestErrStr = requestError.Error()
 	}
@@ -251,9 +259,14 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 		return nil, errors.New("")
 	}
 
+	signatureStr := "null"
+	if blockReq.Sig() != nil {
+		signatureStr = blockReq.Sig().String()
+	}
+
 	blockSubmissionEntry := &BuilderBlockSubmissionEntry{
-		chainID:            robChainID,
-		isToB:              isToB,
+		ChainID:            robChainID,
+		IsToB:              isToB,
 		ReceivedAt:         NewNullTime(receivedAt),
 		EligibleAt:         NewNullTime(eligibleAt),
 		ExecutionPayloadID: NewNullInt64(execPayloadEntry.ID),
@@ -263,13 +276,13 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 		SimError:     simErrStr,
 		SimReqError:  requestErrStr,
 
-		Signature: blockReq.Sig().String(),
+		Signature: signatureStr,
 
 		Slot:       payload.Slot,
 		BlockHash:  blockReq.BlockHash().String(),
 		ParentHash: blockReq.ParentHash().String(),
 
-		BuilderPubkey:        blockReq.BuilderPubkey().String(),
+		BuilderPubkey:        blockReq.BuilderPubkeyAsStr(),
 		ProposerPubkey:       blockReq.ProposerPubKeyAsStr(),
 		ProposerFeeRecipient: blockReq.ProposerPaymentAsStr(),
 
@@ -290,8 +303,59 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 		TotalDuration:        profile.Total,
 		OptimisticSubmission: optimisticSubmission,
 	}
+
+	err = ValidiateBlockSubmission(blockSubmissionEntry)
+	if err != nil {
+		return nil, errors.New("builder block submission validation failed: " + err.Error())
+	}
+
 	err = s.nstmtInsertBlockBuilderSubmission.QueryRow(blockSubmissionEntry).Scan(&blockSubmissionEntry.ID)
 	return blockSubmissionEntry, err
+}
+
+func ValidiateBlockSubmission(entry *BuilderBlockSubmissionEntry) error {
+	validateHelper := func(name string, value string) error {
+		if !utf8.ValidString(value) || strings.Contains(value, "\x00") {
+			return errors.New("invalid field: " + name)
+		}
+		return nil
+	}
+
+	if err := validateHelper("ChainID", entry.ChainID); err != nil {
+		return err
+	}
+	if err := validateHelper("SimError", entry.SimError); err != nil {
+		return err
+	}
+	if err := validateHelper("SimReqError", entry.SimReqError); err != nil {
+		return err
+	}
+	if err := validateHelper("Signature", entry.Signature); err != nil {
+		return err
+	}
+	if err := validateHelper("ParentHash", entry.ParentHash); err != nil {
+		return err
+	}
+	if err := validateHelper("BlockHash", entry.BlockHash); err != nil {
+		return err
+	}
+	if err := validateHelper("BuilderPubkey", entry.BuilderPubkey); err != nil {
+		return err
+	}
+	if err := validateHelper("ProposerPubkey", entry.ProposerPubkey); err != nil {
+		return err
+	}
+	if err := validateHelper("ProposerFeeRecipient", entry.ProposerFeeRecipient); err != nil {
+		return err
+	}
+	if err := validateHelper("Value", entry.Value); err != nil {
+		return err
+	}
+	if err := validateHelper("BlockNumber", entry.BlockNumber); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *DatabaseService) GetBlockSubmissionEntry(slot uint64, proposerPubkey, blockHash string) (entry *BuilderBlockSubmissionEntry, err error) {
