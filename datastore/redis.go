@@ -1477,7 +1477,7 @@ func (r *RedisCache) _updateRoBTopBid(
 
 	// Copy winning bid to top bid cache
 	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	fmt.Printf("keyTopBid-RoB(SET): %s\n", keyTopBid)
+	fmt.Printf("keyTopBid-RoB(SET): %s \n source: %s \n", keyTopBid, keyBidRoBSource)
 	c := pipeline.Copy(context.Background(), keyBidRoBSource, keyTopBid, 0, true)
 	_, err = pipeline.Exec(ctx)
 	if err != nil {
@@ -1499,6 +1499,7 @@ func (r *RedisCache) _updateRoBTopBid(
 
 	// 6. Finally, update the global top bid value
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerPubkey, chainID)
+	fmt.Printf("keyTopBidValue: %s, value: %d\n", keyTopBidValue, state.TopBidValue.Int64())
 	err = pipeline.Set(context.Background(), keyTopBidValue, state.TopBidValue.String(), expiryBidCache).Err()
 	if err != nil {
 		return state, err

@@ -1043,7 +1043,7 @@ func StrToParentHash(hash string) ids.ID {
 }
 
 func ParentHashToStr(parentHash ids.ID) string {
-	return string(parentHash[:])
+	return parentHash.String()
 }
 
 func (r *AnchorGetPayloadRequest) GetPublicKey() (*bls.PublicKey, error) {

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+
 	"github.com/AnomalyFi/baton/common"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/log"
@@ -50,7 +51,7 @@ func hashHeader(s *common.SubmitNewBlockRequest) (eth.Hash, error) {
 	return hash, nil
 }
 
-func BuildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
+func BuildHeader(s *common.SubmitNewBlockRequest, value uint64) (common.AnchorHeader, error) {
 	header, err := hashHeader(s)
 	if err != nil {
 		log.Error("failed to hash header")
@@ -58,11 +59,12 @@ func BuildHeader(s *common.SubmitNewBlockRequest) (common.AnchorHeader, error) {
 	var anchorHeader common.AnchorHeader
 	anchorHeader.Header = header
 	anchorHeader.BlockHash = s.BlockHash().String()
+	anchorHeader.Value = value
 	return anchorHeader, nil
 }
 
-func BuildPayload(s *common.SubmitNewBlockRequest, hypersdkTxs []byte) (*common.AnchorPayload, error) {
-	hash, err := BuildHeader(s)
+func BuildPayload(s *common.SubmitNewBlockRequest, hypersdkTxs []byte, value uint64) (*common.AnchorPayload, error) {
+	hash, err := BuildHeader(s, value)
 	if err != nil {
 		log.Error("failed to hash header")
 	}

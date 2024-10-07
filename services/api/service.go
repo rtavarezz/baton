@@ -1751,7 +1751,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	var value *big.Int
 	value, err = common.Value(txs)
-
 	if err != nil {
 		log.WithError(err).Info("block req value returned err")
 		api.RespondError(w, http.StatusBadRequest, "value check failed")
@@ -1819,7 +1818,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	})
 
 	// Build the header and payload for this block request.
-	getHeader, err := BuildHeader(&blockReq)
+	getHeader, err := BuildHeader(&blockReq, value.Uint64())
 	if err != nil {
 		log.WithError(err).Warn("failed to build header")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -1827,7 +1826,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 	getHeader.Value = value.Uint64()
 
-	getPayload, err := BuildPayload(&blockReq, blockReq.Txs())
+	getPayload, err := BuildPayload(&blockReq, blockReq.Txs(), value.Uint64())
 	if err != nil {
 		log.WithError(err).Warn("failed to build payload")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -2588,6 +2587,6 @@ func (api *BatonAPI) checkBlockRequestIsToB(txs []*chain.Transaction) (bool, err
 	return false, nil
 }
 
-func (api *BatonAPI) GetRoBChainIDs() *map[string]struct{} {
-	return &api.robChainIDs
+func (api *BatonAPI) GetRoBChainIDs() map[string]struct{} {
+	return api.robChainIDs
 }

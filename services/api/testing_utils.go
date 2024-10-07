@@ -1,9 +1,9 @@
 package api
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log"
 	"math/big"
 	"testing"
@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	TestAddress         = "0xDEADBEAF"
+	TestAddress         = "0x010000000000000000000000000000000000000000000000000000000000000000" // created by codec.CreateAddress(1, ids.Empty)
 	TestPrivateKeyValue = "77619a19a837f894fa5c90e58ee3e3d69e382936d323d987bbde923da92a5ac5"
 	TestAddressValue    = "0x59131f2c045f70Be0dDA50D86b6ED2b18C5012cf"
 	TestRelayerID       = 111
@@ -60,6 +60,7 @@ type CreateTestBlockSubmissionOpts struct {
 	NumTxs         int
 
 	WithTransferTx bool
+	SeqChainID     ids.ID
 
 	//relaySk        bls.SecretKey
 	//relayPk        types.PublicKey
@@ -116,9 +117,9 @@ func CreateTestChunkSubmission(
 	}
 
 	txs := []*chain.Transaction{}
-	var chainIDs []string
+	var chainIDs []*big.Int
 	// single chain id
-	var chainID string
+	var chainID *big.Int
 	if opts.IsToB {
 		// ToB case: add however many test chain ids you want for ToB
 		chainIDs = GetTestChainIds(opts.IsToB, 4)
@@ -140,7 +141,7 @@ func CreateTestChunkSubmission(
 	}
 
 	if opts.WithTransferTx {
-		transferAction := CreateTestProposerTransfer(chainID, value)
+		transferAction := CreateTestProposerTransfer(opts.SeqChainID, value)
 		txs = append(txs, transferAction)
 	}
 
@@ -152,7 +153,9 @@ func CreateTestChunkSubmission(
 	blockReq.Chunk.Slot = slot
 	blockReq.Chunk.ParentHash = parentHash
 	blockReq.Chunk.ProposerPubkey = proposerPubkeyBytes[:]
-	copy(blockReq.Chunk.ProposerPayment[:], TestAddress[:])
+	proposerPayment, err := hexutil.Decode(TestAddress)
+	require.NoError(t, err)
+	blockReq.Chunk.ProposerPayment = codec.Address(proposerPayment)
 
 	// blockReq.Signature = &bls.Signature{}
 	chunkBytes, err := json.Marshal(blockReq.Chunk)
@@ -168,10 +171,10 @@ func CreateTestChunkSubmission(
 
 	blockReq.Chunk.Txs = txsBytes
 
-	anchorHeader, err := BuildHeader(&blockReq)
+	anchorHeader, err := BuildHeader(&blockReq, value)
 	require.NoError(t, err)
 
-	anchorPayload, err := BuildPayload(&blockReq, blockReq.Txs())
+	anchorPayload, err := BuildPayload(&blockReq, blockReq.Txs(), value)
 	require.NoError(t, err)
 
 	err = blockReq.Initialize()
@@ -196,7 +199,6 @@ func CreateTestChunkSubmissionWithBuilderPubKey(
 	testBlockHash := "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
 	testGasLimit := uint64(1000000)
 	testGasUsed := uint64(100)
-	testValue := uint64(10000)
 	testBlockNumber := "0xABCDABCDABCDABCD"
 	testNumTxs := uint64(2)
 	testChainID := "chain1"
@@ -211,31 +213,35 @@ func CreateTestChunkSubmissionWithBuilderPubKey(
 		ProposerPayment: blockReq.ProposerPaymentAsStr(),
 		GasLimit:        testGasLimit,
 		GasUsed:         testGasUsed,
-		Value:           testValue,
+		Value:           value,
 		BlockNumber:     testBlockNumber,
 		NumTx:           testNumTxs,
 	}
 	return blockReq, anchorHeader, anchorPayload, trace
 }
 
-func GetTestChainID(i int) string {
-	return fmt.Sprintf("test-chain-%d", i)
+func GetTestChainID(i int) *big.Int {
+	return big.NewInt(int64(45200 + i))
 }
 
-func GetTestChainIds(isToB bool, c int) []string {
+func GetTestChainIds(isToB bool, c int) []*big.Int {
 	if isToB {
-		testChainIDs := make([]string, c)
+		testChainIDs := make([]*big.Int, c)
 		for i := 0; i < c; i++ {
 			testChainIDs[i] = GetTestChainID(i)
 		}
 		return testChainIDs
 	}
-	return []string{GetTestChainID(c)}
+	return []*big.Int{GetTestChainID(c)}
 }
 
-func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
+func CreateHypersdkTx(chainID *big.Int, ethTx []byte) *chain.Transaction {
+	chainIDu64 := chainID.Uint64()
+	namespace := make([]byte, 8)
+	binary.LittleEndian.PutUint64(namespace, chainIDu64)
+
 	seqMsg := actions.SequencerMsg{
-		ChainID:     []byte(chainID),
+		ChainID:     namespace,
 		Data:        ethTx,
 		FromAddress: TestProposerPayment,
 		RelayerID:   TestRelayerID,
@@ -266,16 +272,14 @@ func CreateHypersdkTx(chainID string, ethTx []byte) *chain.Transaction {
 	return txSign
 }
 
-func CreateTestProposerTransfer(chainID string, value uint64) *chain.Transaction {
+func CreateTestProposerTransfer(seqChainID ids.ID, value uint64) *chain.Transaction {
 	transfer := actions.Transfer{
 		To:    TestProposerPayment,
 		Value: value,
 	}
-	var id ids.ID
-	copy(id[:], chainID)
 	base := chain.Base{
 		Timestamp: time.Now().UnixMilli(),
-		ChainID:   id,
+		ChainID:   seqChainID,
 		MaxFee:    TestMaxFee,
 	}
 	base.Timestamp = int64(time.Now().Second() * 1000)
