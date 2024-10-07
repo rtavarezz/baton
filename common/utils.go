@@ -197,9 +197,7 @@ func GetMethodArgs(data []byte, method string, contractAbi *abi.ABI) (interface{
 
 func PublicKeyToByteString(pk *bls.PublicKey) string {
 	pubKeyBytes := pk.Bytes()
-	// pubKeyBytesAsStr := string(pubKeyBytes[:])
-	pubKeyBytesAsStr := hex.EncodeToString(pubKeyBytes[:])
-	return pubKeyBytesAsStr
+	return hexutil.Encode(pubKeyBytes[:])
 }
 
 func MustB64Gunzip(s string) []byte {

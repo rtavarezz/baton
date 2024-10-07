@@ -136,7 +136,7 @@ func CreateTestChunkSubmission(
 		chainID = chainIDs[i%len(chainIDs)]
 
 		ethTx := CreateTestEthTransactionAsTxBytes(nonce, *val, gasLimit, *gasPrice, "")
-		tx := CreateHypersdkTx(chainID, ethTx)
+		tx := CreateHypersdkTx(opts.SeqChainID, chainID, ethTx)
 		txs = append(txs, tx)
 	}
 
@@ -235,7 +235,7 @@ func GetTestChainIds(isToB bool, c int) []*big.Int {
 	return []*big.Int{GetTestChainID(c)}
 }
 
-func CreateHypersdkTx(chainID *big.Int, ethTx []byte) *chain.Transaction {
+func CreateHypersdkTx(seqChainID ids.ID, chainID *big.Int, ethTx []byte) *chain.Transaction {
 	chainIDu64 := chainID.Uint64()
 	namespace := make([]byte, 8)
 	binary.LittleEndian.PutUint64(namespace, chainIDu64)
@@ -246,12 +246,9 @@ func CreateHypersdkTx(chainID *big.Int, ethTx []byte) *chain.Transaction {
 		FromAddress: TestProposerPayment,
 		RelayerID:   TestRelayerID,
 	}
-	//ids := make([]ids.ID, 32)
-	var id ids.ID
-	copy(id[:], seqMsg.ChainID)
 	var base = chain.Base{
 		Timestamp: time.Now().UnixMilli(),
-		ChainID:   id,
+		ChainID:   seqChainID,
 		MaxFee:    TestMaxFee,
 	}
 	base.Timestamp = int64(time.Now().Second() * 1000)

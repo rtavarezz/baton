@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AnomalyFi/baton/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/flashbots/go-boost-utils/bls"
 
@@ -1381,6 +1382,8 @@ func (r *RedisCache) _updateToBTopBid(
 		}
 	}
 
+	fmt.Printf("builderBids: %+v\n", builderBids)
+
 	if len(builderBids.bidValues) == 0 {
 		return state, nil
 	}
@@ -1395,6 +1398,7 @@ func (r *RedisCache) _updateToBTopBid(
 
 	topBidBuilder := ""
 	topBidBuilder, state.TopBidValue = builderBids.getTopBid()
+	fmt.Printf("topBuilder: %s\n", topBidBuilder)
 	keyBidToBSource := r.KeyLatestToBBidByBuilder(slot, parentHash, proposerPubkey, topBidBuilder)
 
 	// If floor value is higher than this bid, use floor bid instead
@@ -1406,6 +1410,7 @@ func (r *RedisCache) _updateToBTopBid(
 	// Copy winning bid to top bid cache
 	keyTopBid := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
 	fmt.Printf("keyTopBid(SET): %s\n", keyTopBid)
+	fmt.Printf("keyBidToBSource: %s\n", keyBidToBSource)
 	c := pipeliner.Copy(context.Background(), keyBidToBSource, keyTopBid, 0, true)
 	_, err = pipeliner.Exec(ctx)
 	if err != nil {
@@ -1426,7 +1431,7 @@ func (r *RedisCache) _updateToBTopBid(
 
 	// 6. Finally, update the global top bid value
 	keyTopBidValue := r.keyTopToBBidValue(slot, parentHash, proposerPubkey)
-	err = pipeliner.Set(context.Background(), keyTopBidValue, state.TopBidValue.String(), expiryBidCache).Err()
+	err = pipeliner.Set(context.Background(), keyTopBidValue, hexutil.EncodeBig(state.TopBidValue), expiryBidCache).Err()
 	if err != nil {
 		return state, err
 	}
@@ -1499,8 +1504,8 @@ func (r *RedisCache) _updateRoBTopBid(
 
 	// 6. Finally, update the global top bid value
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerPubkey, chainID)
-	fmt.Printf("keyTopBidValue: %s, value: %d\n", keyTopBidValue, state.TopBidValue.Int64())
-	err = pipeline.Set(context.Background(), keyTopBidValue, state.TopBidValue.String(), expiryBidCache).Err()
+	fmt.Printf("keyTopBidValue(SET): %s, value: %d\n", keyTopBidValue, state.TopBidValue.Int64())
+	err = pipeline.Set(context.Background(), keyTopBidValue, hexutil.EncodeBig(state.TopBidValue), expiryBidCache).Err()
 	if err != nil {
 		return state, err
 	}
@@ -1563,11 +1568,12 @@ func (r *RedisCache) GetToBTopBidValue(
 		return uint64(0), err
 	}
 
-	topBidValue, err = strconv.ParseUint(topBidValueStr, 10, 64)
+	topBidValueBig, err := hexutil.DecodeBig(topBidValueStr)
 	if err != nil {
 		return 0, err
 	}
 
+	topBidValue = topBidValueBig.Uint64()
 	return topBidValue, nil
 }
 
@@ -1581,6 +1587,7 @@ func (r *RedisCache) GetRoBTopBidValue(
 ) (topBidValue uint64, err error) {
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerString, chainID)
+	fmt.Printf("keyTobBidValue(GET): %s\n", keyTopBidValue)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
@@ -1594,10 +1601,12 @@ func (r *RedisCache) GetRoBTopBidValue(
 		return uint64(0), err
 	}
 
-	topBidValue, err = strconv.ParseUint(topBidValueStr, 10, 64)
+	topBidValueBig, err := hexutil.DecodeBig(topBidValueStr)
 	if err != nil {
 		return 0, err
 	}
+	topBidValue = topBidValueBig.Uint64()
+
 	return topBidValue, nil
 }
 
@@ -1681,6 +1690,7 @@ func (r *RedisCache) GetFloorRoBBidValue(ctx context.Context, pipeliner redis.Pi
 // GetFloorBidValue returns the value of the highest non-cancellable bid
 func (r *RedisCache) GetFloorBidValue(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (floorValue *big.Int, err error) {
 	keyFloorBidValue := r.keyFloorBidValue(slot, parentHash, proposerPubkey)
+	fmt.Printf("keyFloorBidValue(GET): %s\n", keyFloorBidValue)
 	c := pipeliner.Get(ctx, keyFloorBidValue)
 
 	_, err = pipeliner.Exec(ctx)
@@ -1702,6 +1712,7 @@ func (r *RedisCache) GetFloorBidValue(ctx context.Context, pipeliner redis.Pipel
 // SetFloorBidValue is used only for testing.
 func (r *RedisCache) SetFloorBidValue(slot uint64, parentHash, proposerPubkey, value string) error {
 	keyFloorBidValue := r.keyFloorBidValue(slot, parentHash, proposerPubkey)
+	fmt.Printf("keyFloorBidValue(GET): %s\n", keyFloorBidValue)
 	err := r.client.Set(context.Background(), keyFloorBidValue, value, 0).Err()
 	return err
 }
