@@ -2,18 +2,19 @@ package database
 
 import (
 	"fmt"
-	"github.com/AnomalyFi/baton/database/migrations"
-	"github.com/AnomalyFi/baton/database/vars"
-	"github.com/ava-labs/avalanchego/ids"
-	common2 "github.com/ethereum/go-ethereum/common"
-	"github.com/flashbots/go-boost-utils/bls"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/AnomalyFi/baton/database/migrations"
+	"github.com/AnomalyFi/baton/database/vars"
+	"github.com/AnomalyFi/hypersdk/codec"
+	"github.com/ava-labs/avalanchego/ids"
+	common2 "github.com/ethereum/go-ethereum/common"
+	"github.com/flashbots/go-boost-utils/bls"
+
 	"github.com/AnomalyFi/baton/common"
-	"github.com/attestantio/go-eth2-client/spec/bellatrix"
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/jmoiron/sqlx"
@@ -33,7 +34,7 @@ const (
 var (
 	runDBTests = true
 	//runDBTests   = os.Getenv("RUN_DB_TESTS") == "1" //|| true
-	feeRecipient = bellatrix.ExecutionAddress{0x02}
+	feeRecipient = codec.EmptyAddress
 	blockHashStr = "0xa645370cc112c2e8e3cce121416c7dc849e773506d4b6fb9b752ada711355369"
 	testDBDSN    = common.GetEnv("TEST_DB_DSN", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
 	profile      = common.Profile{
@@ -69,13 +70,32 @@ func getTestKeyPair(t *testing.T) (*phase0.BLSPubKey, *bls.SecretKey) {
 
 func insertTestBuilder(t *testing.T, db *DatabaseService) string {
 	t.Helper()
-	var testBlockHash phase0.Hash32
-	hashSlice, err := hexutil.Decode(blockHashStr)
+	var testBlockHash common2.Hash
+	blockHashBytes, err := hexutil.Decode(blockHashStr)
+	testBlockHash.SetBytes(blockHashBytes)
 	require.NoError(t, err)
-	copy(testBlockHash[:], hashSlice)
+	require.Equal(t, testBlockHash.String(), blockHashStr)
 
 	req := common.NewSubmitNewBlockRequest()
 	copy(req.Chunk.ProposerPayment[:], testProposerRecipient)
+
+	// assign test block hash
+	req.Chunk.BlockHash = testBlockHash
+
+	// sign chunk
+	sk, pk, err := bls.GenerateNewKeypair()
+	require.NoError(t, err)
+	err = req.Sign(sk)
+	require.NoError(t, err)
+
+	// assign test slot
+	req.Chunk.Slot = slot
+
+	// assign test fee recipient
+	req.Chunk.ProposerPayment = feeRecipient
+
+	feeRecipientStr := hexutil.Encode(feeRecipient[:])
+	fmt.Printf("feeRecipient len: %d\n", len(feeRecipientStr))
 
 	payload := common.NewAnchorPayload()
 
@@ -85,7 +105,7 @@ func insertTestBuilder(t *testing.T, db *DatabaseService) string {
 		10,
 		100000,
 		true,
-		big.NewInt(100),
+		big.NewInt(collateral),
 		"chain1",
 		nil,
 		nil,
@@ -99,8 +119,8 @@ func insertTestBuilder(t *testing.T, db *DatabaseService) string {
 
 	err = db.UpsertBlockBuilderEntryAfterSubmission(entry, true, "chain1", false)
 	require.NoError(t, err)
-	pk := req.BuilderPubkey()
-	return pk.String()
+	pkBytes := pk.Bytes()
+	return hexutil.Encode(pkBytes[:])
 }
 
 func resetDatabase(t *testing.T) *DatabaseService {
@@ -235,6 +255,7 @@ func TestSetBlockBuilderStatus(t *testing.T) {
 
 	// Before status change.
 	for _, v := range []string{pubkey1, pubkey2, pubkey3, pubkey4} {
+		fmt.Printf("querying builder: %s\n", v)
 		builder, err := db.GetBlockBuilderByPubkey(v)
 		require.NoError(t, err)
 		require.False(t, builder.IsHighPrio)
@@ -329,7 +350,7 @@ func TestGetBuilderSubmissions(t *testing.T) {
 	e := entries[0]
 	require.Equal(t, optimisticSubmission, e.OptimisticSubmission)
 	require.Equal(t, pubkey, e.BuilderPubkey)
-	require.Equal(t, feeRecipient.String(), e.ProposerFeeRecipient)
+	require.Equal(t, hexutil.Encode(feeRecipient[:]), e.ProposerFeeRecipient)
 	require.Equal(t, fmt.Sprint(collateral), e.Value)
 }
 

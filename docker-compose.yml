@@ -59,6 +59,9 @@ services:
   db:
     image: postgres
     restart: always
+    # uncomment following for database testing
+    # ports:
+    #   - 5432:5432
     volumes:
       - 'psql_data:/var/lib/postgresql/data'
     environment:

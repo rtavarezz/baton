@@ -1,9 +1,10 @@
 package common
 
 import (
+	"time"
+
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/flashbots/go-boost-utils/bls"
-	"time"
 
 	builderApiV1 "github.com/attestantio/go-builder-client/api/v1"
 	"github.com/attestantio/go-eth2-client/spec/bellatrix"

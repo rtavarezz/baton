@@ -61,7 +61,7 @@ var Migration001InitDatabase = &migrate.Migration{
 
 			builder_pubkey         varchar(98) NOT NULL,
 			proposer_pubkey        varchar(98) NOT NULL,
-			proposer_fee_recipient varchar(42) NOT NULL,
+			proposer_fee_recipient varchar(68) NOT NULL,
 
 			gas_used   bigint NOT NULL,
 			gas_limit  bigint NOT NULL,
@@ -142,6 +142,7 @@ var Migration001InitDatabase = &migrate.Migration{
 
 			num_sent_getpayload bigint NOT NULL DEFAULT 0,
 
+			UNIQUE (builder_pubkey),
 			PRIMARY KEY (id, chain_id, is_tob, builder_pubkey)  -- Composite primary key
 		);
 		`},

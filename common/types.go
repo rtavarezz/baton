@@ -501,7 +501,7 @@ func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 	return SubmitNewBlockRequest{
 		Chunk:         NewBatonBlockRequest(),
 		Signature:     make([]byte, 96),
-		BuilderPubKey: make([]byte, 32),
+		BuilderPubKey: make([]byte, 48),
 	}
 }
 
@@ -519,6 +519,29 @@ func (r *SubmitNewBlockRequest) Initialize() error {
 	r.builderPubkey = bpk
 
 	return r.Chunk.Initialize()
+}
+
+func (r *SubmitNewBlockRequest) Sign(sk *bls.SecretKey) error {
+	payload, err := json.Marshal(r.Chunk)
+	if err != nil {
+		return err
+	}
+	pk, err := bls.PublicKeyFromSecretKey(sk)
+	if err != nil {
+		return err
+	}
+	sig := bls.Sign(sk, payload)
+
+	pkBytes := pk.Bytes()
+	sigBytes := sig.Bytes()
+
+	r.builderPubkey = pk
+	r.signature = sig
+
+	r.BuilderPubKey = pkBytes[:]
+	r.Signature = sigBytes[:]
+
+	return nil
 }
 
 func NewBatonBlockRequest() BatonBlock {
@@ -590,7 +613,7 @@ func (r *SubmitNewBlockRequest) ProposerPayment() codec.Address {
 }
 
 func (r *SubmitNewBlockRequest) ProposerPaymentAsStr() string {
-	return string(r.Chunk.ProposerPayment[:])
+	return hexutil.Encode(r.Chunk.ProposerPayment[:])
 }
 
 func (r *SubmitNewBlockRequest) ParentHash() ids.ID {
