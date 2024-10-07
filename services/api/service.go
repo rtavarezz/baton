@@ -1744,7 +1744,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		gasLimit = 25_000_000
 	}
 
-	var topBidValue *big.Int
+	var topBidValue uint64
 	var hasRoB, hasToB bool
 	tx := api.redis.NewTxPipeline()
 	bidIsTopBid := false
@@ -1772,9 +1772,11 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 				api.RespondError(w, http.StatusBadRequest, "could not get top tob bid for blockReq, failed")
 				return
 			}
-			bidIsTopBid = value.Cmp(topBidValue) == 1
+			// TODO: check conversion since we changed from big.Int to uint64 for topBidValue
+			valueU64 := value.Uint64()
+			bidIsTopBid = valueU64 > topBidValue
 			log = log.WithFields(logrus.Fields{
-				"topBidValue":    topBidValue.String(),
+				"topBidValue":    topBidValue,
 				"newBidIsTopBid": bidIsTopBid,
 			})
 		}
@@ -1792,9 +1794,12 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 				api.RespondError(w, http.StatusBadRequest, "could not get top rob bid for blockReq, failed")
 				return
 			}
-			bidIsTopBid = value.Cmp(topBidValue) == 1
+
+			// TODO: check conversion since we changed from big.Int to uint64 for topBidValue
+			valueU64 := value.Uint64()
+			bidIsTopBid = valueU64 > topBidValue
 			log = log.WithFields(logrus.Fields{
-				"topBidValue":    topBidValue.String(),
+				"topBidValue":    topBidValue,
 				"newBidIsTopBid": bidIsTopBid,
 			})
 		}

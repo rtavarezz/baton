@@ -1559,7 +1559,7 @@ func (r *RedisCache) GetToBTopBidValue(
 
 	topBidValueStr, err := c.Result()
 	if err != nil {
-		return nil, err
+		return uint64(0), err
 	}
 
 	topBidValue, err = strconv.ParseUint(topBidValueStr, 10, 64)

@@ -188,10 +188,34 @@ func CreateTestChunkSubmissionWithBuilderPubKey(
 ) (*common.SubmitNewBlockRequest,
 	*common.AnchorHeader,
 	*common.AnchorPayload,
+	common.BidTraceV3,
 ) {
 	blockReq, anchorHeader, anchorPayload := CreateTestChunkSubmission(t, value, opts)
 	blockReq.BuilderPubKey = bls.PublicKeyToBytes(&builderPubKey)
-	return blockReq, anchorHeader, anchorPayload
+	//temp := blockReq.BlockHash
+	testBlockHash := "0x8ae5292d1e248d987d51b58665b81848814202d7b23b343d20f2a167d12f07dcb01ca41c42fdd60b7fca9c4b90890792"
+	testGasLimit := uint64(1000000)
+	testGasUsed := uint64(100)
+	testValue := uint64(10000)
+	testBlockNumber := "0xABCDABCDABCDABCD"
+	testNumTxs := uint64(2)
+	testChainID := "chain1"
+	trace := common.BidTraceV3{
+		Slot:            uint64(2),
+		IsTob:           false,
+		ChainID:         testChainID,
+		ParentHash:      ids.Empty.String(),
+		BlockHash:       testBlockHash,
+		BuilderPubkey:   blockReq.BuilderPubkeyAsStr(),
+		ProposerPubkey:  blockReq.ProposerPubKeyAsStr(),
+		ProposerPayment: blockReq.ProposerPaymentAsStr(),
+		GasLimit:        testGasLimit,
+		GasUsed:         testGasUsed,
+		Value:           testValue,
+		BlockNumber:     testBlockNumber,
+		NumTx:           testNumTxs,
+	}
+	return blockReq, anchorHeader, anchorPayload, trace
 }
 
 func GetTestChainID(i int) string {
