@@ -239,11 +239,12 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 	if saveExecPayload {
 		// TODO: update this, execPayloadEntry.ID didn't initialized, the Scan(query) here will fail
 		err = s.nstmtInsertExecutionPayload.QueryRow(execPayloadEntry).Scan(&execPayloadEntry.ID)
-		fmt.Printf("error querying here")
 		if err != nil {
+			fmt.Printf("error querying here: %+v\n", err)
 			return nil, err
 		}
 	}
+	fmt.Printf("payload entryID: %d\n", execPayloadEntry.ID)
 
 	// Save block_submission
 	simErrStr := "null"
@@ -280,7 +281,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 
 		Signature: signatureStr,
 
-		Slot:       payload.Slot,
+		Slot:       blockReq.Slot(),
 		BlockHash:  blockReq.BlockHash().String(),
 		ParentHash: blockReq.ParentHash().String(),
 
@@ -312,6 +313,7 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 	}
 
 	err = s.nstmtInsertBlockBuilderSubmission.QueryRow(blockSubmissionEntry).Scan(&blockSubmissionEntry.ID)
+	fmt.Printf("block submission entryID: %d, slot: %d, pubkey: %s, blockHash: %s\n", blockSubmissionEntry.ID, blockReq.Slot(), blockReq.BuilderPubkeyAsStr(), blockReq.BlockHash().String())
 	return blockSubmissionEntry, err
 }
 
@@ -360,14 +362,14 @@ func ValidiateBlockSubmission(entry *BuilderBlockSubmissionEntry) error {
 	return nil
 }
 
-func (s *DatabaseService) GetBlockSubmissionEntry(slot uint64, proposerPubkey, blockHash string) (entry *BuilderBlockSubmissionEntry, err error) {
+func (s *DatabaseService) GetBlockSubmissionEntry(slot uint64, builderPubkey, blockHash string) (entry *BuilderBlockSubmissionEntry, err error) {
 	query := `SELECT id, inserted_at, received_at, eligible_at, execution_payload_id, sim_success, sim_error, signature, slot, parent_hash, block_hash, builder_pubkey, proposer_pubkey, proposer_fee_recipient, gas_used, gas_limit, num_tx, value, epoch, block_number, decode_duration, prechecks_duration, simulation_duration, redis_update_duration, total_duration, optimistic_submission
 	FROM ` + vars.TableBuilderBlockSubmission + `
-	WHERE slot=$1 AND proposer_pubkey=$2 AND block_hash=$3
+	WHERE slot=$1 AND builder_pubkey=$2 AND block_hash=$3
 	ORDER BY builder_pubkey ASC
 	LIMIT 1`
 	entry = &BuilderBlockSubmissionEntry{}
-	err = s.DB.Get(entry, query, slot, proposerPubkey, blockHash)
+	err = s.DB.Get(entry, query, slot, builderPubkey, blockHash)
 	return entry, err
 }
 
