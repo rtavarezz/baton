@@ -598,8 +598,7 @@ func (r *SubmitNewBlockRequest) ProposerPubKeyAsStr() string {
 		return "null"
 	}
 	proposerPubKeyBytes := pk.Bytes()
-	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
-	return "0x" + proposerPubKeyBytesAsStr
+	return hexutil.Encode(proposerPubKeyBytes[:])
 }
 
 func (r *SubmitNewBlockRequest) ProposerPubKeyAsBytes() []byte {
