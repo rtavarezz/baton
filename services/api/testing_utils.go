@@ -56,10 +56,10 @@ type CreateTestBlockSubmissionOpts struct {
 	BuilderPubkey  bls.PublicKey
 	ProposerPubkey bls.PublicKey
 	IsToB          bool
-	robChainIndex  int // only used if isTob false
-	numTxs         int
+	RobChainIndex  int // only used if isTob false
+	NumTxs         int
 
-	withTransferTx bool
+	WithTransferTx bool
 
 	//relaySk        bls.SecretKey
 	//relayPk        types.PublicKey
@@ -103,10 +103,10 @@ func CreateTestChunkSubmission(
 
 	if opts != nil {
 		slot = opts.Slot
-		chainIndex = opts.robChainIndex
+		chainIndex = opts.RobChainIndex
 		parentHash = opts.ParentHash
 
-		numTxs = opts.numTxs
+		numTxs = opts.NumTxs
 		if opts.BuilderPubkey.String() != "" {
 			builderPubkey = &opts.BuilderPubkey
 		}
@@ -139,7 +139,7 @@ func CreateTestChunkSubmission(
 		txs = append(txs, tx)
 	}
 
-	if opts.withTransferTx {
+	if opts.WithTransferTx {
 		transferAction := CreateTestProposerTransfer(chainID, value)
 		txs = append(txs, transferAction)
 	}
@@ -178,6 +178,20 @@ func CreateTestChunkSubmission(
 	require.NoError(t, err)
 
 	return &blockReq, &anchorHeader, anchorPayload
+}
+
+func CreateTestChunkSubmissionWithBuilderPubKey(
+	t *testing.T,
+	value uint64,
+	builderPubKey bls.PublicKey,
+	opts *CreateTestBlockSubmissionOpts,
+) (*common.SubmitNewBlockRequest,
+	*common.AnchorHeader,
+	*common.AnchorPayload,
+) {
+	blockReq, anchorHeader, anchorPayload := CreateTestChunkSubmission(t, value, opts)
+	blockReq.BuilderPubKey = bls.PublicKeyToBytes(&builderPubKey)
+	return blockReq, anchorHeader, anchorPayload
 }
 
 func GetTestChainID(i int) string {

@@ -459,14 +459,14 @@ func TestGetHeader(t *testing.T) {
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
 
 		for slot := range toBBidsPerSlot {
-			_, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+			_, err := redis.GetToBBestBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
 			if err != nil {
 				t.Error(err)
 			}
 		}
 
 		for slot := range roBBidsPerSlot {
-			_, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+			_, err := redis.GetRoBBestBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
 			if err != nil {
 				t.Error(err)
 			}
@@ -542,7 +542,7 @@ func TestGetHeader(t *testing.T) {
 		for slot, headers := range toBBidsPerSlot {
 			fmt.Printf("Slot: %d, ToB Bids: %v\n", slot, headers)
 
-			topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+			topToBBid, err := redis.GetToBBestBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
 			if err != nil {
 				t.Error(err)
 			}
@@ -552,7 +552,7 @@ func TestGetHeader(t *testing.T) {
 		for slot, headers := range roBBidsPerSlot {
 			fmt.Printf("Slot: %d, RoB Bids: %v\n", slot, headers)
 
-			topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+			topRoBBid, err := redis.GetRoBBestBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
 			if err != nil {
 				t.Error(err)
 			}
@@ -622,13 +622,13 @@ func TestGetHeader(t *testing.T) {
 		require.Equal(t, "/eth/v1/builder/header/1/0x13e606c7b3d1faad7e83503ce3dedce4c6bb89b0c28ffb240d713c7b110b9747/"+common.ProposerPubKeyAsStr(testProposerPublicKey), requestPath)
 
 		fmt.Printf("Slot: %d, All Bids: %v\n", slot, bidsPerSlot[slot])
-		topToBBid, err := redis.GetBestToBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
+		topToBBid, err := redis.GetToBBestBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey))
 		if err != nil {
 			t.Error(err)
 		}
 		fmt.Printf("Top ToB bid for slot %d: %v\n", slot, topToBBid)
 
-		topRoBBid, err := redis.GetBestRoBBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
+		topRoBBid, err := redis.GetRoBBestBid(slot, testParentHash, common.ProposerPubKeyAsStr(testProposerPublicKey), testChainID)
 		if err != nil {
 			t.Error(err)
 		}
@@ -695,9 +695,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
-		robChainIndex:  0,
-		numTxs:         1,
-		withTransferTx: true,
+		RobChainIndex:  0,
+		NumTxs:         1,
+		WithTransferTx: true,
 	}
 	robBlockValue := uint64(2)
 	robBlockReq, _, _ := CreateTestChunkSubmission(t, robBlockValue, &robBlockOpts)
@@ -710,9 +710,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          true,
-		robChainIndex:  0,
-		numTxs:         2,
-		withTransferTx: true,
+		RobChainIndex:  0,
+		NumTxs:         2,
+		WithTransferTx: true,
 	}
 	tobBlockValue := uint64(5)
 	tobBlockReq, _, _ := CreateTestChunkSubmission(t, tobBlockValue, &tobBlockOpts)
@@ -726,9 +726,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
-		robChainIndex:  2,
-		numTxs:         1,
-		withTransferTx: true,
+		RobChainIndex:  2,
+		NumTxs:         1,
+		WithTransferTx: true,
 	}
 	robBlockValue2 := uint64(5)
 	robBlockReq2, _, _ := CreateTestChunkSubmission(t, robBlockValue2, &robBlockOpts2)
@@ -826,9 +826,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
-			robChainIndex:  0,
-			numTxs:         2,
-			withTransferTx: false,
+			RobChainIndex:  0,
+			NumTxs:         2,
+			WithTransferTx: false,
 		}
 
 		robReq, _, _ := CreateTestChunkSubmission(t, 100, &opts)
@@ -847,9 +847,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
-			robChainIndex:  0,
-			numTxs:         common.MaxTobTxs + 1,
-			withTransferTx: true,
+			RobChainIndex:  0,
+			NumTxs:         common.MaxTobTxs + 1,
+			WithTransferTx: true,
 		}
 
 		baseValue := uint64(100)
@@ -869,9 +869,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
-			robChainIndex:  0,
-			numTxs:         common.MaxTobTxs,
-			withTransferTx: true,
+			RobChainIndex:  0,
+			NumTxs:         common.MaxTobTxs,
+			WithTransferTx: true,
 		}
 
 		baseValue := uint64(100)
@@ -891,9 +891,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
-			robChainIndex:  0,
-			numTxs:         common.MaxTobTxs + 1,
-			withTransferTx: true,
+			RobChainIndex:  0,
+			NumTxs:         common.MaxTobTxs + 1,
+			WithTransferTx: true,
 		}
 
 		baseValue := uint64(100)
@@ -925,9 +925,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			BuilderPubkey:  *testBuilderPublicKey,
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
-			robChainIndex:  0,
-			numTxs:         1,
-			withTransferTx: true,
+			RobChainIndex:  0,
+			NumTxs:         1,
+			WithTransferTx: true,
 		}
 
 		baseValue := uint64(100)
@@ -962,8 +962,8 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		}
 		wg.Wait()
 
-		chainIDs := GetTestChainIds(opts.IsToB, opts.robChainIndex)
-		header, err := backend.redis.GetBestRoBBid(opts.Slot, common.ParentHashToStr(opts.ParentHash), opts.ProposerPubKeyAsStr(), chainIDs[0])
+		chainIDs := GetTestChainIds(opts.IsToB, opts.RobChainIndex)
+		header, err := backend.redis.GetRoBBestBid(opts.Slot, common.ParentHashToStr(opts.ParentHash), opts.ProposerPubKeyAsStr(), chainIDs[0])
 		require.NoError(t, err)
 		require.NotNil(t, header)
 		require.Equal(t, header.BlockHash, highestBid.BlockHash().Hex())
@@ -1517,9 +1517,9 @@ func TestOverallBasicFlow(t *testing.T) {
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          false,
-		robChainIndex:  0,
-		numTxs:         1,
-		withTransferTx: true,
+		RobChainIndex:  0,
+		NumTxs:         1,
+		WithTransferTx: true,
 	}
 	defaultRoBBlockValue := uint64(2)
 	robBlockReq, _, _ := CreateTestChunkSubmission(t, defaultRoBBlockValue, &robBlockOpts)
@@ -1531,9 +1531,9 @@ func TestOverallBasicFlow(t *testing.T) {
 		BuilderPubkey:  *testBuilderPublicKey,
 		ProposerPubkey: *testProposerPublicKey,
 		IsToB:          true,
-		robChainIndex:  0,
-		numTxs:         2,
-		withTransferTx: true,
+		RobChainIndex:  0,
+		NumTxs:         2,
+		WithTransferTx: true,
 	}
 	defaultToBBlockValue := uint64(2)
 	tobBlockReq, _, _ := CreateTestChunkSubmission(t, defaultToBBlockValue, &tobBlockOpts)

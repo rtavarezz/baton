@@ -429,7 +429,7 @@ func (r *RedisCache) GetRelayConfig(field string) (string, error) {
 	return res, err
 }
 
-func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey string) (*common.AnchorHeader, error) {
+func (r *RedisCache) GetToBBestBid(slot uint64, parentHash, proposerPubkey string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
 	fmt.Printf("keyTopBid(GET): %s\n", key)
 	resp := new(common.AnchorHeader)
@@ -440,7 +440,7 @@ func (r *RedisCache) GetBestToBBid(slot uint64, parentHash, proposerPubkey strin
 	return resp, err
 }
 
-func (r *RedisCache) GetBestRoBBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*common.AnchorHeader, error) {
+func (r *RedisCache) GetRoBBestBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
 	fmt.Printf("keyTopBid-RoB(GET): %s\n", key)
 
@@ -1508,30 +1508,7 @@ func (r *RedisCache) _updateRoBTopBid(
 	return state, err
 }
 
-// DEPRECATED
-/*
-// GetTopBidValue gets the top bid value for a given slot+parent+proposer combination
-func (r *RedisCache) GetTopBidValue(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (topBidValue *big.Int, err error) {
-	keyTopBidValue := r.keyTopBidValue(slot, parentHash, proposerPubkey)
-	c := pipeliner.Get(ctx, keyTopBidValue)
-	_, err = pipeliner.Exec(ctx)
-	if errors.Is(err, redis.Nil) {
-		return big.NewInt(0), nil
-	} else if err != nil {
-		return nil, err
-	}
-
-	topBidValueStr, err := c.Result()
-	if err != nil {
-		return nil, err
-	}
-	topBidValue = new(big.Int)
-	topBidValue.SetString(topBidValueStr, 10)
-	return topBidValue, nil
-}
-*/
-
-func (r *RedisCache) HasTopToBBidValue(
+func (r *RedisCache) HasToBTopBidValue(
 	ctx context.Context,
 	slot uint64,
 	parentHash string,
@@ -1546,7 +1523,7 @@ func (r *RedisCache) HasTopToBBidValue(
 	return exists == 1, nil
 }
 
-func (r *RedisCache) HasTopRoBBidValue(
+func (r *RedisCache) HasRoBTopBidValue(
 	ctx context.Context,
 	slot uint64,
 	parentHash string,
@@ -1563,56 +1540,63 @@ func (r *RedisCache) HasTopRoBBidValue(
 	return exists == 1, nil
 }
 
-func (r *RedisCache) GetTopToBBidValue(
+func (r *RedisCache) GetToBTopBidValue(
 	ctx context.Context,
 	pipeliner redis.Pipeliner,
 	slot uint64,
 	parentHash string,
 	proposerPubkey bls.PublicKey,
-) (topBidValue *big.Int, err error) {
+) (topBidValue uint64, err error) {
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopToBBidValue(slot, parentHash, proposerString)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
-		return big.NewInt(0), nil
+		return uint64(0), nil
 	} else if err != nil {
-		return nil, err
+		return uint64(0), err
 	}
 
 	topBidValueStr, err := c.Result()
 	if err != nil {
 		return nil, err
 	}
-	topBidValue = new(big.Int)
-	topBidValue.SetString(topBidValueStr, 10)
+
+	topBidValue, err = strconv.ParseUint(topBidValueStr, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
 	return topBidValue, nil
 }
 
-func (r *RedisCache) GetTopRoBBidValue(
+func (r *RedisCache) GetRoBTopBidValue(
 	ctx context.Context,
 	pipeliner redis.Pipeliner,
 	slot uint64,
 	parentHash string,
 	proposerPubkey bls.PublicKey,
 	chainID string,
-) (topBidValue *big.Int, err error) {
+) (topBidValue uint64, err error) {
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerString, chainID)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
-		return big.NewInt(0), nil
+		return uint64(0), nil
 	} else if err != nil {
-		return nil, err
+		return uint64(0), err
 	}
 
 	topBidValueStr, err := c.Result()
 	if err != nil {
-		return nil, err
+		return uint64(0), err
 	}
-	topBidValue = new(big.Int)
-	topBidValue.SetString(topBidValueStr, 10)
+
+	topBidValue, err = strconv.ParseUint(topBidValueStr, 10, 64)
+	if err != nil {
+		return 0, err
+	}
 	return topBidValue, nil
 }
 

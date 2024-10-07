@@ -970,7 +970,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	var hasToB bool
 	var hasRoB bool
 	// TODO: bid returns an empty AnchorHeader which causes code to fail, debug needed below
-	bid, err := api.redis.GetBestToBBid(slot, parentHashStr, proposerPubkeyHex)
+	bid, err := api.redis.GetToBBestBid(slot, parentHashStr, proposerPubkeyHex)
 	if err != nil {
 		log.WithError(err).Error("could not get bid for ToB")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -996,7 +996,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 	}
 
 	for chainID := range api.robChainIDs {
-		bid, err := api.redis.GetBestRoBBid(slot, parentHashStr, proposerPubkeyHex, chainID)
+		bid, err := api.redis.GetRoBBestBid(slot, parentHashStr, proposerPubkeyHex, chainID)
 		if err != nil {
 			log.WithError(err).Error("could not get bid for RoB: " + chainID)
 			api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -1759,14 +1759,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	if isToB {
-		hasToB, err = api.redis.HasTopToBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey())
+		hasToB, err = api.redis.HasToBTopBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey())
 		if err != nil {
 			log.WithError(err).Info("could not query tob for blockReq, returned err")
 			api.RespondError(w, http.StatusBadRequest, "could not query tob for blockReq, failed")
 			return
 		}
 		if hasToB {
-			topBidValue, err = api.redis.GetTopToBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey())
+			topBidValue, err = api.redis.GetToBTopBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey())
 			if err != nil {
 				log.WithError(err).Info("could not get top tob bid val for blockReq, returned err")
 				api.RespondError(w, http.StatusBadRequest, "could not get top tob bid for blockReq, failed")
@@ -1779,14 +1779,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			})
 		}
 	} else {
-		hasRoB, err = api.redis.HasTopRoBBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
+		hasRoB, err = api.redis.HasRoBTopBidValue(context.Background(), blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
 		if err != nil {
 			log.WithError(err).Info("could not query rob for blockReq, returned err")
 			api.RespondError(w, http.StatusBadRequest, "could not query rob for blockReq, failed")
 			return
 		}
 		if hasRoB {
-			topBidValue, err = api.redis.GetTopRoBBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
+			topBidValue, err = api.redis.GetRoBTopBidValue(context.Background(), tx, blockReq.Slot(), blockReq.ParentHashAsStr(), *blockReq.ProposerPubKey(), chainID)
 			if err != nil {
 				log.WithError(err).Info("could not get top rob bid val for blockReq, returned err")
 				api.RespondError(w, http.StatusBadRequest, "could not get top rob bid for blockReq, failed")
@@ -2094,7 +2094,7 @@ func (api *BatonAPI) seqTxs2EthTxs(ctx context.Context, txs []*chain.Transaction
 }
 
 func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID string, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) (map[string][]hexutil.Bytes, error) {
-	header, err := api.redis.GetBestToBBid(slot, parentHash, proposerPubkey)
+	header, err := api.redis.GetToBBestBid(slot, parentHash, proposerPubkey)
 	if err != nil {
 		return nil, err
 	}
@@ -2142,7 +2142,7 @@ func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID strin
 func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[string]struct{}, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) (map[string][]hexutil.Bytes, error) {
 	ret := make(map[string][]hexutil.Bytes, 0)
 	for chainID := range chainIDs {
-		header, err := api.redis.GetBestRoBBid(slot, parentHash, proposerPubkey, chainID)
+		header, err := api.redis.GetRoBBestBid(slot, parentHash, proposerPubkey, chainID)
 		if err != nil { // nil won't throw
 			return nil, err
 		}
