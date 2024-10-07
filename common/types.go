@@ -508,11 +508,11 @@ func NewSubmitNewBlockRequest() SubmitNewBlockRequest {
 func (r *SubmitNewBlockRequest) Initialize() error {
 	sig, err := bls.SignatureFromBytes(r.Signature)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to parse SubmitNewBlockRequest.Signature: %+v", err)
 	}
 	bpk, err := bls.PublicKeyFromBytes(r.BuilderPubKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to parse SubmitNewBlockRequest.BuilderPubKey: %+v", err)
 	}
 
 	r.signature = sig
@@ -535,7 +535,7 @@ func NewBatonBlockRequest() BatonBlock {
 func (b *BatonBlock) Initialize() error {
 	pk, err := bls.PublicKeyFromBytes(b.ProposerPubkey)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to parse BatonBlock.ProposerPubkey: %+v", err)
 	}
 
 	b.proposerPubkey = pk
@@ -947,13 +947,13 @@ func (h *AnchorGetHeaderResponse) SetExecPayloadsSig(sig *bls.Signature) {
 	h.ExecHeadersSig = signatureAsBytes[:]
 }
 
-func SignAnchorGetHeaderResponse(chainID ids.ID, networkID uint32, response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {
-	signature, err := GetExecHeaderSignature(chainID, networkID, &response.ExecHeaders, secretKey)
+func SignAnchorGetHeaderResponse(response *AnchorGetHeaderResponse, secretKey *bls.SecretKey) error {
+	payloadHash, err := HashExecHeaders(&response.ExecHeaders)
 	if err != nil {
-		return errors.New("failed to sign anchor header response, err: " + err.Error())
+		return err
 	}
-
-	response.SetExecPayloadsSig(signature)
+	sig := bls.Sign(secretKey, payloadHash[:])
+	response.SetExecPayloadsSig(sig)
 	return nil
 }
 

@@ -217,11 +217,7 @@ func MustB64Gunzip(s string) []byte {
 
 func BlsPubKeyToStr(pk *bls.PublicKey) string {
 	pkBytes := pk.Bytes()
-	pubKeyStr := hex.EncodeToString(pkBytes[:])
-	if pubKeyStr[0] != '0' && pubKeyStr[1] != 'x' {
-		pubKeyStr = "0x" + pubKeyStr
-	}
-	return pubKeyStr
+	return hexutil.Encode(pkBytes[:])
 }
 
 func BlsToPhase0PubKey(pk *bls.PublicKey) (*phase0.BLSPubKey, error) {

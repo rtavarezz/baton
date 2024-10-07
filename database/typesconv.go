@@ -3,6 +3,7 @@ package database
 import (
 	"encoding/json"
 	"errors"
+
 	"github.com/AnomalyFi/baton/common"
 )
 
@@ -34,7 +35,7 @@ func AnchorPayloadToExecPayloadEntry(
 		IsToB:          isToB,
 		ChainID:        robChainID,
 		Version:        version,
-		Payload:        string(_payload),
+		Payload:        string(_payload), // TODO: update this, might be problematic as string() method may produce illegal chars
 	}, nil
 }
 
