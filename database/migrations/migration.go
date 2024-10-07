@@ -19,5 +19,6 @@ var Migrations = migrate.MemoryMigrationSource{
 		Migration010CreateIncludedTobTxs,
 		Migration011AddAssemblyDuration,
 		Migration012AddTobSubmitProfileTable,
+		Migration013AddRobSubmitProfileTable,
 	},
 }
