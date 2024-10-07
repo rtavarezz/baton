@@ -182,7 +182,10 @@ func (b *BlockSimulationRateLimiter) simBlockAndGetGasUsed(context context.Conte
 		b.logger.Debugf("eth_callBundle failed: %s", err)
 		return 0, err, nil
 	}
-	b.logger.Debug("eth_callBundle rest: %+v", bundleRes)
+	//b.logger.Debug("eth_callBundle rest: %+v", bundleRes)
+	b.logger.WithFields(logrus.Fields{
+		"eth_callBundle rest": bundleRes,
+	}).Debug("Logging bundle response")
 
 	return uint64(bundleRes.TotalGasUsed), nil, nil
 	// // fbRPC.

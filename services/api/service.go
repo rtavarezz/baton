@@ -930,7 +930,7 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 
 	proposerPubkeyBytes, err := hexutil.Decode(proposerPubkeyHex)
 	if err != nil {
-		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("unable to decode proposer pubkey: %w", err))
+		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("unable to decode proposer pubkey: %s", err.Error()))
 		return
 	}
 
@@ -1698,7 +1698,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 
-	log.Infof("is tob: %d", isToB)
+	log.Infof("is tob: %t", isToB)
 
 	if isToB {
 		// TODO: pass blockReq.Txs which will always be size 800+ after marshal or use txs type hypersdk below
