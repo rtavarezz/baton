@@ -1182,7 +1182,7 @@ func TestGetCachedL2Txs(t *testing.T) {
 		require.NoError(t, err)
 
 		start := time.Now()
-		_, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, backend.baton.log)
+		_, _, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, 1, backend.baton.log)
 		require.NoError(t, err)
 
 		fmt.Printf("Used %f seconds to get ToB %d txs out of %d txs among %d chains\n", time.Since(start).Seconds(), numTxsPerPayload/numChains, numTxsPerPayload, numChains)
@@ -1220,7 +1220,7 @@ func TestGetCachedL2Txs(t *testing.T) {
 		require.NoError(t, err)
 
 		start := time.Now()
-		_, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, backend.baton.log)
+		_, _, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, 1, backend.baton.log)
 		require.NoError(t, err)
 
 		fmt.Printf("Used %f seconds to get ToB %d txs out of %d txs among %d chains\n", time.Since(start).Seconds(), numTxsPerPayload/numChains, numTxsPerPayload, numChains)
@@ -1263,7 +1263,7 @@ func TestGetCachedL2Txs(t *testing.T) {
 		}
 
 		start := time.Now()
-		_, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, backend.baton.log)
+		_, _, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, 1, backend.baton.log)
 		require.NoError(t, err)
 
 		fmt.Printf("Used %f seconds to extract %d RoB txs of %d chains\n", time.Since(start).Seconds(), numTxsPerPayload*numChains, numChains)
@@ -1306,41 +1306,13 @@ func TestGetCachedL2Txs(t *testing.T) {
 		}
 
 		start := time.Now()
-		_, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, backend.baton.log)
+		_, _, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, 1, backend.baton.log)
 		require.NoError(t, err)
 
 		fmt.Printf("Used %f seconds to extract %d RoB txs of %d chains\n", time.Since(start).Seconds(), numTxsPerPayload*numChains, numChains)
 	})
 
 }
-
-// TODO: Fix the below
-/*
-func TestBuilderApiGetValidators(t *testing.T) {
-	path := "/baton/v1/builder/validators"
-
-	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-	duties := []common.BuilderGetValidatorsResponseEntry{
-		{
-			Slot:  1,
-			Entry: &apiv1.SignedValidatorRegistration{},
-		},
-	}
-	responseBytes, err := json.Marshal(duties)
-	require.NoError(t, err)
-	backend.baton.proposerDutiesResponse = &responseBytes
-
-	rr := backend.request(http.MethodGet, path, nil)
-	require.Equal(t, http.StatusOK, rr.Code)
-
-	resp := []common.BuilderGetValidatorsResponseEntry{}
-	err = json.Unmarshal(rr.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(resp))
-	require.Equal(t, uint64(1), resp[0].Slot)
-	require.Equal(t, apiv1.ValidatorRegistration{}, *resp[0].Entry)
-}
-*/
 
 func TestGetPayload(t *testing.T) {
 	// Setup backend with headSlot and genesisTime

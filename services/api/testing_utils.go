@@ -174,7 +174,7 @@ func CreateTestChunkSubmission(
 	anchorHeader, err := BuildHeader(&blockReq, value)
 	require.NoError(t, err)
 
-	anchorPayload, err := BuildPayload(&blockReq, blockReq.Txs(), value)
+	anchorPayload, err := BuildPayload(&blockReq, blockReq.Txs(), value, nil)
 	require.NoError(t, err)
 
 	err = blockReq.Initialize()

@@ -34,12 +34,14 @@ var (
 	apiDefaultBuilderAPIEnabled  = os.Getenv("DISABLE_BUILDER_API") != "1"
 	apiDefaultDataAPIEnabled     = os.Getenv("DISABLE_DATA_API") != "1"
 	apiDefaultProposerAPIEnabled = os.Getenv("DISABLE_PROPOSER_API") != "1"
+	apiDefaultSimDepth           = 3 // sim with txs deep to 3 slot
 
 	apiListenAddr       string
 	apiPprofEnabled     bool
 	apiSecretKey        string
 	apiBlockSimURL      string
 	apiBlockSimFbRPCKey string
+	apiBlockSimDepth    int
 	apiDebug            bool
 	apiBuilderAPI       bool
 	apiDataAPI          bool
@@ -68,6 +70,7 @@ func init() {
 	apiCmd.Flags().StringVar(&apiSecretKey, "secret-key", apiDefaultSecretKey, "secret key for signing bids")
 	apiCmd.Flags().StringVar(&apiBlockSimURL, "blocksim", apiDefaultBlockSim, "URL for block simulator")
 	apiCmd.Flags().StringVar(&apiBlockSimFbRPCKey, "fbrpc-key", apiDefaultFBRPCKey, "fb rpc signing key")
+	apiCmd.Flags().IntVar(&apiBlockSimDepth, "sim-depth", apiDefaultSimDepth, "simulation txs range from [headSlot:headSlot-depth]")
 	apiCmd.Flags().StringVar(&network, "network", defaultNetwork, "Which network to use")
 
 	apiCmd.Flags().BoolVar(&apiPprofEnabled, "pprof", apiDefaultPprofEnabled, "enable pprof API")
@@ -105,18 +108,6 @@ var apiCmd = &cobra.Command{
 		}
 		log.Infof("Using network: %s", networkInfo.Name)
 		log.Debug(networkInfo.String())
-
-		// TODO: to be removed as beacon client not used
-		// Connect to beacon clients and ensure it's synced
-		// if len(beaconNodeURIs) == 0 {
-		// 	log.Fatalf("no beacon endpoints specified")
-		// }
-		// log.Infof("Using beacon endpoints: %s", strings.Join(beaconNodeURIs, ", "))
-		// var beaconInstances []beaconclient.IBeaconInstance
-		// for _, uri := range beaconNodeURIs {
-		// 	beaconInstances = append(beaconInstances, beaconclient.NewProdBeaconInstance(log, uri))
-		// }
-		// beaconClient := beaconclient.NewMultiBeaconClient(log, beaconInstances)
 
 		// Connect to Redis
 		if redisReadonlyURI == "" {
@@ -178,6 +169,7 @@ var apiCmd = &cobra.Command{
 			EthNetDetails:      *networkInfo,
 			BlockSimURL:        apiBlockSimURL,
 			BlockSimSigningKey: fbSk,
+			BlockSimDepth:      apiBlockSimDepth,
 			SeqURL:             apiSEQURI,
 			SeqChainID:         seqChainID,
 			SeqNetworkID:       apiSEQNetworkID,

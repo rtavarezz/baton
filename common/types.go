@@ -753,7 +753,8 @@ type AnchorPayload struct {
 	Header common.Hash `json:"blockHash"`
 
 	// Hypersdk txs from the submit new block request.
-	Transactions []byte `json:"transactions"`
+	Transactions []byte            `json:"transactions"`
+	BlockNumber  map[string]uint64 `json:"block_number"` // block numbers this payload was simulated on
 
 	GasUsed  uint64 `json:"gasused" db:"gas_used"`
 	GasLimit uint64 `json:"gaslimit" db:"gas_limit"`

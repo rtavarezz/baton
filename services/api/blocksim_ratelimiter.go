@@ -37,6 +37,7 @@ type IBlockSimRateLimiter interface {
 	SimBlockAndGetGasUsedForChain(context context.Context, chainID string, req *common.BlockValidationRequest) (uint64, error, error)
 	RegisterSimulator(req *SimulatorRegisterRequest) (bool, error)
 	CurrentCounter() int64
+	GetBlockNumber(chainIDs map[string]struct{}) (map[string]uint64, error)
 }
 
 type BlockSimulationRateLimiter struct {
@@ -209,6 +210,40 @@ func (b *BlockSimulationRateLimiter) simBlockAndGetGasUsed(context context.Conte
 	// }
 
 	// return gasUsed, requestErr, validationErr
+}
+
+func (b *BlockSimulationRateLimiter) GetBlockNumber(chainIDs map[string]struct{}) (map[string]uint64, error) {
+	b.blockSimURLsL.RLock()
+	defer b.blockSimURLsL.RUnlock()
+
+	var reqErr error
+	var wg sync.WaitGroup
+	ret := make(map[string]uint64, len(chainIDs))
+	for chainID := range chainIDs {
+		if _, ok := b.blockSimURLs[chainID]; !ok {
+			return nil, fmt.Errorf("chainID(%s) not supported", chainID)
+		}
+		simURL := b.blockSimURLs[chainID]
+		wg.Add(1)
+		go func(chainID string) {
+			defer wg.Done()
+
+			fbRPC := flashbotsrpc.NewFlashbotsRPC(simURL)
+			blockNumber, err := fbRPC.EthBlockNumber()
+			if err != nil {
+				reqErr = err
+			}
+
+			ret[chainID] = uint64(blockNumber)
+		}(chainID)
+	}
+	wg.Wait()
+
+	if reqErr != nil {
+		return nil, reqErr
+	}
+
+	return ret, nil
 }
 
 // CurrentCounter returns the number of waiting and active requests
