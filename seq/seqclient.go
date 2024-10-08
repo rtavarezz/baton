@@ -41,11 +41,9 @@ type SeqClient struct {
 
 	signer ed25519.PrivateKey
 
-	blockHead  *chain.StatefulBlock
-	blockHeadL sync.Mutex
-
-	proposerInfo  *hrpc.NextProposerReply
-	proposerInfoL sync.Mutex
+	blockHead    *chain.StatefulBlock
+	proposerInfo *hrpc.NextProposerReply
+	blockHeadL   sync.Mutex
 
 	// ETH Chain related
 	Namespace []byte // ChainID bytes
@@ -110,24 +108,25 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 					continue
 				}
 
+				// release the lock after duty map is updated
 				client.blockHeadL.Lock()
 				client.blockHead = blk
-				client.blockHeadL.Unlock()
 
 				// query next proposer on receiving a new block, this save us time while we do compuating during round trip
 				nextProposer, err := client.nextProposer(bctx, blk.Hght+1)
 
-				client.proposerInfoL.Lock()
 				if err != nil {
 					client.proposerInfo = nil // set next proposer to nil to notify the ToB block built on top of this is invalid
 					log.Error("unable to fetch next proposer", "err", err)
 				} else {
 					client.proposerInfo = nextProposer
 				}
-				client.proposerInfoL.Unlock()
+
 				log.Info("setting proposer", "proposer", nextProposer.NodeID.String())
 
-				go client.onNewBlockHandler(blk, nextProposer)
+				client.onNewBlockHandler(blk, nextProposer)
+
+				client.blockHeadL.Unlock()
 			}
 		}
 	}()
@@ -151,8 +150,8 @@ func (s *SeqClient) SetNamespace(namespace []byte) {
 }
 
 func (s *SeqClient) NextProposer(ctx context.Context) *hrpc.NextProposerReply {
-	s.proposerInfoL.Lock()
-	defer s.proposerInfoL.Unlock()
+	s.blockHeadL.Lock()
+	defer s.blockHeadL.Unlock()
 
 	return s.proposerInfo
 }
@@ -162,8 +161,8 @@ func (s *SeqClient) nextProposer(ctx context.Context, height uint64) (*hrpc.Next
 }
 
 func (s *SeqClient) CurrentValidators(ctx context.Context) []*hrpc.Validator {
-	s.proposerInfoL.Lock()
-	defer s.proposerInfoL.Unlock()
+	s.blockHeadL.Lock()
+	defer s.blockHeadL.Unlock()
 
 	if s.proposerInfo != nil {
 		return s.proposerInfo.Validators

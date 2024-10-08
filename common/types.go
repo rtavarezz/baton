@@ -407,6 +407,10 @@ func (s *SignedBeaconBlock) BlockHash() string {
 type BuilderGetSEQValidatorResponseEntry struct {
 	Slot  uint64                          `json:"slot,string"`
 	Entry *SignedSEQValidatorRegistration `json:"entry"`
+
+	// the following are used for simulation
+	ParentHash     string `json:"blockHash"`
+	ProposerPubkey string `json:"proposerPubkey"`
 }
 
 type SignedSEQValidatorRegistration struct {
