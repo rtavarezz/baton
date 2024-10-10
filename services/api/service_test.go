@@ -126,6 +126,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 		DataAPI:         true,
 		InternalAPI:     true,
 		mockMode:        true,
+		SlotSizeLimit:   DefaultSizeLimit,
 	}
 
 	baton, err := NewBatonAPI(opts)
@@ -856,7 +857,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
 			RobChainIndex:  0,
-			NumTxs:         common.MaxTobTxs + 1,
+			NumTxs:         common.MinTobTxs,
 			WithTransferTx: true,
 			SeqChainID:     testSeqChainID,
 		}
@@ -879,7 +880,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
 			RobChainIndex:  0,
-			NumTxs:         common.MaxTobTxs,
+			NumTxs:         common.MinTobTxs,
 			WithTransferTx: true,
 			SeqChainID:     testSeqChainID,
 		}
@@ -902,7 +903,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
 			RobChainIndex:  0,
-			NumTxs:         common.MaxTobTxs + 1,
+			NumTxs:         common.MinTobTxs,
 			WithTransferTx: true,
 			SeqChainID:     testSeqChainID,
 		}
@@ -1565,6 +1566,9 @@ func TestOverallBasicFlow(t *testing.T) {
 	}
 
 	backend := createBackendHelper(t)
+	backend.baton.sizeTracker.SetSlot(expectedSlot)
+	redis := backend.redis
+	redis.SetSizeTracker(backend.baton.sizeTracker)
 	seqClient := backend.GetMockSeqClient()
 	proposerPubKeyStr := robBlockReq.ProposerPubKeyAsStr()
 	// Submit block requests (one rob, one tob)
@@ -1730,6 +1734,8 @@ func TestRoBBuilderBids(t *testing.T) {
 	// deleting a bid that doesn't exist should not error
 	err = redis.DelBuilderBid(context.Background(), redis.NewPipeline(), slot, parentHashStr, proposerPubkeyHex, bApubkey)
 	require.NoError(t, err)
+	backend.baton.sizeTracker.SetSlot(slot)
+	redis.SetSizeTracker(backend.baton.sizeTracker)
 
 	// submit ba1=10
 	//payload, getPayloadResp, getHeaderResp := api.CreateTestChunkSubmission(t, Apubkey, uint256.NewInt(10), &opts)
@@ -1844,6 +1850,8 @@ func TestToBBuilderBids(t *testing.T) {
 	// Setup redis instance
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 	redis := backend.GetRedis()
+	backend.baton.sizeTracker.SetSlot(slot)
+	redis.SetSizeTracker(backend.baton.sizeTracker)
 
 	// Helper to ensure writing to redis worked as expected
 	ensureBestBidValueEquals := func(expectedValue uint64, builderPubkey string) {
