@@ -961,6 +961,118 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rrCode)
 	})
 
+	t.Run("RoB block not exceed size", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
+
+		// Block in 1600 KB at least
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     ids.Empty,
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          false,
+			RobChainIndex:  0,
+			NumTxs:         2,
+			L2TxDataSize:   100 * 1024, // 100 KB
+			WithTransferTx: true,
+			SeqChainID:     testSeqChainID,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("RoB block exceed size", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
+
+		// Block in 1600 KB at least
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     ids.Empty,
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          false,
+			RobChainIndex:  0,
+			NumTxs:         16,
+			L2TxDataSize:   100 * 1024, // 100 KB
+			WithTransferTx: true,
+			SeqChainID:     testSeqChainID,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("ToB block exceed size", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
+
+		// Block in 1600 KB at least
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     ids.Empty,
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			RobChainIndex:  0,
+			NumTxs:         16,
+			L2TxDataSize:   100 * 1024, // 100 KB
+			WithTransferTx: true,
+			SeqChainID:     testSeqChainID,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("ToB block not exceed size", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
+
+		// Block in 1600 KB at least
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     ids.Empty,
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			RobChainIndex:  0,
+			NumTxs:         2,
+			L2TxDataSize:   100 * 1024, // 100 KB
+			WithTransferTx: true,
+			SeqChainID:     testSeqChainID,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
 	t.Run("Run valid RoBs for race condition", func(t *testing.T) {
 		backend := createBackendHelper(t)
 		backend.baton.sizeTracker.SetSlot(slot)
