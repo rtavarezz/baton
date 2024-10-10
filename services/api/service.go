@@ -1814,15 +1814,16 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		}
 	}
 
+	proposerPayment := blockReq.ProposerPayment()
 	log = log.WithFields(logrus.Fields{
 		"timestampAfterDecoding": time.Now().UTC().UnixMilli(),
-		"slot":                   blockReq.Slot,
+		"slot":                   blockReq.Slot(),
 		"numTx":                  len(blockReq.Txs()),
-		"parentHash":             blockReq.ParentHash,
-		"blockHash":              blockReq.BlockHash,
+		"parentHash":             blockReq.ParentHash().String(),
+		"blockHash":              hexutil.Encode(blockReq.BlockHash().Bytes()),
 		"builderPubkey":          blockReq.BuilderPubkey().String(),
 		"proposerPubkey":         blockReq.ProposerPubKeyAsStr(),
-		"proposerPayment":        blockReq.ProposerPayment,
+		"proposerPayment":        hexutil.Encode(proposerPayment[:]),
 		"isLargeRequest":         isLargeRequest,
 		"isToB":                  isToB,
 	})
