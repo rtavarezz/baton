@@ -1682,6 +1682,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	var chainIDs map[string]struct{}
+	var incomingSimBlockNumber map[string]uint64
 	var txs []*chain.Transaction
 	parser := srpc.Parser{}
 	actionRegistry, authRegistry := parser.Registry()
@@ -1700,12 +1701,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusNoContent, err.Error())
 		return
 	}
-	chainIDs = api.getChainIDsFromSEQTxs(context.TODO(), txs)
-	incomingSimBlockNumber, err := api.blockSimRateLimiter.GetBlockNumber(chainIDs)
-	if err != nil {
-		log.WithError(err).Warn("unable to get block numbers of L2s")
-		api.RespondError(w, http.StatusNoContent, err.Error())
-		return
+	if !api.mockMode {
+		chainIDs = api.getChainIDsFromSEQTxs(context.TODO(), txs)
+		incomingSimBlockNumber, err = api.blockSimRateLimiter.GetBlockNumber(chainIDs)
+		if err != nil {
+			log.WithError(err).Warn("unable to get block numbers of L2s")
+			api.RespondError(w, http.StatusNoContent, err.Error())
+			return
+		}
 	}
 
 	nextTime = time.Now().UTC()
