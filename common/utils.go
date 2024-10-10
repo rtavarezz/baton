@@ -237,12 +237,10 @@ func VerifySEQSignature(chainID ids.ID, networkID uint32, pk *bls.PublicKey, sig
 
 func ProposerPubKeyAsStr(pk *bls.PublicKey) string {
 	proposerPubKeyBytes := pk.Bytes()
-	proposerPubKeyBytesAsStr := hex.EncodeToString(proposerPubKeyBytes[:])
-	return "0x" + proposerPubKeyBytesAsStr
+	return hexutil.Encode(proposerPubKeyBytes[:])
 }
 
 func BuilderPubkeyAsStr(pk *bls.PublicKey) string {
 	builderPubKeyBytes := pk.Bytes()
-	builderPubKeyBytesAsStr := "0x" + hex.EncodeToString(builderPubKeyBytes[:])
-	return builderPubKeyBytesAsStr
+	return hexutil.Encode(builderPubKeyBytes[:])
 }

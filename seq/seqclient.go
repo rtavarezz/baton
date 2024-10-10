@@ -111,7 +111,7 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 				logger.Info("stopping as receiving stop signal")
 				return
 			default:
-				bctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+				bctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 				blk, _, _, _, err := wsCli.ListenBlock(bctx, parser)
 				if err != nil {
 					logger.Error("unable to listen block", "err", err)

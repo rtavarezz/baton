@@ -1215,7 +1215,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 
 		// we only need to get the bidtrace for one of the involved blocks.
 		if getPayloadResp.ExecPayloads.ToBPayload != nil {
-			bidTrace, err = api.redis.GetToBBidTrace(payload.Slot, proposerPubkey.String(), payload.ParentHash)
+			bidTrace, err = api.redis.GetToBBidTrace(payload.Slot, common.ProposerPubKeyAsStr(proposerPubkey), payload.ParentHash)
 			if err != nil {
 				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 				return
@@ -1231,7 +1231,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			for k := range getPayloadResp.ExecPayloads.RoBPayloads {
 				robFirstChainID = k
 			}
-			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, proposerPubkey.String(), payload.ParentHash, robFirstChainID)
+			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, common.ProposerPubKeyAsStr(proposerPubkey), payload.ParentHash, robFirstChainID)
 			if err != nil {
 				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 				return
@@ -2068,7 +2068,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 				log.WithError(err).Error("couldn't get tx digest")
 				continue
 			}
-			txHashList = append(txHashList, string(digestBytes))
+			txHashList = append(txHashList, hexutil.Encode(digestBytes))
 		}
 		txHashes := strings.Join(txHashList, ",")
 
