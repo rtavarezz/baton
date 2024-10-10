@@ -2129,7 +2129,7 @@ func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID strin
 	blockNumbers := make([]map[string]uint64, 0, depth)
 
 	fmt.Printf("slot2bid: %d, depth: %d\n", slot2bid, depth)
-	for slot := slot2bid - uint64(depth); slot <= slot2bid; slot++ {
+	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
 		fmt.Printf("getting tob payload from slot: %d\n", slot)
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
 		if !ok {
@@ -2187,7 +2187,7 @@ func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID strin
 func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[string]struct{}, slot2bid uint64, depth int, log *logrus.Entry) (map[string][]hexutil.Bytes, map[string]uint64, error) {
 	ret := make(map[string][]hexutil.Bytes, 0)
 	blockNumbers := make([]map[string]uint64, 0, len(chainIDs)*depth)
-	for slot := slot2bid - uint64(depth); slot <= slot2bid; slot++ {
+	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
 		if !ok {
 			return nil, nil, fmt.Errorf("unable to fetch proposer duty for slot: %d", slot)

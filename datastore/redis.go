@@ -583,7 +583,7 @@ func (r *RedisCache) SaveExecutionToBAnchorPayload(
 	payload *common.AnchorPayload,
 ) (err error) {
 	key := r.keyExecToBAnchorPayload(slot, proposerPubkey, parentHash)
-	fmt.Printf("keyAnchorPayload: %s\n", key)
+	fmt.Printf("keyAnchorPayload(SET): %s\n", key)
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
