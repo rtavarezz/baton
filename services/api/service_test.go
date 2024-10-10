@@ -1114,6 +1114,7 @@ func TestRegisterSEQValidator(t *testing.T) {
 	})
 }
 
+// TODO: to be recovered and fixed, this is broken after sim fix
 func TestGetCachedL2Txs(t *testing.T) {
 	testSeqChainID := ids.GenerateTestID()
 	randomSEQTxMsg := func(seqChainID ids.ID, chainID *big.Int, limit int) *chain.Transaction {
@@ -1126,7 +1127,7 @@ func TestGetCachedL2Txs(t *testing.T) {
 		return CreateHypersdkTx(seqChainID, chainID, txRaw)
 	}
 
-	randomSEQTxsMsgForChains := func(chainIDs []*big.Int, numTxs int, limit int) []byte {
+	randomSEQTxsMsgForChains := func(chainIDs []*big.Int, numTxs int, limit int) ([]byte, int) {
 		txs := make([]*chain.Transaction, 0, numTxs)
 		numTxsPerChain := numTxs / len(chainIDs)
 		if numTxsPerChain <= 0 {
@@ -1142,7 +1143,7 @@ func TestGetCachedL2Txs(t *testing.T) {
 		// we have a 2MB bound for the packer used in this method, also the chain.UnmarshalTxs
 		txsRaw, err := chain.MarshalTxs(txs)
 		require.NoError(t, err)
-		return txsRaw
+		return txsRaw, len(txs)
 	}
 
 	proposerPubkey := test2ProposerPubkey
@@ -1167,13 +1168,18 @@ func TestGetCachedL2Txs(t *testing.T) {
 			tobChainIDs = append(tobChainIDs, chainID)
 		}
 
-		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", numChains, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
+		backend.baton.proposerDutiesMap[slot] = &common.BuilderGetSEQValidatorResponseEntry{
+			ParentHash:     testParentHash,
+			ProposerPubkey: proposerPubkey,
+		}
 
+		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", numChains, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
+		otxs, _ := randomSEQTxsMsgForChains(tobChainIDs, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
 		// ToB payload
 		payload := common.AnchorPayload{
 			Slot:         slot,
 			Header:       blockHash,
-			Transactions: randomSEQTxsMsgForChains(tobChainIDs, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx),
+			Transactions: otxs,
 			GasUsed:      0,
 			GasLimit:     0,
 		}
@@ -1182,7 +1188,7 @@ func TestGetCachedL2Txs(t *testing.T) {
 		require.NoError(t, err)
 
 		start := time.Now()
-		_, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, backend.baton.log)
+		_, _, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, 1, backend.baton.log)
 		require.NoError(t, err)
 
 		fmt.Printf("Used %f seconds to get ToB %d txs out of %d txs among %d chains\n", time.Since(start).Seconds(), numTxsPerPayload/numChains, numTxsPerPayload, numChains)
@@ -1204,14 +1210,18 @@ func TestGetCachedL2Txs(t *testing.T) {
 			chainID := big.NewInt(int64(45200 + i))
 			tobChainIDs = append(tobChainIDs, chainID)
 		}
-
+		backend.baton.proposerDutiesMap[slot] = &common.BuilderGetSEQValidatorResponseEntry{
+			ParentHash:     testParentHash,
+			ProposerPubkey: proposerPubkey,
+		}
 		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", numChains, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
 
+		otxs, _ := randomSEQTxsMsgForChains(tobChainIDs, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
 		// ToB payload
 		payload := common.AnchorPayload{
 			Slot:         slot,
 			Header:       blockHash,
-			Transactions: randomSEQTxsMsgForChains(tobChainIDs, numTxsPerPayload, sizeLimitPerL2Tx),
+			Transactions: otxs,
 			GasUsed:      0,
 			GasLimit:     0,
 		}
@@ -1220,7 +1230,7 @@ func TestGetCachedL2Txs(t *testing.T) {
 		require.NoError(t, err)
 
 		start := time.Now()
-		_, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, testParentHash, testProposerPubkey, backend.baton.log)
+		_, _, err = backend.baton.getTopToBTxsByChainID(context.TODO(), hexutil.EncodeBig(tobChainIDs[0]), slot, 1, backend.baton.log)
 		require.NoError(t, err)
 
 		fmt.Printf("Used %f seconds to get ToB %d txs out of %d txs among %d chains\n", time.Since(start).Seconds(), numTxsPerPayload/numChains, numTxsPerPayload, numChains)
@@ -1239,16 +1249,21 @@ func TestGetCachedL2Txs(t *testing.T) {
 		numChains := 50
 		robChainIDs := make([]*big.Int, 0, numChains)
 
+		backend.baton.proposerDutiesMap[slot] = &common.BuilderGetSEQValidatorResponseEntry{
+			ParentHash:     testParentHash,
+			ProposerPubkey: proposerPubkey,
+		}
 		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", 1, numTxsPerPayload, sizeLimitPerL2Tx)
 
 		for i := 0; i < numChains; i++ {
 			chainID := big.NewInt(int64(45200 + i))
 			robChainIDs = append(robChainIDs, chainID)
+			otxs, _ := randomSEQTxsMsgForChains([]*big.Int{chainID}, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
 			// ToB payload
 			payload := common.AnchorPayload{
 				Slot:         slot,
 				Header:       blockHash,
-				Transactions: randomSEQTxsMsgForChains([]*big.Int{chainID}, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx),
+				Transactions: otxs,
 				GasUsed:      0,
 				GasLimit:     0,
 			}
@@ -1263,7 +1278,7 @@ func TestGetCachedL2Txs(t *testing.T) {
 		}
 
 		start := time.Now()
-		_, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, backend.baton.log)
+		_, _, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, 1, backend.baton.log)
 		require.NoError(t, err)
 
 		fmt.Printf("Used %f seconds to extract %d RoB txs of %d chains\n", time.Since(start).Seconds(), numTxsPerPayload*numChains, numChains)
@@ -1282,16 +1297,21 @@ func TestGetCachedL2Txs(t *testing.T) {
 		numChains := 50
 		robChainIDs := make([]*big.Int, 0, numChains)
 
+		backend.baton.proposerDutiesMap[slot] = &common.BuilderGetSEQValidatorResponseEntry{
+			ParentHash:     testParentHash,
+			ProposerPubkey: proposerPubkey,
+		}
 		fmt.Printf("numChains: %d, numTxsPerPayload: %d, sizeLimitPerL2Tx: %d Bytes\n", 1, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
 
 		for i := 0; i < numChains; i++ {
 			chainID := big.NewInt(int64(45200 + i))
 			robChainIDs = append(robChainIDs, chainID)
+			otxs, _ := randomSEQTxsMsgForChains([]*big.Int{chainID}, numTxsPerPayload, sizeLimitPerL2Tx-overheadPackingTx)
 			// ToB payload
 			payload := common.AnchorPayload{
 				Slot:         slot,
 				Header:       blockHash,
-				Transactions: randomSEQTxsMsgForChains([]*big.Int{chainID}, numTxsPerPayload, sizeLimitPerL2Tx),
+				Transactions: otxs,
 				GasUsed:      0,
 				GasLimit:     0,
 			}
@@ -1306,41 +1326,12 @@ func TestGetCachedL2Txs(t *testing.T) {
 		}
 
 		start := time.Now()
-		_, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, testParentHash, testProposerPubkey, backend.baton.log)
+		_, _, err := backend.baton.getTopRoBsTxsByChainIDs(context.TODO(), chainIDsMap, slot, 1, backend.baton.log)
 		require.NoError(t, err)
 
 		fmt.Printf("Used %f seconds to extract %d RoB txs of %d chains\n", time.Since(start).Seconds(), numTxsPerPayload*numChains, numChains)
 	})
-
 }
-
-// TODO: Fix the below
-/*
-func TestBuilderApiGetValidators(t *testing.T) {
-	path := "/baton/v1/builder/validators"
-
-	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
-	duties := []common.BuilderGetValidatorsResponseEntry{
-		{
-			Slot:  1,
-			Entry: &apiv1.SignedValidatorRegistration{},
-		},
-	}
-	responseBytes, err := json.Marshal(duties)
-	require.NoError(t, err)
-	backend.baton.proposerDutiesResponse = &responseBytes
-
-	rr := backend.request(http.MethodGet, path, nil)
-	require.Equal(t, http.StatusOK, rr.Code)
-
-	resp := []common.BuilderGetValidatorsResponseEntry{}
-	err = json.Unmarshal(rr.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(resp))
-	require.Equal(t, uint64(1), resp[0].Slot)
-	require.Equal(t, apiv1.ValidatorRegistration{}, *resp[0].Entry)
-}
-*/
 
 func TestGetPayload(t *testing.T) {
 	// Setup backend with headSlot and genesisTime

@@ -25,9 +25,8 @@ import (
 	"github.com/AnomalyFi/baton/datastore"
 	"github.com/AnomalyFi/baton/seq"
 
-	hrpc "github.com/AnomalyFi/hypersdk/rpc"
-
 	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
+	hrpc "github.com/AnomalyFi/hypersdk/rpc"
 
 	"github.com/AnomalyFi/baton/beaconclient"
 	"github.com/AnomalyFi/hypersdk/chain"
@@ -41,6 +40,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	common2 "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/flashbots/go-boost-utils/bls"
 	"github.com/flashbots/go-utils/cli"
 	"github.com/flashbots/go-utils/httplogger"
@@ -125,15 +125,17 @@ var (
 
 // BatonAPIOpts contains the options for a baton
 type BatonAPIOpts struct {
-	Log          *logrus.Entry
-	SeqURL       string
-	SeqChainID   ids.ID
-	SeqNetworkID uint32
+	Log           *logrus.Entry
+	SeqURL        string
+	SeqChainID    ids.ID
+	SeqNetworkID  uint32
+	SeqSigningKey ed25519.PrivateKey
 
 	ListenAddr         string
 	BlockSimURL        string
 	BlockSimManager    *bls.PublicKey // bls pubkey of the sim manager
 	BlockSimSigningKey *ecdsa.PrivateKey
+	BlockSimDepth      int
 
 	BeaconClient beaconclient.IMultiBeaconClient
 	Datastore    *datastore.Datastore
@@ -196,6 +198,7 @@ type BatonAPI struct {
 	proposerDutiesMap      map[uint64]*common.BuilderGetSEQValidatorResponseEntry `jjj:"proposer_duties_map"`
 
 	blockSimRateLimiter IBlockSimRateLimiter `jjj:"block_sim_rate_limiter"`
+	blockSimDepth       int                  `jjj:"block_sim_depth"` // combined txs range from [headSlot:headSlot-depth] to simulate, since there are situations that 1. L2 runs slower than SEQ 2. l2-builder needs time to sync with l2-geth
 	tracer              ITracer              `jjj:"tracer"`
 
 	validatorRegC chan common.SignedSEQValidatorRegistration `jjj:"validator_reg_c"`
@@ -306,10 +309,11 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		}
 	}
 	config := seq.SeqClientConfig{
-		PrivateKey: ed25519.PrivateKey{},
+		PrivateKey: opts.SeqSigningKey,
 		URL:        opts.SeqURL,
 		ChainID:    opts.SeqChainID,
 		NetworkID:  opts.SeqNetworkID,
+		Log:        opts.Log,
 	}
 
 	var seqClient seq.BaseSeqClient
@@ -337,6 +341,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		proposerDutiesMap:      make(map[uint64]*common.BuilderGetSEQValidatorResponseEntry),
 		proposerDutiesResponse: &[]byte{},
 		blockSimRateLimiter:    NewBlockSimulationRateLimiter(opts.Log, opts.BlockSimManager, opts.BlockSimSigningKey),
+		blockSimDepth:          opts.BlockSimDepth,
 		tracer:                 NewTracer(opts.BlockSimURL), // TODO: check what the tracer does, since it depends on opts.BlockSimURL
 
 		validatorRegC: make(chan common.SignedSEQValidatorRegistration, 450_000),
@@ -547,7 +552,7 @@ func (api *BatonAPI) StopServer() (err error) {
 // TODO: to be updated, to return gasUsed as a map(chainID -> gasUsed)
 func (api *BatonAPI) simulateL2Txs(
 	ctx context.Context,
-	blockNumber map[string]string, // chainID(hexutil.Encode(big.Int)) -> block number(0x...)
+	blockNumber map[string]uint64, // chainID(hexutil.Encode(big.Int)) -> block number(0x...)
 	l2Txs map[string][]hexutil.Bytes,
 	log *logrus.Entry,
 ) (uint64, error, error) {
@@ -626,16 +631,26 @@ func (api *BatonAPI) onNewSeqBlock(blk *chain.StatefulBlock, nextProposer *hrpc.
 	api.processNewSlot(blk.Hght)
 	api.proposerDutiesLock.Lock()
 	defer api.proposerDutiesLock.Unlock()
+	blockID, err := blk.ID()
+	if err != nil {
+		api.log.Warn("unable to get block ID")
+	}
 
-	api.proposerDutiesMap[blk.Hght] = &common.BuilderGetSEQValidatorResponseEntry{
-		Slot: blk.Hght,
+	// nextProposer.PublicKey
+
+	api.proposerDutiesMap[blk.Hght+1] = &common.BuilderGetSEQValidatorResponseEntry{
+		Slot: blk.Hght + 1,
 		// set it to unsigned, it will be signed after the SEQ proposer sends the registration request
 		Entry: &common.SignedSEQValidatorRegistration{
 			Message: &common.SEQValidatorRegistration{
 				Pubkey: nextProposer.PublicKey,
 			},
 		},
+
+		ParentHash:     blockID.String(),
+		ProposerPubkey: hexutil.Encode(nextProposer.PublicKey),
 	}
+	fmt.Printf("setting slot(%d) with parentHash(%s) and proposerPubkey(%s)\n", blk.Hght+1, blockID.String(), hexutil.Encode(nextProposer.PublicKey))
 }
 
 // note: important for seq/seqclient.go
@@ -1119,31 +1134,37 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		// "msIntoSlot":           msIntoSlot,
 		"timestampAfterDecode": decodeTime.UnixMilli(),
 		//"proposerIndex":        payload.ProposerIndex,
-		"proposerPubkey": payload.ProposerPubKey,
+		"proposerPubkey": hexutil.Encode(payload.ProposerPubKey),
 	})
 
+	//TODO: why we need following, we already stores expected proposer in payload and wrong payload fetcher will be rejected if signature not match
 	// Ensure the proposer index is expected
-	api.proposerDutiesLock.RLock()
-	//TODO: fails below
-	slotDuty := api.proposerDutiesMap[payload.Slot]
-	api.proposerDutiesLock.RUnlock()
-	pk, err := payload.GetPublicKey()
-	if err != nil {
-		log.WithError(err).Warn("failed to get public key from payload")
-		api.RespondError(w, http.StatusBadRequest, "failed to get public key from payload")
-		return
-	}
-	if slotDuty == nil {
-		log.Warn("could not find slot duty")
-	} else {
-		log = log.WithField("feeRecipient", slotDuty.Entry.Message.FeeRecipient)
-		entry, err := api.FindProposerDutiesByPubKey(pk)
-		if err != nil || entry == nil {
-			log.WithField("FindProposerDutiesByPubKey failed: ", err)
-			api.RespondError(w, http.StatusBadRequest, "FindProposerDutiesByPubKey failed: "+err.Error())
-			return
-		}
-	}
+	// api.proposerDutiesLock.RLock()
+	// slotDuty := api.proposerDutiesMap[payload.Slot]
+	// api.proposerDutiesLock.RUnlock()
+	// if slotDuty == nil {
+	// 	log.Error("unable to find proposer info from duty map")
+	// 	api.RespondError(w, http.StatusBadRequest, "unable to find proposer info from dutymap")
+	// 	return
+	// }
+	// pk, err := payload.GetPublicKey()
+	// if err != nil {
+	// 	log.WithError(err).Warn("failed to get public key from payload")
+	// 	api.RespondError(w, http.StatusBadRequest, "failed to get public key from payload")
+	// 	return
+	// }
+	// if slotDuty == nil {
+	// 	log.Warn("could not find slot duty")
+	// } else {
+	// 	log = log.WithField("feeRecipient", slotDuty.Entry.Message.FeeRecipient)
+	// 	entry, err := api.FindProposerDutiesByPubKey(pk)
+	// 	if err != nil || entry == nil {
+	// 		log.WithField("FindProposerDutiesByPubKey failed: ", err).WithField("entry", entry)
+	// 		log.Errorf("unable to find proposer duty against key or entry nil")
+	// 		api.RespondError(w, http.StatusBadRequest, "FindProposerDutiesByPubKey failed: "+err.Error())
+	// 		return
+	// 	}
+	// }
 	proposerPubkey, err := payload.GetPublicKey()
 	if err != nil {
 		log.WithField("Failed to get public key from payload", err)
@@ -1651,6 +1672,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		return
 	}
 
+	var chainIDs map[string]struct{}
 	var txs []*chain.Transaction
 	parser := srpc.Parser{}
 	actionRegistry, authRegistry := parser.Registry()
@@ -1669,6 +1691,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusNoContent, err.Error())
 		return
 	}
+	chainIDs = api.getChainIDsFromSEQTxs(context.TODO(), txs)
+	incomingSimBlockNumber, err := api.blockSimRateLimiter.GetBlockNumber(chainIDs)
+	if err != nil {
+		log.WithError(err).Warn("unable to get block numbers of L2s")
+		api.RespondError(w, http.StatusNoContent, err.Error())
+		return
+	}
+
 	nextTime = time.Now().UTC()
 	pf.Decode = uint64(nextTime.Sub(prevTime).Microseconds())
 
@@ -1715,26 +1745,6 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	// TODO: to be removed? seems we don't need to register builders
-	// builderPubkey := blockReq.BuilderPubkey()
-	// pbCheck, err := utils.BlsPublicKeyToPublicKey(builderPubkey)
-	// if err != nil {
-	// 	log.WithError(err).Info(err.Error())
-	// 	api.RespondError(w, http.StatusBadRequest, err.Error())
-	// 	return
-	// }
-	// builderEntry, ok := api.checkBuilderEntry(w, log, pbCheck)
-	// if !ok {
-	// 	log.WithError(err).Info("builder entry check failed")
-	// 	api.RespondError(w, http.StatusBadRequest, "builder entry check failed")
-	// 	return
-	// }
-
-	// log = log.WithFields(logrus.Fields{
-	// 	"builderIsHighPrio":     builderEntry.status.IsHighPrio,
-	// 	"timestampAfterChecks1": time.Now().UTC().UnixMilli(),
-	// })
 
 	// Note this also validates slot validity
 	var gasLimit uint64
@@ -1826,7 +1836,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 	getHeader.Value = value.Uint64()
 
-	getPayload, err := BuildPayload(&blockReq, blockReq.Txs(), value.Uint64())
+	getPayload, err := BuildPayload(&blockReq, blockReq.Txs(), value.Uint64(), incomingSimBlockNumber)
 	if err != nil {
 		log.WithError(err).Warn("failed to build payload")
 		api.RespondError(w, http.StatusBadRequest, err.Error())
@@ -1884,6 +1894,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		sctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 		var txs2simulate map[string][]hexutil.Bytes
+		var simBlockNumber map[string]uint64
 		slog := log.WithFields(logrus.Fields{
 			"slot":           blockReq.Slot,
 			"parentHash":     blockReq.ParentHash().String(),
@@ -1891,24 +1902,26 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			"isToB":          isToB,
 		})
 		if isToB {
-			chainIDs := api.getChainIDsFromSEQTxs(ctx, txs)
-			robTxs, err := api.getTopRoBsTxsByChainIDs(sctx, chainIDs, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
+			robTxs, blockNumber, err := api.getTopRoBsTxsByChainIDs(sctx, chainIDs, blockReq.Slot(), api.blockSimDepth, slog)
 			if err != nil {
 				slog.WithError(err).Warn("unable to fetch top RoB txs from redis")
 				api.RespondError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			txs2simulate = robTxs // safe since txs2simulate is empty
+			simBlockNumber = blockNumber
 		} else {
-
-			tobTxs, err := api.getTopToBTxsByChainID(sctx, chainID, blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr(), slog)
+			tobTxs, blockNumber, err := api.getTopToBTxsByChainID(sctx, chainID, blockReq.Slot(), api.blockSimDepth, slog)
 			if err != nil {
 				slog.WithError(err).Warn("unable to fetch top RoB txs from redis")
 				api.RespondError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			txs2simulate = tobTxs
+			simBlockNumber = blockNumber
 		}
+
+		simBlockNumber = lowestHeights([]map[string]uint64{simBlockNumber, incomingSimBlockNumber})
 
 		// in case there's no record found in cache
 		if txs2simulate == nil {
@@ -1921,9 +1934,22 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			l := txs2simulate[chainID]
 			l = append(l, otxs...)
 			txs2simulate[chainID] = l
+
+		}
+		for chainID, otxs := range txs2simulate {
+			// for only debugging
+			fmt.Printf("======txs of chain======: %s\n", chainID)
+			for _, otx := range otxs {
+				tx := new(types.Transaction)
+				if err := tx.UnmarshalBinary(otx); err != nil {
+					log.Error("unable to unmarshal raw tx")
+					continue
+				}
+				fmt.Printf("txhash: %s\n", tx.Hash().Hex())
+			}
 		}
 
-		gasUsed, reqErr, validErr = api.simulateL2Txs(sctx, nil, txs2simulate, slog)
+		gasUsed, reqErr, validErr = api.simulateL2Txs(sctx, simBlockNumber, txs2simulate, slog)
 		if gasUsed != 0 && gasUsed > gasLimit {
 			errMsg := "simulation failed due to gas limit exceeded, gas_used [" + strconv.FormatUint(gasUsed, 10) + "], gas_limit [" + strconv.FormatUint(gasLimit, 10) + "]"
 			validErr = errors.New(errMsg)
@@ -2097,91 +2123,119 @@ func (api *BatonAPI) seqTxs2EthTxs(ctx context.Context, txs []*chain.Transaction
 	return ret
 }
 
-func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID string, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) (map[string][]hexutil.Bytes, error) {
-	header, err := api.redis.GetToBBestBid(slot, parentHash, proposerPubkey)
-	if err != nil {
-		return nil, err
-	}
-	var tobPayload *common.AnchorPayload
-	if header == nil {
-		return nil, nil
-	}
-
-	payload, err := api.datastore.GetGetToBPayloadResponse(log, slot, proposerPubkey, header.BlockHash)
-	if err != nil {
-		return nil, err
-	}
-	tobPayload = payload
-
-	txsRaw := tobPayload.Transactions
-	parser := srpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
-	actionRegistry, authRegistry := parser.Registry()
-	_, txs, err := chain.UnmarshalTxs(txsRaw, SeqUnmarshalTxsInitialCapacity, actionRegistry, authRegistry)
-	if err != nil {
-		return nil, err
-	}
-
+func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID string, slot2bid uint64, depth int, log *logrus.Entry) (map[string][]hexutil.Bytes, map[string]uint64, error) {
 	// chainID str -> a list of txs
 	ret := make(map[string][]hexutil.Bytes)
-	for _, tx := range txs {
-		for _, action := range tx.Actions {
-			if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-				chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
-				chainID := big.NewInt(int64(chainIDu64))
-				chainIDstr := hexutil.EncodeBig(chainID)
-				if chainIDstr != robChainID {
-					continue
-				}
+	blockNumbers := make([]map[string]uint64, 0, depth)
 
-				l := ret[chainIDstr]
-				l = append(l, seqMsg.Data)
-				ret[chainIDstr] = l
-			}
+	fmt.Printf("slot2bid: %d, depth: %d\n", slot2bid, depth)
+	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
+		fmt.Printf("getting tob payload from slot: %d\n", slot)
+		slotDutyInfo, ok := api.proposerDutiesMap[slot]
+		if !ok {
+			// this shouldn't happen
+			return nil, nil, fmt.Errorf("unable to fetch proposer duty for slot: %d", slot)
 		}
-	}
+		parentHash := slotDutyInfo.ParentHash
+		proposerPubkey := slotDutyInfo.ProposerPubkey
 
-	return ret, nil
-}
-
-func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[string]struct{}, slot uint64, parentHash, proposerPubkey string, log *logrus.Entry) (map[string][]hexutil.Bytes, error) {
-	ret := make(map[string][]hexutil.Bytes, 0)
-	for chainID := range chainIDs {
-		header, err := api.redis.GetRoBBestBid(slot, parentHash, proposerPubkey, chainID)
-		if err != nil { // nil won't throw
-			return nil, err
+		header, err := api.redis.GetToBBestBid(slot, parentHash, proposerPubkey)
+		if err != nil {
+			return nil, nil, err
 		}
-		var tobPayload *common.AnchorPayload
-		// top bid not exists, not one bid submitted for this chain
 		if header == nil {
 			continue
 		}
-		payload, err := api.datastore.GetGetRoBPayloadResponse(log, slot, proposerPubkey, header.BlockHash, chainID)
-		if err != nil {
-			return nil, err
-		}
-		tobPayload = payload
 
-		txsRaw := tobPayload.Transactions
+		var topPayload *common.AnchorPayload
+		payload, err := api.datastore.GetGetToBPayloadResponse(log, slot, proposerPubkey, header.BlockHash)
+		if err != nil {
+			return nil, nil, err
+		}
+		topPayload = payload
+		blockNumbers = append(blockNumbers, topPayload.BlockNumber)
+
+		txsRaw := topPayload.Transactions
 		parser := srpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
 		actionRegistry, authRegistry := parser.Registry()
 		_, txs, err := chain.UnmarshalTxs(txsRaw, SeqUnmarshalTxsInitialCapacity, actionRegistry, authRegistry)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
-		ret[chainID] = make([]hexutil.Bytes, 0, len(txs)-1)
 		for _, tx := range txs {
 			for _, action := range tx.Actions {
 				if seqMsg, ok := action.(*actions.SequencerMsg); ok {
-					l := ret[chainID]
+					chainIDu64 := binary.LittleEndian.Uint64(seqMsg.ChainID)
+					chainID := big.NewInt(int64(chainIDu64))
+					chainIDstr := hexutil.EncodeBig(chainID)
+					if chainIDstr != robChainID {
+						continue
+					}
+
+					l := ret[chainIDstr]
 					l = append(l, seqMsg.Data)
-					ret[chainID] = l
+					ret[chainIDstr] = l
 				}
 			}
 		}
 	}
 
-	return ret, nil
+	return ret, lowestHeights(blockNumbers), nil
+}
+
+func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[string]struct{}, slot2bid uint64, depth int, log *logrus.Entry) (map[string][]hexutil.Bytes, map[string]uint64, error) {
+	ret := make(map[string][]hexutil.Bytes, 0)
+	blockNumbers := make([]map[string]uint64, 0, len(chainIDs)*depth)
+	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
+		slotDutyInfo, ok := api.proposerDutiesMap[slot]
+		if !ok {
+			return nil, nil, fmt.Errorf("unable to fetch proposer duty for slot: %d", slot)
+		}
+		parentHash := slotDutyInfo.ParentHash
+		proposerPubkey := slotDutyInfo.ProposerPubkey
+		fmt.Printf("slot(%d): parentHash(%s) proposerPubkey(%s)\n", slot, parentHash, proposerPubkey)
+
+		for chainID := range chainIDs {
+			header, err := api.redis.GetRoBBestBid(slot, parentHash, proposerPubkey, chainID)
+			if err != nil { // nil won't throw
+				return nil, nil, err
+			}
+			var topPayload *common.AnchorPayload
+			// top bid not exists, not one bid submitted for this chain
+			if header == nil {
+				continue
+			}
+			payload, err := api.datastore.GetGetRoBPayloadResponse(log, slot, proposerPubkey, header.BlockHash, chainID)
+			if err != nil {
+				return nil, nil, err
+			}
+			topPayload = payload
+
+			txsRaw := topPayload.Transactions
+			parser := srpc.Parser{} // TODO: need to verify the registry returned is non-related to networkID and ChainID, those two are used for signing, which potentially might cause issues
+			actionRegistry, authRegistry := parser.Registry()
+			_, txs, err := chain.UnmarshalTxs(txsRaw, SeqUnmarshalTxsInitialCapacity, actionRegistry, authRegistry)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			blockNumbers = append(blockNumbers, topPayload.BlockNumber)
+
+			ret[chainID] = make([]hexutil.Bytes, 0, len(txs)-1)
+			for _, tx := range txs {
+				for _, action := range tx.Actions {
+					if seqMsg, ok := action.(*actions.SequencerMsg); ok {
+						l := ret[chainID]
+						l = append(l, seqMsg.Data)
+						ret[chainID] = l
+					}
+				}
+			}
+		}
+
+	}
+	return ret, lowestHeights(blockNumbers), nil
 }
 
 // ---------------

@@ -2,6 +2,7 @@ package seq
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -11,7 +12,8 @@ import (
 	hrpc "github.com/AnomalyFi/hypersdk/rpc"
 	srpc "github.com/AnomalyFi/nodekit-seq/rpc"
 	"github.com/ava-labs/avalanchego/ids"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/sirupsen/logrus"
 )
 
 type SeqClientConfig struct {
@@ -20,6 +22,8 @@ type SeqClientConfig struct {
 	URL       string
 	ChainID   ids.ID
 	NetworkID uint32
+
+	Log *logrus.Entry
 }
 
 type BaseSeqClient interface {
@@ -41,11 +45,9 @@ type SeqClient struct {
 
 	signer ed25519.PrivateKey
 
-	blockHead  *chain.StatefulBlock
-	blockHeadL sync.Mutex
-
-	proposerInfo  *hrpc.NextProposerReply
-	proposerInfoL sync.Mutex
+	blockHead    *chain.StatefulBlock
+	proposerInfo *hrpc.NextProposerReply
+	blockHeadL   sync.Mutex
 
 	// ETH Chain related
 	Namespace []byte // ChainID bytes
@@ -56,11 +58,16 @@ type SeqClient struct {
 	NetworkID         uint32
 	onNewBlockHandler func(*chain.StatefulBlock, *hrpc.NextProposerReply)
 
-	stop chan struct{}
+	logger *logrus.Entry
+	stop   chan struct{}
 }
 
 func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
-	log.Info("initializing SEQ", "url", config.URL, "chainID", config.ChainID, "sk", config.PrivateKey)
+	config.Log.WithFields(logrus.Fields{
+		"url":     config.URL,
+		"chainID": config.ChainID,
+		"sk":      config.PrivateKey,
+	}).Info("initializing SEQ")
 	hcli := hrpc.NewJSONRPCClient(config.URL)
 	scli := srpc.NewJSONRPCClient(config.URL, config.NetworkID, config.ChainID)
 	parser, err := scli.Parser(context.TODO())
@@ -77,6 +84,7 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 	}
 
 	stopSig := make(chan struct{})
+	logger := config.Log
 
 	client := SeqClient{
 		srpc:   scli,
@@ -90,7 +98,8 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 		ChainID:   config.ChainID,
 		NetworkID: uint32(config.NetworkID),
 
-		stop: stopSig,
+		logger: logger,
+		stop:   stopSig,
 	}
 
 	// keep track of head of SEQ, this is used for calculating `Slot` in SubmitBlock to Baton
@@ -99,35 +108,40 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 		for {
 			select {
 			case <-stopSig:
-				log.Info("stopping as receiving stop signal")
+				logger.Info("stopping as receiving stop signal")
 				return
 			default:
 				bctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 				blk, _, _, _, err := wsCli.ListenBlock(bctx, parser)
-				cancel()
 				if err != nil {
-					log.Error("unable to listen block", "err", err)
+					logger.Error("unable to listen block", "err", err)
 					continue
 				}
 
+				// release the lock after duty map is updated
 				client.blockHeadL.Lock()
 				client.blockHead = blk
-				client.blockHeadL.Unlock()
 
 				// query next proposer on receiving a new block, this save us time while we do compuating during round trip
+				start := time.Now()
 				nextProposer, err := client.nextProposer(bctx, blk.Hght+1)
-
-				client.proposerInfoL.Lock()
 				if err != nil {
 					client.proposerInfo = nil // set next proposer to nil to notify the ToB block built on top of this is invalid
-					log.Error("unable to fetch next proposer", "err", err)
+					logger.WithError(err).Error("unable to fetch next proposer")
+					cancel()
+					client.blockHeadL.Unlock()
+					continue
 				} else {
 					client.proposerInfo = nextProposer
 				}
-				client.proposerInfoL.Unlock()
-				log.Info("setting proposer", "proposer", nextProposer.NodeID.String())
+				logger.WithField("elapsed", time.Since(start).Milliseconds()).Debug("next proposer guage")
 
-				go client.onNewBlockHandler(blk, nextProposer)
+				logger.Info("setting proposer", "proposer", nextProposer.NodeID.String(), "pubkey", hexutil.Encode(nextProposer.PublicKey))
+
+				client.onNewBlockHandler(blk, nextProposer)
+
+				cancel()
+				client.blockHeadL.Unlock()
 			}
 		}
 	}()
@@ -151,19 +165,24 @@ func (s *SeqClient) SetNamespace(namespace []byte) {
 }
 
 func (s *SeqClient) NextProposer(ctx context.Context) *hrpc.NextProposerReply {
-	s.proposerInfoL.Lock()
-	defer s.proposerInfoL.Unlock()
+	s.blockHeadL.Lock()
+	defer s.blockHeadL.Unlock()
 
 	return s.proposerInfo
 }
 
 func (s *SeqClient) nextProposer(ctx context.Context, height uint64) (*hrpc.NextProposerReply, error) {
-	return s.hrpc.NextProposer(ctx, height)
+	nextProposer, err := s.hrpc.NextProposer(ctx, height)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("proposer info: %+v\n", nextProposer)
+	return nextProposer, nil
 }
 
 func (s *SeqClient) CurrentValidators(ctx context.Context) []*hrpc.Validator {
-	s.proposerInfoL.Lock()
-	defer s.proposerInfoL.Unlock()
+	s.blockHeadL.Lock()
+	defer s.blockHeadL.Unlock()
 
 	if s.proposerInfo != nil {
 		return s.proposerInfo.Validators

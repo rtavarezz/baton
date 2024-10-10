@@ -63,7 +63,7 @@ func BuildHeader(s *common.SubmitNewBlockRequest, value uint64) (common.AnchorHe
 	return anchorHeader, nil
 }
 
-func BuildPayload(s *common.SubmitNewBlockRequest, hypersdkTxs []byte, value uint64) (*common.AnchorPayload, error) {
+func BuildPayload(s *common.SubmitNewBlockRequest, hypersdkTxs []byte, value uint64, blockNumber map[string]uint64) (*common.AnchorPayload, error) {
 	hash, err := BuildHeader(s, value)
 	if err != nil {
 		log.Error("failed to hash header")
@@ -73,7 +73,27 @@ func BuildPayload(s *common.SubmitNewBlockRequest, hypersdkTxs []byte, value uin
 		Slot:         s.Chunk.Slot,
 		Header:       hash.Header,
 		Transactions: hypersdkTxs,
+		BlockNumber:  blockNumber,
 	}
 
 	return &payload, nil
+}
+
+// a list of chainIDs -> a map of lowest chainIDs
+func lowestHeights(blockNumbers []map[string]uint64) map[string]uint64 {
+	ret := make(map[string]uint64)
+	for _, blockNumber := range blockNumbers {
+		for chainID, height := range blockNumber {
+			if _, ok := ret[chainID]; !ok {
+				ret[chainID] = height
+				continue
+			}
+			// existing one is bigger, replace with lower
+			if ret[chainID] > height {
+				ret[chainID] = height
+			}
+		}
+	}
+
+	return ret
 }

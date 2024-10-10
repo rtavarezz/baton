@@ -11,6 +11,7 @@ import (
 	"github.com/AnomalyFi/baton/database"
 	"github.com/AnomalyFi/baton/datastore"
 	"github.com/AnomalyFi/baton/services/api"
+	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -34,12 +35,14 @@ var (
 	apiDefaultBuilderAPIEnabled  = os.Getenv("DISABLE_BUILDER_API") != "1"
 	apiDefaultDataAPIEnabled     = os.Getenv("DISABLE_DATA_API") != "1"
 	apiDefaultProposerAPIEnabled = os.Getenv("DISABLE_PROPOSER_API") != "1"
+	apiDefaultSimDepth           = 3 // sim with txs deep to 3 slot
 
 	apiListenAddr       string
 	apiPprofEnabled     bool
 	apiSecretKey        string
 	apiBlockSimURL      string
 	apiBlockSimFbRPCKey string
+	apiBlockSimDepth    int
 	apiDebug            bool
 	apiBuilderAPI       bool
 	apiDataAPI          bool
@@ -49,6 +52,7 @@ var (
 	apiSEQURI           string
 	apiSEQChainID       string
 	apiSEQNetworkID     uint32
+	apiSEQSigningKey    string
 )
 
 func init() {
@@ -68,6 +72,7 @@ func init() {
 	apiCmd.Flags().StringVar(&apiSecretKey, "secret-key", apiDefaultSecretKey, "secret key for signing bids")
 	apiCmd.Flags().StringVar(&apiBlockSimURL, "blocksim", apiDefaultBlockSim, "URL for block simulator")
 	apiCmd.Flags().StringVar(&apiBlockSimFbRPCKey, "fbrpc-key", apiDefaultFBRPCKey, "fb rpc signing key")
+	apiCmd.Flags().IntVar(&apiBlockSimDepth, "sim-depth", apiDefaultSimDepth, "simulation txs range from [headSlot:headSlot-depth]")
 	apiCmd.Flags().StringVar(&network, "network", defaultNetwork, "Which network to use")
 
 	apiCmd.Flags().BoolVar(&apiPprofEnabled, "pprof", apiDefaultPprofEnabled, "enable pprof API")
@@ -78,6 +83,7 @@ func init() {
 	apiCmd.Flags().StringVar(&apiSEQURI, "seq-uri", apiDefaultSEQURI, "SEQ rpc url")
 	apiCmd.Flags().Uint32Var(&apiSEQNetworkID, "seq-network-id", uint32(1337), "SEQ rpc url")
 	apiCmd.Flags().StringVar(&apiSEQChainID, "seq-chain-id", "2bJKVCnNxcpPHaHxtacZS9rwPL9NdyYnBuJjusfZgYBTE5ptSG", "SEQ rpc url")
+	apiCmd.Flags().StringVar(&apiSEQSigningKey, "seq-key", "0x3851d590082e2dcf4d4a772ec43b47069c1236ab7a038e5b647cf0c2dc3d40014d24a0435169f5bb470dc00061435ad87f7fb7770f43df7bffd55f16627f83af", "SEQ signing key")
 }
 
 var apiCmd = &cobra.Command{
@@ -105,18 +111,6 @@ var apiCmd = &cobra.Command{
 		}
 		log.Infof("Using network: %s", networkInfo.Name)
 		log.Debug(networkInfo.String())
-
-		// TODO: to be removed as beacon client not used
-		// Connect to beacon clients and ensure it's synced
-		// if len(beaconNodeURIs) == 0 {
-		// 	log.Fatalf("no beacon endpoints specified")
-		// }
-		// log.Infof("Using beacon endpoints: %s", strings.Join(beaconNodeURIs, ", "))
-		// var beaconInstances []beaconclient.IBeaconInstance
-		// for _, uri := range beaconNodeURIs {
-		// 	beaconInstances = append(beaconInstances, beaconclient.NewProdBeaconInstance(log, uri))
-		// }
-		// beaconClient := beaconclient.NewMultiBeaconClient(log, beaconInstances)
 
 		// Connect to Redis
 		if redisReadonlyURI == "" {
@@ -160,6 +154,12 @@ var apiCmd = &cobra.Command{
 		if err != nil {
 			log.WithError(err).Fatalf("failed to parse seq chain id")
 		}
+		seqSkBytes, err := hexutil.Decode(apiSEQSigningKey)
+		if err != nil {
+			log.WithError(err).Fatalf("failed to parse seq secret key")
+		}
+		var seqSk ed25519.PrivateKey
+		copy(seqSk[:], seqSkBytes)
 
 		fbSkHex := strings.TrimLeft(apiBlockSimFbRPCKey, "0x")
 		fbSk, err := crypto.HexToECDSA(fbSkHex)
@@ -178,9 +178,11 @@ var apiCmd = &cobra.Command{
 			EthNetDetails:      *networkInfo,
 			BlockSimURL:        apiBlockSimURL,
 			BlockSimSigningKey: fbSk,
+			BlockSimDepth:      apiBlockSimDepth,
 			SeqURL:             apiSEQURI,
 			SeqChainID:         seqChainID,
 			SeqNetworkID:       apiSEQNetworkID,
+			SeqSigningKey:      seqSk,
 
 			BlockBuilderAPI: apiBuilderAPI,
 			DataAPI:         apiDataAPI,

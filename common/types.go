@@ -407,6 +407,18 @@ func (s *SignedBeaconBlock) BlockHash() string {
 type BuilderGetSEQValidatorResponseEntry struct {
 	Slot  uint64                          `json:"slot,string"`
 	Entry *SignedSEQValidatorRegistration `json:"entry"`
+
+	// the following are used for simulation
+	ParentHash     string `json:"blockHash"`
+	ProposerPubkey string `json:"proposerPubkey"`
+}
+
+func (entry *BuilderGetSEQValidatorResponseEntry) Proposer() (*bls.PublicKey, error) {
+	pkBytes, err := hexutil.Decode(entry.ProposerPubkey)
+	if err != nil {
+		return nil, err
+	}
+	return bls.PublicKeyFromBytes(pkBytes)
 }
 
 type SignedSEQValidatorRegistration struct {
@@ -753,7 +765,8 @@ type AnchorPayload struct {
 	Header common.Hash `json:"blockHash"`
 
 	// Hypersdk txs from the submit new block request.
-	Transactions []byte `json:"transactions"`
+	Transactions []byte            `json:"transactions"`
+	BlockNumber  map[string]uint64 `json:"block_number"` // block numbers this payload was simulated on
 
 	GasUsed  uint64 `json:"gasused" db:"gas_used"`
 	GasLimit uint64 `json:"gaslimit" db:"gas_limit"`
