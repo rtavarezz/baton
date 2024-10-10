@@ -11,6 +11,7 @@ import (
 	"github.com/AnomalyFi/baton/database"
 	"github.com/AnomalyFi/baton/datastore"
 	"github.com/AnomalyFi/baton/services/api"
+	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -51,6 +52,7 @@ var (
 	apiSEQURI           string
 	apiSEQChainID       string
 	apiSEQNetworkID     uint32
+	apiSEQSigningKey    string
 )
 
 func init() {
@@ -81,6 +83,7 @@ func init() {
 	apiCmd.Flags().StringVar(&apiSEQURI, "seq-uri", apiDefaultSEQURI, "SEQ rpc url")
 	apiCmd.Flags().Uint32Var(&apiSEQNetworkID, "seq-network-id", uint32(1337), "SEQ rpc url")
 	apiCmd.Flags().StringVar(&apiSEQChainID, "seq-chain-id", "2bJKVCnNxcpPHaHxtacZS9rwPL9NdyYnBuJjusfZgYBTE5ptSG", "SEQ rpc url")
+	apiCmd.Flags().StringVar(&apiSEQSigningKey, "seq-key", "0x3851d590082e2dcf4d4a772ec43b47069c1236ab7a038e5b647cf0c2dc3d40014d24a0435169f5bb470dc00061435ad87f7fb7770f43df7bffd55f16627f83af", "SEQ signing key")
 }
 
 var apiCmd = &cobra.Command{
@@ -151,6 +154,12 @@ var apiCmd = &cobra.Command{
 		if err != nil {
 			log.WithError(err).Fatalf("failed to parse seq chain id")
 		}
+		seqSkBytes, err := hexutil.Decode(apiSEQSigningKey)
+		if err != nil {
+			log.WithError(err).Fatalf("failed to parse seq secret key")
+		}
+		var seqSk ed25519.PrivateKey
+		copy(seqSk[:], seqSkBytes)
 
 		fbSkHex := strings.TrimLeft(apiBlockSimFbRPCKey, "0x")
 		fbSk, err := crypto.HexToECDSA(fbSkHex)
@@ -173,6 +182,7 @@ var apiCmd = &cobra.Command{
 			SeqURL:             apiSEQURI,
 			SeqChainID:         seqChainID,
 			SeqNetworkID:       apiSEQNetworkID,
+			SeqSigningKey:      seqSk,
 
 			BlockBuilderAPI: apiBuilderAPI,
 			DataAPI:         apiDataAPI,

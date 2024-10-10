@@ -413,6 +413,14 @@ type BuilderGetSEQValidatorResponseEntry struct {
 	ProposerPubkey string `json:"proposerPubkey"`
 }
 
+func (entry *BuilderGetSEQValidatorResponseEntry) Proposer() (*bls.PublicKey, error) {
+	pkBytes, err := hexutil.Decode(entry.ProposerPubkey)
+	if err != nil {
+		return nil, err
+	}
+	return bls.PublicKeyFromBytes(pkBytes)
+}
+
 type SignedSEQValidatorRegistration struct {
 	Message   *SEQValidatorRegistration `json:"message"`
 	Signature []byte                    `json:"signature"`

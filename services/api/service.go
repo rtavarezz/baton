@@ -25,9 +25,8 @@ import (
 	"github.com/AnomalyFi/baton/datastore"
 	"github.com/AnomalyFi/baton/seq"
 
-	hrpc "github.com/AnomalyFi/hypersdk/rpc"
-
 	"github.com/AnomalyFi/hypersdk/crypto/ed25519"
+	hrpc "github.com/AnomalyFi/hypersdk/rpc"
 
 	"github.com/AnomalyFi/baton/beaconclient"
 	"github.com/AnomalyFi/hypersdk/chain"
@@ -126,10 +125,11 @@ var (
 
 // BatonAPIOpts contains the options for a baton
 type BatonAPIOpts struct {
-	Log          *logrus.Entry
-	SeqURL       string
-	SeqChainID   ids.ID
-	SeqNetworkID uint32
+	Log           *logrus.Entry
+	SeqURL        string
+	SeqChainID    ids.ID
+	SeqNetworkID  uint32
+	SeqSigningKey ed25519.PrivateKey
 
 	ListenAddr         string
 	BlockSimURL        string
@@ -309,10 +309,11 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		}
 	}
 	config := seq.SeqClientConfig{
-		PrivateKey: ed25519.PrivateKey{},
+		PrivateKey: opts.SeqSigningKey,
 		URL:        opts.SeqURL,
 		ChainID:    opts.SeqChainID,
 		NetworkID:  opts.SeqNetworkID,
+		Log:        opts.Log,
 	}
 
 	var seqClient seq.BaseSeqClient
@@ -649,6 +650,7 @@ func (api *BatonAPI) onNewSeqBlock(blk *chain.StatefulBlock, nextProposer *hrpc.
 		ParentHash:     blockID.String(),
 		ProposerPubkey: hexutil.Encode(nextProposer.PublicKey),
 	}
+	fmt.Printf("setting slot(%d) with parentHash(%s) and proposerPubkey(%s)\n", blk.Hght+1, blockID.String(), hexutil.Encode(nextProposer.PublicKey))
 }
 
 // note: important for seq/seqclient.go
@@ -1132,31 +1134,37 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		// "msIntoSlot":           msIntoSlot,
 		"timestampAfterDecode": decodeTime.UnixMilli(),
 		//"proposerIndex":        payload.ProposerIndex,
-		"proposerPubkey": payload.ProposerPubKey,
+		"proposerPubkey": hexutil.Encode(payload.ProposerPubKey),
 	})
 
+	//TODO: why we need following, we already stores expected proposer in payload and wrong payload fetcher will be rejected if signature not match
 	// Ensure the proposer index is expected
-	api.proposerDutiesLock.RLock()
-	//TODO: fails below
-	slotDuty := api.proposerDutiesMap[payload.Slot]
-	api.proposerDutiesLock.RUnlock()
-	pk, err := payload.GetPublicKey()
-	if err != nil {
-		log.WithError(err).Warn("failed to get public key from payload")
-		api.RespondError(w, http.StatusBadRequest, "failed to get public key from payload")
-		return
-	}
-	if slotDuty == nil {
-		log.Warn("could not find slot duty")
-	} else {
-		log = log.WithField("feeRecipient", slotDuty.Entry.Message.FeeRecipient)
-		entry, err := api.FindProposerDutiesByPubKey(pk)
-		if err != nil || entry == nil {
-			log.WithField("FindProposerDutiesByPubKey failed: ", err)
-			api.RespondError(w, http.StatusBadRequest, "FindProposerDutiesByPubKey failed: "+err.Error())
-			return
-		}
-	}
+	// api.proposerDutiesLock.RLock()
+	// slotDuty := api.proposerDutiesMap[payload.Slot]
+	// api.proposerDutiesLock.RUnlock()
+	// if slotDuty == nil {
+	// 	log.Error("unable to find proposer info from duty map")
+	// 	api.RespondError(w, http.StatusBadRequest, "unable to find proposer info from dutymap")
+	// 	return
+	// }
+	// pk, err := payload.GetPublicKey()
+	// if err != nil {
+	// 	log.WithError(err).Warn("failed to get public key from payload")
+	// 	api.RespondError(w, http.StatusBadRequest, "failed to get public key from payload")
+	// 	return
+	// }
+	// if slotDuty == nil {
+	// 	log.Warn("could not find slot duty")
+	// } else {
+	// 	log = log.WithField("feeRecipient", slotDuty.Entry.Message.FeeRecipient)
+	// 	entry, err := api.FindProposerDutiesByPubKey(pk)
+	// 	if err != nil || entry == nil {
+	// 		log.WithField("FindProposerDutiesByPubKey failed: ", err).WithField("entry", entry)
+	// 		log.Errorf("unable to find proposer duty against key or entry nil")
+	// 		api.RespondError(w, http.StatusBadRequest, "FindProposerDutiesByPubKey failed: "+err.Error())
+	// 		return
+	// 	}
+	// }
 	proposerPubkey, err := payload.GetPublicKey()
 	if err != nil {
 		log.WithField("Failed to get public key from payload", err)
@@ -1927,6 +1935,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			l = append(l, otxs...)
 			txs2simulate[chainID] = l
 
+		}
+		for chainID, otxs := range txs2simulate {
 			// for only debugging
 			fmt.Printf("======txs of chain======: %s\n", chainID)
 			for _, otx := range otxs {
@@ -2184,6 +2194,7 @@ func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[s
 		}
 		parentHash := slotDutyInfo.ParentHash
 		proposerPubkey := slotDutyInfo.ProposerPubkey
+		fmt.Printf("slot(%d): parentHash(%s) proposerPubkey(%s)\n", slot, parentHash, proposerPubkey)
 
 		for chainID := range chainIDs {
 			header, err := api.redis.GetRoBBestBid(slot, parentHash, proposerPubkey, chainID)
