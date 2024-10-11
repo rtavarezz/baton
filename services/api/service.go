@@ -659,7 +659,11 @@ func (api *BatonAPI) onNewSeqBlock(blk *chain.StatefulBlock, nextProposer *hrpc.
 		ParentHash:     blockID.String(),
 		ProposerPubkey: hexutil.Encode(nextProposer.PublicKey),
 	}
-	fmt.Printf("setting slot(%d) with parentHash(%s) and proposerPubkey(%s)\n", blk.Hght+1, blockID.String(), hexutil.Encode(nextProposer.PublicKey))
+	api.log.WithFields(logrus.Fields{
+		"newSlot":           blk.Hght + 1,
+		"newParentHash":     blockID.String(),
+		"newProposerPubkey": hexutil.Encode(nextProposer.PublicKey),
+	}).Info("setting proposer duty map for new slot")
 }
 
 // note: important for seq/seqclient.go
@@ -1962,16 +1966,17 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 			txs2simulate[chainID] = l
 
 		}
+		log.Debug("txs to simulate")
+		// for only debugging
 		for chainID, otxs := range txs2simulate {
-			// for only debugging
-			fmt.Printf("======txs of chain======: %s\n", chainID)
+			log.Debugf("======txs of chain======: %s\n", chainID)
 			for _, otx := range otxs {
 				tx := new(types.Transaction)
 				if err := tx.UnmarshalBinary(otx); err != nil {
 					log.Error("unable to unmarshal raw tx")
 					continue
 				}
-				fmt.Printf("txhash: %s\n", tx.Hash().Hex())
+				log.Debugf("txhash: %s\n", tx.Hash().Hex())
 			}
 		}
 
@@ -2154,9 +2159,7 @@ func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID strin
 	ret := make(map[string][]hexutil.Bytes)
 	blockNumbers := make([]map[string]uint64, 0, depth)
 
-	fmt.Printf("slot2bid: %d, depth: %d\n", slot2bid, depth)
 	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
-		fmt.Printf("getting tob payload from slot: %d\n", slot)
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
 		if !ok {
 			// this shouldn't happen
@@ -2220,7 +2223,6 @@ func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[s
 		}
 		parentHash := slotDutyInfo.ParentHash
 		proposerPubkey := slotDutyInfo.ProposerPubkey
-		fmt.Printf("slot(%d): parentHash(%s) proposerPubkey(%s)\n", slot, parentHash, proposerPubkey)
 
 		for chainID := range chainIDs {
 			header, err := api.redis.GetRoBBestBid(slot, parentHash, proposerPubkey, chainID)

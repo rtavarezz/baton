@@ -56,7 +56,6 @@ func (m *Memcached) SaveToBAnchorPayload(slot uint64, proposerPubKey, blockHash 
 func (m *Memcached) SaveRoBAnchorPayload(slot uint64, proposerPubKey, blockHash string, chainID string, payload *common.AnchorPayload) error {
 	// TODO: standardize key format with redis cache and re-use the same function(s)
 	key := fmt.Sprintf("anchor/rob/%s:cache-get-anchor-payload-response:%d_%s_%s_%s", m.keyPrefix, slot, proposerPubKey, blockHash, chainID)
-	fmt.Printf("memcached robAnchorPayload key(%d): %s\n", len(key), key)
 
 	bytes, err := json.Marshal(payload)
 	if err != nil {

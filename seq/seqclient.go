@@ -2,7 +2,6 @@ package seq
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -176,7 +175,6 @@ func (s *SeqClient) nextProposer(ctx context.Context, height uint64) (*hrpc.Next
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("proposer info: %+v\n", nextProposer)
 	return nextProposer, nil
 }
 

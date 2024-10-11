@@ -3,7 +3,6 @@ package datastore
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/go-redis/redis/v9"
@@ -45,7 +44,6 @@ func (b *BuilderBids) getTopToBBid() (string, *big.Int) {
 
 func NewToBBuilderBidsFromRedis(ctx context.Context, r *RedisCache, pipeline redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (*BuilderBids, error) {
 	keyBidValues := r.keyBlockBuilderLatestToBBidsValue(slot, parentHash, proposerPubkey)
-	fmt.Printf("keyBidValues: %s\n", keyBidValues)
 	c := pipeline.HGetAll(ctx, keyBidValues)
 	_, err := pipeline.Exec(ctx)
 	if err != nil && !errors.Is(err, redis.Nil) {

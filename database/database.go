@@ -240,11 +240,9 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 		// TODO: update this, execPayloadEntry.ID didn't initialized, the Scan(query) here will fail
 		err = s.nstmtInsertExecutionPayload.QueryRow(execPayloadEntry).Scan(&execPayloadEntry.ID)
 		if err != nil {
-			fmt.Printf("error querying here: %+v\n", err)
 			return nil, err
 		}
 	}
-	fmt.Printf("payload entryID: %d\n", execPayloadEntry.ID)
 
 	// Save block_submission
 	simErrStr := "null"
@@ -313,7 +311,6 @@ func (s *DatabaseService) SaveBuilderBlockSubmission(
 	}
 
 	err = s.nstmtInsertBlockBuilderSubmission.QueryRow(blockSubmissionEntry).Scan(&blockSubmissionEntry.ID)
-	fmt.Printf("block submission entryID: %d, slot: %d, pubkey: %s, blockHash: %s\n", blockSubmissionEntry.ID, blockReq.Slot(), blockReq.BuilderPubkeyAsStr(), blockReq.BlockHash().String())
 	return blockSubmissionEntry, err
 }
 

@@ -441,7 +441,6 @@ func (r *RedisCache) GetRelayConfig(field string) (string, error) {
 
 func (r *RedisCache) GetToBBestBid(slot uint64, parentHash, proposerPubkey string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
-	fmt.Printf("keyTopBid(GET): %s\n", key)
 	resp := new(common.AnchorHeader)
 	err := r.GetObj(key, resp)
 	if errors.Is(err, redis.Nil) {
@@ -452,7 +451,6 @@ func (r *RedisCache) GetToBBestBid(slot uint64, parentHash, proposerPubkey strin
 
 func (r *RedisCache) GetRoBBestBid(slot uint64, parentHash, proposerPubkey string, chainID string) (*common.AnchorHeader, error) {
 	key := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	fmt.Printf("keyTopBid-RoB(GET): %s\n", key)
 
 	resp := new(common.AnchorHeader)
 	err := r.GetObj(key, resp)
@@ -592,7 +590,6 @@ func (r *RedisCache) SaveExecutionToBAnchorPayload(
 	payload *common.AnchorPayload,
 ) (err error) {
 	key := r.keyExecToBAnchorPayload(slot, proposerPubkey, parentHash)
-	fmt.Printf("keyAnchorPayload(SET): %s\n", key)
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -610,7 +607,6 @@ func (r *RedisCache) SaveExecutionRoBAnchorPayload(
 	chainID string,
 ) (err error) {
 	key := r.keyExecRoBAnchorPayload(slot, proposerPubkey, parentHash, chainID)
-	fmt.Printf("keyPayload: %s\n", key)
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -626,7 +622,6 @@ func (r *RedisCache) GetExecutionToBAnchorPayload(
 	resp := new(common.AnchorPayload)
 
 	key := r.keyExecToBAnchorPayload(slot, proposerPubkey, blockHash)
-	fmt.Printf("keyAnchorPayload(GET): %s\n", key)
 	val, err := r.client.Get(context.Background(), key).Result()
 	if err != nil {
 		return nil, err
@@ -649,7 +644,6 @@ func (r *RedisCache) GetExecutionRoBAnchorPayload(
 	resp := new(common.AnchorPayload)
 
 	key := r.keyExecRoBAnchorPayload(slot, proposerPubkey, blockHash, chainID)
-	fmt.Printf("keyPayload(GET): %s\n", key)
 
 	val, err := r.client.Get(context.Background(), key).Result()
 	if err != nil {
@@ -789,7 +783,6 @@ func (r *RedisCache) SaveRoBBuilderBid(
 	}
 	// save the actual bid
 	keyLatestBid := r.KeyLatestRoBBidByBuilder(slot, parentHash, proposerPubkey, builderPubkey, chainID)
-	fmt.Printf("setting RoB anchor header by key(%s) and value: %+v\n", keyLatestBid, headerResp)
 	err = r.SetObjPipelined(ctx, pipeline, keyLatestBid, headerResp, expiryBidCache)
 	if err != nil {
 		return err
@@ -892,7 +885,6 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		return state, nil
 		// this update is safe since this bid is higher than the current top bid, so this bid will be saved by _updateToBTopBid
 	} else if err := r.sizeTracker.UpdateToB(payload.Slot(), len(payload.Chunk.Txs)); err != nil {
-		fmt.Printf("err updateing size tracker: %w\n", err)
 		r.sizeTrakcerL.Unlock()
 		return state, nil
 	}
@@ -1066,7 +1058,6 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 		return state, nil
 		// this update is safe since this bid is higher than the current top bid, so this bid will be saved by _updateToBTopBid
 	} else if err := r.sizeTracker.Update(chainID, payload.Slot(), len(payload.Chunk.Txs)); err != nil {
-		fmt.Printf("err updateing size tracker: %w\n", err)
 		r.sizeTrakcerL.Unlock()
 		return state, nil
 	}
@@ -1415,8 +1406,6 @@ func (r *RedisCache) _updateToBTopBid(
 		}
 	}
 
-	fmt.Printf("builderBids: %+v\n", builderBids)
-
 	if len(builderBids.bidValues) == 0 {
 		return state, nil
 	}
@@ -1431,7 +1420,6 @@ func (r *RedisCache) _updateToBTopBid(
 
 	topBidBuilder := ""
 	topBidBuilder, state.TopBidValue = builderBids.getTopBid()
-	fmt.Printf("topBuilder: %s\n", topBidBuilder)
 	keyBidToBSource := r.KeyLatestToBBidByBuilder(slot, parentHash, proposerPubkey, topBidBuilder)
 
 	// If floor value is higher than this bid, use floor bid instead
@@ -1442,8 +1430,6 @@ func (r *RedisCache) _updateToBTopBid(
 
 	// Copy winning bid to top bid cache
 	keyTopBid := r.keyCacheGetToBHeaderResponse(slot, parentHash, proposerPubkey)
-	fmt.Printf("keyTopBid(SET): %s\n", keyTopBid)
-	fmt.Printf("keyBidToBSource: %s\n", keyBidToBSource)
 	c := pipeliner.Copy(context.Background(), keyBidToBSource, keyTopBid, 0, true)
 	_, err = pipeliner.Exec(ctx)
 	if err != nil {
@@ -1515,7 +1501,6 @@ func (r *RedisCache) _updateRoBTopBid(
 
 	// Copy winning bid to top bid cache
 	keyTopBid := r.keyCacheGetRoBHeaderResponse(slot, parentHash, proposerPubkey, chainID)
-	fmt.Printf("keyTopBid-RoB(SET): %s \n source: %s \n", keyTopBid, keyBidRoBSource)
 	c := pipeline.Copy(context.Background(), keyBidRoBSource, keyTopBid, 0, true)
 	_, err = pipeline.Exec(ctx)
 	if err != nil {
@@ -1537,7 +1522,6 @@ func (r *RedisCache) _updateRoBTopBid(
 
 	// 6. Finally, update the global top bid value
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerPubkey, chainID)
-	fmt.Printf("keyTopBidValue(SET): %s, value: %d\n", keyTopBidValue, state.TopBidValue.Int64())
 	err = pipeline.Set(context.Background(), keyTopBidValue, hexutil.EncodeBig(state.TopBidValue), expiryBidCache).Err()
 	if err != nil {
 		return state, err
@@ -1620,7 +1604,6 @@ func (r *RedisCache) GetRoBTopBidValue(
 ) (topBidValue uint64, err error) {
 	proposerString := common.PublicKeyToByteString(&proposerPubkey)
 	keyTopBidValue := r.keyTopRoBBidValue(slot, parentHash, proposerString, chainID)
-	fmt.Printf("keyTobBidValue(GET): %s\n", keyTopBidValue)
 	c := pipeliner.Get(ctx, keyTopBidValue)
 	_, err = pipeliner.Exec(ctx)
 	if errors.Is(err, redis.Nil) {
@@ -1723,7 +1706,6 @@ func (r *RedisCache) GetFloorRoBBidValue(ctx context.Context, pipeliner redis.Pi
 // GetFloorBidValue returns the value of the highest non-cancellable bid
 func (r *RedisCache) GetFloorBidValue(ctx context.Context, pipeliner redis.Pipeliner, slot uint64, parentHash, proposerPubkey string) (floorValue *big.Int, err error) {
 	keyFloorBidValue := r.keyFloorBidValue(slot, parentHash, proposerPubkey)
-	fmt.Printf("keyFloorBidValue(GET): %s\n", keyFloorBidValue)
 	c := pipeliner.Get(ctx, keyFloorBidValue)
 
 	_, err = pipeliner.Exec(ctx)
@@ -1745,7 +1727,6 @@ func (r *RedisCache) GetFloorBidValue(ctx context.Context, pipeliner redis.Pipel
 // SetFloorBidValue is used only for testing.
 func (r *RedisCache) SetFloorBidValue(slot uint64, parentHash, proposerPubkey, value string) error {
 	keyFloorBidValue := r.keyFloorBidValue(slot, parentHash, proposerPubkey)
-	fmt.Printf("keyFloorBidValue(GET): %s\n", keyFloorBidValue)
 	err := r.client.Set(context.Background(), keyFloorBidValue, value, 0).Err()
 	return err
 }
