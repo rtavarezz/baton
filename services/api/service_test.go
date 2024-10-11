@@ -126,6 +126,7 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 		DataAPI:         true,
 		InternalAPI:     true,
 		mockMode:        true,
+		SlotSizeLimit:   DefaultSizeLimit,
 	}
 
 	baton, err := NewBatonAPI(opts)
@@ -761,12 +762,18 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run valid base case, just RoB", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 		rrCode := processBlockRequest(backend, robBlockReq)
 		require.Equal(t, http.StatusOK, rrCode)
 	})
 
 	t.Run("Run valid base case, just ToB", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		rrCode := processBlockRequest(backend, tobBlockReq)
 		require.Equal(t, http.StatusOK, rrCode)
@@ -774,6 +781,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run valid base case, just ToB and multiple RoB", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		rrCode := processBlockRequest(backend, tobBlockReq)
 		require.Equal(t, http.StatusOK, rrCode)
@@ -787,6 +797,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block with no txs should reject", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		robBlockReqNoTx := robBlockReq
 		robBlockReqNoTx.Chunk.Txs = nil
@@ -798,6 +811,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block with slot equal to head slot", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		headSlot := uint64(5)
 		backend.TriggerNextSlot(headSlot)
@@ -812,6 +828,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block with slot too far head compared to head slot", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		headSlot := uint64(5)
 		backend.TriggerNextSlot(headSlot)
@@ -826,6 +845,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run invalid RoB without transfer tx", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
@@ -846,8 +868,11 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rrCode)
 	})
 
-	t.Run("ToB has too many txs", func(t *testing.T) {
+	t.Run("ToB has too few txs", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
@@ -856,7 +881,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
 			RobChainIndex:  0,
-			NumTxs:         common.MaxTobTxs + 1,
+			NumTxs:         0,
 			WithTransferTx: true,
 			SeqChainID:     testSeqChainID,
 		}
@@ -871,6 +896,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("ToB with number txs equal to max allowed is okay", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
@@ -879,7 +907,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          true,
 			RobChainIndex:  0,
-			NumTxs:         common.MaxTobTxs,
+			NumTxs:         common.MinTobTxs,
 			WithTransferTx: true,
 			SeqChainID:     testSeqChainID,
 		}
@@ -894,6 +922,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB has no tx limit enforcement", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
@@ -902,7 +933,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 			ProposerPubkey: *testProposerPublicKey,
 			IsToB:          false,
 			RobChainIndex:  0,
-			NumTxs:         common.MaxTobTxs + 1,
+			NumTxs:         common.MinTobTxs,
 			WithTransferTx: true,
 			SeqChainID:     testSeqChainID,
 		}
@@ -917,6 +948,9 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block with bad builder key should reject", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		epbBytes := emptyPublicKey.Bytes()
 		robBlockReqNoTx := robBlockReq
@@ -927,8 +961,123 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rrCode)
 	})
 
+	t.Run("RoB block not exceed size", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
+
+		// Block in 1600 KB at least
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     ids.Empty,
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          false,
+			RobChainIndex:  0,
+			NumTxs:         2,
+			L2TxDataSize:   100 * 1024, // 100 KB
+			WithTransferTx: true,
+			SeqChainID:     testSeqChainID,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
+	t.Run("RoB block exceed size", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
+
+		// Block in 1600 KB at least
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     ids.Empty,
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          false,
+			RobChainIndex:  0,
+			NumTxs:         16,
+			L2TxDataSize:   100 * 1024, // 100 KB
+			WithTransferTx: true,
+			SeqChainID:     testSeqChainID,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("ToB block exceed size", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
+
+		// Block in 1600 KB at least
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     ids.Empty,
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			RobChainIndex:  0,
+			NumTxs:         16,
+			L2TxDataSize:   100 * 1024, // 100 KB
+			WithTransferTx: true,
+			SeqChainID:     testSeqChainID,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusBadRequest, rrCode)
+	})
+
+	t.Run("ToB block not exceed size", func(t *testing.T) {
+		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
+
+		// Block in 1600 KB at least
+		opts := CreateTestBlockSubmissionOpts{
+			Slot:           slot,
+			ParentHash:     ids.Empty,
+			BuilderPubkey:  *testBuilderPublicKey,
+			ProposerPubkey: *testProposerPublicKey,
+			IsToB:          true,
+			RobChainIndex:  0,
+			NumTxs:         2,
+			L2TxDataSize:   100 * 1024, // 100 KB
+			WithTransferTx: true,
+			SeqChainID:     testSeqChainID,
+		}
+
+		baseValue := uint64(100)
+		request, _, _ := CreateTestChunkSubmission(t, baseValue, &opts)
+		require.NoError(t, err)
+
+		rrCode := processBlockRequest(backend, request)
+		require.Equal(t, http.StatusOK, rrCode)
+	})
+
 	t.Run("Run valid RoBs for race condition", func(t *testing.T) {
 		backend := createBackendHelper(t)
+		backend.baton.sizeTracker.SetSlot(slot)
+		redis := backend.redis
+		redis.SetSizeTracker(backend.baton.sizeTracker)
 
 		opts := CreateTestBlockSubmissionOpts{
 			Slot:           slot,
@@ -1565,6 +1714,9 @@ func TestOverallBasicFlow(t *testing.T) {
 	}
 
 	backend := createBackendHelper(t)
+	backend.baton.sizeTracker.SetSlot(expectedSlot)
+	redis := backend.redis
+	redis.SetSizeTracker(backend.baton.sizeTracker)
 	seqClient := backend.GetMockSeqClient()
 	proposerPubKeyStr := robBlockReq.ProposerPubKeyAsStr()
 	// Submit block requests (one rob, one tob)
@@ -1730,6 +1882,8 @@ func TestRoBBuilderBids(t *testing.T) {
 	// deleting a bid that doesn't exist should not error
 	err = redis.DelBuilderBid(context.Background(), redis.NewPipeline(), slot, parentHashStr, proposerPubkeyHex, bApubkey)
 	require.NoError(t, err)
+	backend.baton.sizeTracker.SetSlot(slot)
+	redis.SetSizeTracker(backend.baton.sizeTracker)
 
 	// submit ba1=10
 	//payload, getPayloadResp, getHeaderResp := api.CreateTestChunkSubmission(t, Apubkey, uint256.NewInt(10), &opts)
@@ -1844,6 +1998,8 @@ func TestToBBuilderBids(t *testing.T) {
 	// Setup redis instance
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 	redis := backend.GetRedis()
+	backend.baton.sizeTracker.SetSlot(slot)
+	redis.SetSizeTracker(backend.baton.sizeTracker)
 
 	// Helper to ensure writing to redis worked as expected
 	ensureBestBidValueEquals := func(expectedValue uint64, builderPubkey string) {

@@ -143,6 +143,8 @@ type BatonAPIOpts struct {
 	Memcached    *datastore.Memcached
 	DB           database.IDatabaseService
 
+	SlotSizeLimit int // how many bytes are allowed in a slot, current SEQ upper bound for one block is 2MB, we should left space for normal SEQ txs and the overhead of wrapping a block
+
 	SecretKey *bls.SecretKey // used to sign bids (getHeader responses)
 
 	// Network specific variables
@@ -224,6 +226,7 @@ type BatonAPI struct {
 	robChainIDs    map[string]struct{}             `jjj:"rob_chain_i_ds"`
 	expectedHeader *common.AnchorGetHeaderResponse `jjj:"expected_header"`
 	seqClient      seq.BaseSeqClient
+	sizeTracker    *SizeTracker
 
 	// To prevent bugs resulting from overlapping requests, for now, let's have each mutating request be processed one at a time.
 	requestMu sync.Mutex
@@ -327,6 +330,8 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		return nil, err
 	}
 
+	sizeTracker := NewSizeTracker(opts.SlotSizeLimit)
+
 	api = &BatonAPI{
 		opts:      opts,
 		log:       opts.Log,
@@ -348,6 +353,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		defiAddresses: FillUpDefiAddresses(opts),
 		robChainIDs:   make(map[string]struct{}),
 		seqClient:     seqClient,
+		sizeTracker:   sizeTracker,
 
 		// should only be true in testing
 		mockMode: opts.mockMode,
@@ -636,7 +642,10 @@ func (api *BatonAPI) onNewSeqBlock(blk *chain.StatefulBlock, nextProposer *hrpc.
 		api.log.Warn("unable to get block ID")
 	}
 
-	// nextProposer.PublicKey
+	// reset tracker
+	api.sizeTracker.SetSlot(blk.Hght + 1)
+	api.sizeTracker.Clear()
+	api.redis.SetSizeTracker(api.sizeTracker)
 
 	api.proposerDutiesMap[blk.Hght+1] = &common.BuilderGetSEQValidatorResponseEntry{
 		Slot: blk.Hght + 1,
@@ -1673,6 +1682,7 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	}
 
 	var chainIDs map[string]struct{}
+	var incomingSimBlockNumber map[string]uint64
 	var txs []*chain.Transaction
 	parser := srpc.Parser{}
 	actionRegistry, authRegistry := parser.Registry()
@@ -1691,12 +1701,14 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 		api.RespondError(w, http.StatusNoContent, err.Error())
 		return
 	}
-	chainIDs = api.getChainIDsFromSEQTxs(context.TODO(), txs)
-	incomingSimBlockNumber, err := api.blockSimRateLimiter.GetBlockNumber(chainIDs)
-	if err != nil {
-		log.WithError(err).Warn("unable to get block numbers of L2s")
-		api.RespondError(w, http.StatusNoContent, err.Error())
-		return
+	if !api.mockMode {
+		chainIDs = api.getChainIDsFromSEQTxs(context.TODO(), txs)
+		incomingSimBlockNumber, err = api.blockSimRateLimiter.GetBlockNumber(chainIDs)
+		if err != nil {
+			log.WithError(err).Warn("unable to get block numbers of L2s")
+			api.RespondError(w, http.StatusNoContent, err.Error())
+			return
+		}
 	}
 
 	nextTime = time.Now().UTC()
@@ -1730,20 +1742,33 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 
 	log.Infof("is tob: %t", isToB)
 
-	if isToB {
-		// TODO: pass blockReq.Txs which will always be size 800+ after marshal or use txs type hypersdk below
-		if len(txs) > common.MaxTobTxs+1 {
-			msg := fmt.Sprintf("we support only %d txs on the TOB currently, got %d", common.MaxTobTxs, len(blockReq.Txs()))
-			log.WithError(err).Info(msg)
-			api.Respond(w, http.StatusBadRequest, msg)
-			return
-		}
-	}
 	chainID, err := FirstChainID(txs)
 	if err != nil {
 		log.WithError(err).Info(err.Error())
 		api.RespondError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	// checks for ToB txs count & chunk txs size
+	if isToB {
+		if len(txs) < common.MinTobTxs {
+			msg := fmt.Sprintf("we support at least %d txs on the TOB currently, got %d", common.MinTobTxs, len(blockReq.Txs()))
+			log.WithError(err).Info(msg)
+			api.Respond(w, http.StatusBadRequest, msg)
+			return
+		}
+
+		if err := api.sizeTracker.TryUpdate(ToBTrackerTag, slot, len(blockReq.Chunk.Txs)); err != nil {
+			log.WithError(err).Info("slot full, rejecting bid")
+			api.Respond(w, http.StatusBadRequest, fmt.Sprintf("slot full rejecting bid: %s", err.Error()))
+			return
+		}
+	} else {
+		if err := api.sizeTracker.TryUpdate(chainID, slot, len(blockReq.Chunk.Txs)); err != nil {
+			log.WithError(err).Info("slot full, rejecting bid")
+			api.Respond(w, http.StatusBadRequest, fmt.Sprintf("slot full rejecting bid: %s", err.Error()))
+			return
+		}
 	}
 
 	// Note this also validates slot validity

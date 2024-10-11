@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -58,6 +59,7 @@ type CreateTestBlockSubmissionOpts struct {
 	IsToB          bool
 	RobChainIndex  int // only used if isTob false
 	NumTxs         int
+	L2TxDataSize   int
 
 	WithTransferTx bool
 	SeqChainID     ids.ID
@@ -135,7 +137,10 @@ func CreateTestChunkSubmission(
 		gasPrice := big.NewInt(int64(10000 + i))
 		chainID = chainIDs[i%len(chainIDs)]
 
-		ethTx := CreateTestEthTransactionAsTxBytes(nonce, *val, gasLimit, *gasPrice, "")
+		data := make([]byte, opts.L2TxDataSize)
+		_, err := rand.Read(data)
+		require.NoError(t, err)
+		ethTx := CreateTestEthTransactionAsTxBytes(nonce, *val, gasLimit, *gasPrice, data)
 		tx := CreateHypersdkTx(opts.SeqChainID, chainID, ethTx)
 		txs = append(txs, tx)
 	}
@@ -252,6 +257,7 @@ func CreateHypersdkTx(seqChainID ids.ID, chainID *big.Int, ethTx []byte) *chain.
 		MaxFee:    TestMaxFee,
 	}
 	base.Timestamp = int64(time.Now().Second() * 1000)
+	// fmt.Printf("base: %+v\n", base)
 	pkBytes, err := hex.DecodeString(KEYHEX)
 	if err != nil {
 		panic(err)
@@ -300,7 +306,7 @@ func CreateTestProposerTransfer(seqChainID ids.ID, value uint64) *chain.Transact
 	return txSign
 }
 
-func CreateTestEthTransaction(nonce uint64, value big.Int, gasLimit uint64, gasPrice big.Int, data string) *types.Transaction {
+func CreateTestEthTransaction(nonce uint64, value big.Int, gasLimit uint64, gasPrice big.Int, data []byte) *types.Transaction {
 	toAddress := eth.HexToAddress(TestAddressValue)
 	_, err := crypto.HexToECDSA(TestPrivateKeyValue)
 	if err != nil {
@@ -313,13 +319,13 @@ func CreateTestEthTransaction(nonce uint64, value big.Int, gasLimit uint64, gasP
 		Value:    &value,
 		Gas:      gasLimit,
 		GasPrice: &gasPrice,
-		Data:     []byte(data),
+		Data:     data,
 	})
 
 	return tx
 }
 
-func CreateTestEthTransactionAsTxBytes(nonce uint64, value big.Int, gasLimit uint64, gasPrice big.Int, data string) hexutil.Bytes {
+func CreateTestEthTransactionAsTxBytes(nonce uint64, value big.Int, gasLimit uint64, gasPrice big.Int, data []byte) hexutil.Bytes {
 	privateKey, err := crypto.HexToECDSA(TestPrivateKeyValue)
 	if err != nil {
 		log.Fatalf("Failed to load private key: %v", err)

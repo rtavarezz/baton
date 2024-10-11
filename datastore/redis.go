@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AnomalyFi/baton/common"
@@ -80,9 +81,17 @@ func connectRedis(redisURI string) (*redis.Client, error) {
 	return redisClient, nil
 }
 
+type ISizeTracker interface {
+	Update(chainID string, slot uint64, size int) error
+	UpdateToB(slot uint64, size int) error
+}
+
 type RedisCache struct {
 	client         *redis.Client
 	readonlyClient *redis.Client
+
+	sizeTracker  ISizeTracker
+	sizeTrakcerL sync.Mutex
 
 	// TOB tx prefixes
 	prefixTopTobTxValue string
@@ -877,6 +886,18 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		return state, nil
 	}
 
+	r.sizeTrakcerL.Lock()
+	if r.sizeTracker == nil {
+		r.sizeTrakcerL.Unlock()
+		return state, nil
+		// this update is safe since this bid is higher than the current top bid, so this bid will be saved by _updateToBTopBid
+	} else if err := r.sizeTracker.UpdateToB(payload.Slot(), len(payload.Chunk.Txs)); err != nil {
+		fmt.Printf("err updateing size tracker: %w\n", err)
+		r.sizeTrakcerL.Unlock()
+		return state, nil
+	}
+	r.sizeTrakcerL.Unlock()
+
 	// Record time needed
 	nextTime = time.Now().UTC()
 	state.TimePrep = nextTime.Sub(prevTime)
@@ -1038,6 +1059,18 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 	if !isCancellationEnabled && !isBidAboveFloor {
 		return state, nil
 	}
+
+	r.sizeTrakcerL.Lock()
+	if r.sizeTracker == nil {
+		r.sizeTrakcerL.Unlock()
+		return state, nil
+		// this update is safe since this bid is higher than the current top bid, so this bid will be saved by _updateToBTopBid
+	} else if err := r.sizeTracker.Update(chainID, payload.Slot(), len(payload.Chunk.Txs)); err != nil {
+		fmt.Printf("err updateing size tracker: %w\n", err)
+		r.sizeTrakcerL.Unlock()
+		return state, nil
+	}
+	r.sizeTrakcerL.Unlock()
 
 	// Record time needed
 	nextTime = time.Now().UTC()
@@ -1755,4 +1788,11 @@ func (r *RedisCache) SetRoBBid(slot uint64, parentHash string, proposerPubkey st
 
 func (r *RedisCache) GetClient() *redis.Client {
 	return r.client
+}
+
+func (r *RedisCache) SetSizeTracker(tracker ISizeTracker) {
+	r.sizeTrakcerL.Lock()
+	defer r.sizeTrakcerL.Unlock()
+
+	r.sizeTracker = tracker
 }
