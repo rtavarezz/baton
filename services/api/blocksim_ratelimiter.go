@@ -231,12 +231,12 @@ func (b *BlockSimulationRateLimiter) GetBlockNumber(chainIDs map[string]struct{}
 
 			fbRPC := flashbotsrpc.NewFlashbotsRPC(simURL)
 			blockNumber, err := fbRPC.EthBlockNumber()
+			retL.Lock()
+			defer retL.Unlock()
 			if err != nil {
 				reqErr = err
 			}
 
-			retL.Lock()
-			defer retL.Unlock()
 			ret[chainID] = uint64(blockNumber)
 		}(chainID)
 	}
