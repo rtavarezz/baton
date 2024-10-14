@@ -331,6 +331,7 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 	}
 
 	sizeTracker := NewSizeTracker(opts.SlotSizeLimit)
+	opts.Log.Infof("Size tracker limit: %d\n", opts.SlotSizeLimit)
 
 	api = &BatonAPI{
 		opts:      opts,

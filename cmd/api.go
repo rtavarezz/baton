@@ -53,6 +53,7 @@ var (
 	apiSEQChainID       string
 	apiSEQNetworkID     uint32
 	apiSEQSigningKey    string
+	apiSizeTrackerLimit int
 )
 
 func init() {
@@ -74,6 +75,7 @@ func init() {
 	apiCmd.Flags().StringVar(&apiBlockSimFbRPCKey, "fbrpc-key", apiDefaultFBRPCKey, "fb rpc signing key")
 	apiCmd.Flags().IntVar(&apiBlockSimDepth, "sim-depth", apiDefaultSimDepth, "simulation txs range from [headSlot:headSlot-depth]")
 	apiCmd.Flags().StringVar(&network, "network", defaultNetwork, "Which network to use")
+	apiCmd.Flags().IntVar(&apiSizeTrackerLimit, "slot-sizelim", api.DefaultSizeLimit, "simulation txs range from [headSlot:headSlot-depth]")
 
 	apiCmd.Flags().BoolVar(&apiPprofEnabled, "pprof", apiDefaultPprofEnabled, "enable pprof API")
 	apiCmd.Flags().BoolVar(&apiBuilderAPI, "builder-api", apiDefaultBuilderAPIEnabled, "enable builder API (/builder/...)")
@@ -189,6 +191,7 @@ var apiCmd = &cobra.Command{
 			InternalAPI:     apiInternalAPI,
 			ProposerAPI:     apiProposerAPI,
 			PprofAPI:        apiPprofEnabled,
+			SlotSizeLimit:   apiSizeTrackerLimit,
 		}
 
 		// Decode the private key
