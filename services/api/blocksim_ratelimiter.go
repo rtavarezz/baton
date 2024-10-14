@@ -219,6 +219,7 @@ func (b *BlockSimulationRateLimiter) GetBlockNumber(chainIDs map[string]struct{}
 	var reqErr error
 	var wg sync.WaitGroup
 	ret := make(map[string]uint64, len(chainIDs))
+	var retL sync.Mutex
 	for chainID := range chainIDs {
 		if _, ok := b.blockSimURLs[chainID]; !ok {
 			return nil, fmt.Errorf("chainID(%s) not supported", chainID)
@@ -234,6 +235,8 @@ func (b *BlockSimulationRateLimiter) GetBlockNumber(chainIDs map[string]struct{}
 				reqErr = err
 			}
 
+			retL.Lock()
+			defer retL.Unlock()
 			ret[chainID] = uint64(blockNumber)
 		}(chainID)
 	}
