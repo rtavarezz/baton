@@ -188,6 +188,7 @@ var apiCmd = &cobra.Command{
 			SeqChainID:         seqChainID,
 			SeqNetworkID:       apiSEQNetworkID,
 			SeqSigningKey:      seqSk,
+			SeqBlockWaitTime:   apiSEQBlockWaitTimeout,
 
 			BlockBuilderAPI: apiBuilderAPI,
 			DataAPI:         apiDataAPI,

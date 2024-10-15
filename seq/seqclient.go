@@ -65,9 +65,10 @@ type SeqClient struct {
 
 func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 	config.Log.WithFields(logrus.Fields{
-		"url":     config.URL,
-		"chainID": config.ChainID,
-		"sk":      config.PrivateKey,
+		"url":           config.URL,
+		"chainID":       config.ChainID,
+		"sk":            config.PrivateKey,
+		"blockWaitTime": config.BlockWaitTime,
 	}).Info("initializing SEQ")
 	hcli := hrpc.NewJSONRPCClient(config.URL)
 	scli := srpc.NewJSONRPCClient(config.URL, config.NetworkID, config.ChainID)
