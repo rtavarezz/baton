@@ -125,11 +125,12 @@ var (
 
 // BatonAPIOpts contains the options for a baton
 type BatonAPIOpts struct {
-	Log           *logrus.Entry
-	SeqURL        string
-	SeqChainID    ids.ID
-	SeqNetworkID  uint32
-	SeqSigningKey ed25519.PrivateKey
+	Log              *logrus.Entry
+	SeqURL           string
+	SeqChainID       ids.ID
+	SeqNetworkID     uint32
+	SeqSigningKey    ed25519.PrivateKey
+	SeqBlockWaitTime time.Duration
 
 	ListenAddr         string
 	BlockSimURL        string
@@ -312,11 +313,12 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		}
 	}
 	config := seq.SeqClientConfig{
-		PrivateKey: opts.SeqSigningKey,
-		URL:        opts.SeqURL,
-		ChainID:    opts.SeqChainID,
-		NetworkID:  opts.SeqNetworkID,
-		Log:        opts.Log,
+		PrivateKey:    opts.SeqSigningKey,
+		URL:           opts.SeqURL,
+		ChainID:       opts.SeqChainID,
+		NetworkID:     opts.SeqNetworkID,
+		Log:           opts.Log,
+		BlockWaitTime: opts.SeqBlockWaitTime,
 	}
 
 	var seqClient seq.BaseSeqClient

@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/AnomalyFi/baton/common"
 	"github.com/AnomalyFi/baton/database"
@@ -37,23 +38,24 @@ var (
 	apiDefaultProposerAPIEnabled = os.Getenv("DISABLE_PROPOSER_API") != "1"
 	apiDefaultSimDepth           = 3 // sim with txs deep to 3 slot
 
-	apiListenAddr       string
-	apiPprofEnabled     bool
-	apiSecretKey        string
-	apiBlockSimURL      string
-	apiBlockSimFbRPCKey string
-	apiBlockSimDepth    int
-	apiDebug            bool
-	apiBuilderAPI       bool
-	apiDataAPI          bool
-	apiInternalAPI      bool
-	apiProposerAPI      bool
-	apiLogTag           string
-	apiSEQURI           string
-	apiSEQChainID       string
-	apiSEQNetworkID     uint32
-	apiSEQSigningKey    string
-	apiSizeTrackerLimit int
+	apiListenAddr          string
+	apiPprofEnabled        bool
+	apiSecretKey           string
+	apiBlockSimURL         string
+	apiBlockSimFbRPCKey    string
+	apiBlockSimDepth       int
+	apiDebug               bool
+	apiBuilderAPI          bool
+	apiDataAPI             bool
+	apiInternalAPI         bool
+	apiProposerAPI         bool
+	apiLogTag              string
+	apiSEQURI              string
+	apiSEQChainID          string
+	apiSEQNetworkID        uint32
+	apiSEQSigningKey       string
+	apiSEQBlockWaitTimeout time.Duration
+	apiSizeTrackerLimit    int
 )
 
 func init() {
@@ -86,6 +88,7 @@ func init() {
 	apiCmd.Flags().Uint32Var(&apiSEQNetworkID, "seq-network-id", uint32(1337), "SEQ rpc url")
 	apiCmd.Flags().StringVar(&apiSEQChainID, "seq-chain-id", "2bJKVCnNxcpPHaHxtacZS9rwPL9NdyYnBuJjusfZgYBTE5ptSG", "SEQ rpc url")
 	apiCmd.Flags().StringVar(&apiSEQSigningKey, "seq-key", "0x3851d590082e2dcf4d4a772ec43b47069c1236ab7a038e5b647cf0c2dc3d40014d24a0435169f5bb470dc00061435ad87f7fb7770f43df7bffd55f16627f83af", "SEQ signing key")
+	apiCmd.Flags().DurationVar(&apiSEQBlockWaitTimeout, "seq-timeout", 3*time.Second, "timeout to wait a block & proposer info")
 }
 
 var apiCmd = &cobra.Command{
