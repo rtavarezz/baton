@@ -144,7 +144,8 @@ type BatonAPIOpts struct {
 	Memcached    *datastore.Memcached
 	DB           database.IDatabaseService
 
-	SlotSizeLimit int // how many bytes are allowed in a slot, current SEQ upper bound for one block is 2MB, we should left space for normal SEQ txs and the overhead of wrapping a block
+	SlotSizeLimit      int // how many bytes are allowed in a slot, current SEQ upper bound for one block is 2MB, we should left space for normal SEQ txs and the overhead of wrapping a block
+	FutureSlotsAllowed int
 
 	SecretKey *bls.SecretKey // used to sign bids (getHeader responses)
 
@@ -1137,6 +1138,16 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	// we reject any slots that we didn't receive proposer duty, which was managed by listening blocks from SEQ(check seq_client for more detail)
+	api.proposerDutiesLock.RLock()
+	if _, ok := api.proposerDutiesMap[payload.Slot]; !ok {
+		log.WithField("slot", payload.Slot).Warn("proposer duty map didn't received, rejecting get payload request")
+		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("proposer duty map didn't receive for slot %d", payload.Slot))
+		api.proposerDutiesLock.RUnlock()
+		return
+	}
+	api.proposerDutiesLock.RUnlock()
+
 	// Take time after the decoding, and add to logging
 	decodeTime := time.Now().UTC()
 	// TODO: to be removed as not populated and needed
@@ -1724,8 +1735,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	isLargeRequest := len(payloadBytes) > fastTrackPayloadSizeLimit
 	slot := blockReq.Slot()
 
-	// We only allow bidding for block 1 slot prior
-	if (slot - headSlot) > 1 {
+	// We only allow [opts.FutureSLotsAllowed] to enter bidding
+	if (slot - headSlot) > uint64(api.opts.FutureSlotsAllowed) {
 		log.Error("Slot's TOB bid not yet started!!")
 		api.Respond(w, http.StatusBadRequest, "Slot's TOB bid not yet started!!")
 		return
@@ -2165,8 +2176,9 @@ func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID strin
 	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
 		if !ok {
-			// this shouldn't happen
-			return nil, nil, fmt.Errorf("unable to fetch proposer duty for slot: %d", slot)
+			// since we reject every duty map slot if the duty map for this slot didn't receive, so it's safe even we don't simulate the txs in that slot, same for below getTopRobTxs
+			api.log.Warnf("proposer duty map didn't received, skipping slot: %d", slot)
+			continue
 		}
 		parentHash := slotDutyInfo.ParentHash
 		proposerPubkey := slotDutyInfo.ProposerPubkey
@@ -2222,7 +2234,8 @@ func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[s
 	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
 		if !ok {
-			return nil, nil, fmt.Errorf("unable to fetch proposer duty for slot: %d", slot)
+			api.log.Warnf("proposer duty map didn't received, skipping slot: %d", slot)
+			continue
 		}
 		parentHash := slotDutyInfo.ParentHash
 		proposerPubkey := slotDutyInfo.ProposerPubkey

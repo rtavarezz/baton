@@ -28,6 +28,7 @@ services:
       --seq-chain-id=$SEQ_CHAIN_ID
       --seq-network-id=$SEQ_NETWORK_ID
       --seq-timeout=$SEQ_TIMEOUT
+      --slot-future=$SLOT_FUTURE
       --loglevel=debug
     environment:
       - GENESIS_FORK_VERSION=0x00000000

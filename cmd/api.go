@@ -37,6 +37,7 @@ var (
 	apiDefaultDataAPIEnabled     = os.Getenv("DISABLE_DATA_API") != "1"
 	apiDefaultProposerAPIEnabled = os.Getenv("DISABLE_PROPOSER_API") != "1"
 	apiDefaultSimDepth           = 3 // sim with txs deep to 3 slot
+	apiDefaultFutureSlotsAllowed = 3
 
 	apiListenAddr          string
 	apiPprofEnabled        bool
@@ -56,6 +57,7 @@ var (
 	apiSEQSigningKey       string
 	apiSEQBlockWaitTimeout time.Duration
 	apiSizeTrackerLimit    int
+	apiFutureSlotsAllowed  int
 )
 
 func init() {
@@ -78,6 +80,7 @@ func init() {
 	apiCmd.Flags().IntVar(&apiBlockSimDepth, "sim-depth", apiDefaultSimDepth, "simulation txs range from [headSlot:headSlot-depth]")
 	apiCmd.Flags().StringVar(&network, "network", defaultNetwork, "Which network to use")
 	apiCmd.Flags().IntVar(&apiSizeTrackerLimit, "slot-sizelim", api.DefaultSizeLimit, "simulation txs range from [headSlot:headSlot-depth]")
+	apiCmd.Flags().IntVar(&apiFutureSlotsAllowed, "slot-future", apiDefaultFutureSlotsAllowed, "")
 
 	apiCmd.Flags().BoolVar(&apiPprofEnabled, "pprof", apiDefaultPprofEnabled, "enable pprof API")
 	apiCmd.Flags().BoolVar(&apiBuilderAPI, "builder-api", apiDefaultBuilderAPIEnabled, "enable builder API (/builder/...)")
@@ -190,12 +193,13 @@ var apiCmd = &cobra.Command{
 			SeqSigningKey:      seqSk,
 			SeqBlockWaitTime:   apiSEQBlockWaitTimeout,
 
-			BlockBuilderAPI: apiBuilderAPI,
-			DataAPI:         apiDataAPI,
-			InternalAPI:     apiInternalAPI,
-			ProposerAPI:     apiProposerAPI,
-			PprofAPI:        apiPprofEnabled,
-			SlotSizeLimit:   apiSizeTrackerLimit,
+			BlockBuilderAPI:    apiBuilderAPI,
+			DataAPI:            apiDataAPI,
+			InternalAPI:        apiInternalAPI,
+			ProposerAPI:        apiProposerAPI,
+			PprofAPI:           apiPprofEnabled,
+			SlotSizeLimit:      apiSizeTrackerLimit,
+			FutureSlotsAllowed: apiFutureSlotsAllowed,
 		}
 
 		// Decode the private key
