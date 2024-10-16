@@ -647,8 +647,7 @@ func (api *BatonAPI) onNewSeqBlock(blk *chain.StatefulBlock, nextProposer *hrpc.
 	}
 
 	// reset tracker
-	api.sizeTracker.SetSlot(blk.Hght + 1)
-	api.sizeTracker.Clear()
+	api.sizeTracker.SetLowestSlot(blk.Hght + 1)
 	api.redis.SetSizeTracker(api.sizeTracker)
 
 	api.proposerDutiesMap[blk.Hght+1] = &common.BuilderGetSEQValidatorResponseEntry{

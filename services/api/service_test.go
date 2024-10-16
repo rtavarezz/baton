@@ -112,21 +112,22 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	require.NoError(t, err)
 
 	opts := BatonAPIOpts{
-		Log:             common.TestLog,
-		ListenAddr:      "localhost:12345",
-		BeaconClient:    &beaconclient.MultiBeaconClient{},
-		Datastore:       ds,
-		Redis:           redisCache,
-		DB:              db,
-		EthNetDetails:   *mainnetDetails,
-		SecretKey:       sk,
-		BlockSimManager: managerPub,
-		ProposerAPI:     true,
-		BlockBuilderAPI: true,
-		DataAPI:         true,
-		InternalAPI:     true,
-		mockMode:        true,
-		SlotSizeLimit:   DefaultSizeLimit,
+		Log:                common.TestLog,
+		ListenAddr:         "localhost:12345",
+		BeaconClient:       &beaconclient.MultiBeaconClient{},
+		Datastore:          ds,
+		Redis:              redisCache,
+		DB:                 db,
+		EthNetDetails:      *mainnetDetails,
+		SecretKey:          sk,
+		BlockSimManager:    managerPub,
+		ProposerAPI:        true,
+		BlockBuilderAPI:    true,
+		DataAPI:            true,
+		InternalAPI:        true,
+		mockMode:           true,
+		SlotSizeLimit:      DefaultSizeLimit,
+		FutureSlotsAllowed: 3,
 	}
 
 	baton, err := NewBatonAPI(opts)
@@ -762,7 +763,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run valid base case, just RoB", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 		rrCode := processBlockRequest(backend, robBlockReq)
@@ -771,7 +772,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run valid base case, just ToB", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -781,7 +782,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run valid base case, just ToB and multiple RoB", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -797,7 +798,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block with no txs should reject", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -811,7 +812,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block with slot equal to head slot", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -828,7 +829,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block with slot too far head compared to head slot", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -845,7 +846,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run invalid RoB without transfer tx", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -870,7 +871,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("ToB has too few txs", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -896,7 +897,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("ToB with number txs equal to max allowed is okay", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -922,7 +923,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB has no tx limit enforcement", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -948,7 +949,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block with bad builder key should reject", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -963,7 +964,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block not exceed size", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -991,7 +992,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("RoB block exceed size", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -1019,7 +1020,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("ToB block exceed size", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -1047,7 +1048,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("ToB block not exceed size", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -1075,7 +1076,7 @@ func TestHandleSubmitNewBlockRequest(t *testing.T) {
 
 	t.Run("Run valid RoBs for race condition", func(t *testing.T) {
 		backend := createBackendHelper(t)
-		backend.baton.sizeTracker.SetSlot(slot)
+		backend.baton.sizeTracker.SetLowestSlot(slot)
 		redis := backend.redis
 		redis.SetSizeTracker(backend.baton.sizeTracker)
 
@@ -1714,7 +1715,7 @@ func TestOverallBasicFlow(t *testing.T) {
 	}
 
 	backend := createBackendHelper(t)
-	backend.baton.sizeTracker.SetSlot(expectedSlot)
+	backend.baton.sizeTracker.SetLowestSlot(expectedSlot)
 	redis := backend.redis
 	redis.SetSizeTracker(backend.baton.sizeTracker)
 	seqClient := backend.GetMockSeqClient()
@@ -1882,7 +1883,7 @@ func TestRoBBuilderBids(t *testing.T) {
 	// deleting a bid that doesn't exist should not error
 	err = redis.DelBuilderBid(context.Background(), redis.NewPipeline(), slot, parentHashStr, proposerPubkeyHex, bApubkey)
 	require.NoError(t, err)
-	backend.baton.sizeTracker.SetSlot(slot)
+	backend.baton.sizeTracker.SetLowestSlot(slot)
 	redis.SetSizeTracker(backend.baton.sizeTracker)
 
 	// submit ba1=10
@@ -1998,7 +1999,7 @@ func TestToBBuilderBids(t *testing.T) {
 	// Setup redis instance
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 	redis := backend.GetRedis()
-	backend.baton.sizeTracker.SetSlot(slot)
+	backend.baton.sizeTracker.SetLowestSlot(slot)
 	redis.SetSizeTracker(backend.baton.sizeTracker)
 
 	// Helper to ensure writing to redis worked as expected
