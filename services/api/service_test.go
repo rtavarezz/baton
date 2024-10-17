@@ -1494,7 +1494,7 @@ func TestGetPayload(t *testing.T) {
 	slot := uint64(1)
 	backend.baton.headSlot.Store(slot)
 	requestPath := "/eth/v1/builder/blinded_blocks"
-	headerHash := eth.Hash([]byte(testHeaderHash))
+	headerHash := eth.Hash(hexutil.MustDecode(testHeaderHash))
 	seqChainID := backend.GetMockSeqClient().GetChainID()
 	seqNetworkID := backend.GetMockSeqClient().GetNetworkID()
 
@@ -1538,7 +1538,7 @@ func TestGetPayload(t *testing.T) {
 			rpipe,
 			1,
 			common.BlsPubKeyToStr(mockPublicKey),
-			string(blockHash.Bytes()),
+			hexutil.Encode(blockHash.Bytes()),
 			&payload)
 		require.NoError(t, err)
 
@@ -1568,7 +1568,7 @@ func TestGetPayload(t *testing.T) {
 			rpipe,
 			1,
 			common.BlsPubKeyToStr(mockPublicKey),
-			string(blockHash.Bytes()),
+			hexutil.Encode(blockHash.Bytes()),
 			//blockHash.String(),
 			&payload,
 			chainID)
@@ -1589,20 +1589,14 @@ func TestGetPayload(t *testing.T) {
 	}
 	pk := mockPublicKey.Bytes()
 
-	t.Run("Run valid base case, just tob", func(t *testing.T) {
-		populatePayloadsFromHeaderResp(anchorGetHeaderResp, headerHash, backend.redis)
-
-		payloadReq := common.AnchorGetPayloadRequest{
-			Slot:           uint64(1),
-			ProposerPubKey: pk[:],
-			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
-			ParentHash: string(headerHash.Bytes()),
-			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
-			SignedHeaders: signedHeaderBytes[:],
+	setUpProposerMapForSlot := func(backend *testBackend, slot uint64, parentHash string, proposerPubkey string) {
+		backend.baton.proposerDutiesMap[slot] = &common.BuilderGetSEQValidatorResponseEntry{
+			Slot:           slot,
+			ParentHash:     hexutil.Encode(headerHash.Bytes()),
+			ProposerPubkey: hexutil.Encode(pk[:]),
 		}
-		rr := backend.request(http.MethodPost, requestPath, payloadReq)
-		require.Equal(t, http.StatusOK, rr.Code)
-	})
+	}
+	setUpProposerMapForSlot(backend, slot, hexutil.Encode(headerHash.Bytes()), hexutil.Encode(pk[:]))
 
 	t.Run("Run case with no valid content available", func(t *testing.T) {
 		//redis := backend.GetRedis()
@@ -1619,6 +1613,21 @@ func TestGetPayload(t *testing.T) {
 
 		rr := backend.request(http.MethodPost, requestPath, payloadReq)
 		require.Equal(t, http.StatusNoContent, rr.Code)
+	})
+
+	t.Run("Run valid base case, just tob", func(t *testing.T) {
+		populatePayloadsFromHeaderResp(anchorGetHeaderResp, headerHash, backend.redis)
+
+		payloadReq := common.AnchorGetPayloadRequest{
+			Slot:           uint64(1),
+			ProposerPubKey: pk[:],
+			// Hash of exec headers. Must match the value sent by AnchorGetHeaderResponse.
+			ParentHash: hexutil.Encode(headerHash.Bytes()),
+			// Exec headers signed by validator's key. Should be [48]byte bls.signature.
+			SignedHeaders: signedHeaderBytes[:],
+		}
+		rr := backend.request(http.MethodPost, requestPath, payloadReq)
+		require.Equal(t, http.StatusOK, rr.Code)
 	})
 
 	t.Run("Requesting getPayloads() but without call to getHeaders()", func(t *testing.T) {
@@ -1735,6 +1744,11 @@ func TestOverallBasicFlow(t *testing.T) {
 	}
 	seqClient.TriggerOnNextBlock(seqHead, &nextProposerInfo)
 
+	backend.baton.proposerDutiesMap[expectedSlot] = &common.BuilderGetSEQValidatorResponseEntry{
+		Slot:           expectedSlot,
+		ProposerPubkey: proposerPubKeyStr,
+		ParentHash:     common.ParentHashToStr(parentHash),
+	}
 	// Now test getHeader()
 	rr := httptest.NewRecorder()
 
