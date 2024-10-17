@@ -15,7 +15,6 @@ import (
 	"github.com/flashbots/go-boost-utils/bls"
 
 	"github.com/AnomalyFi/baton/common"
-	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -54,18 +53,6 @@ func createValidatorRegistration(pubKey string) ValidatorRegistrationEntry {
 		GasLimit:     30000000,
 		Signature:    "0xab6fa6462f658708f1a9030faeac588d55b1e28cc1f506b3ef938eeeec0171d4209865fb66bbb94e52c0c160a63975e51795ee8d1da38219b3f80d7d14f003421a255d99b744bd71f45f0cb2cd17948afff67ad6c9163fcd20b48f6315dac7cc",
 	}
-}
-
-func getTestKeyPair(t *testing.T) (*phase0.BLSPubKey, *bls.SecretKey) {
-	t.Helper()
-	sk, _, err := bls.GenerateNewKeypair()
-	require.NoError(t, err)
-	blsPubkey, err := bls.PublicKeyFromSecretKey(sk)
-	require.NoError(t, err)
-	var pubkey phase0.BLSPubKey
-	bytes := blsPubkey.Bytes()
-	copy(pubkey[:], bytes[:])
-	return &pubkey, sk
 }
 
 func insertTestBuilder(t *testing.T, db *DatabaseService) string {

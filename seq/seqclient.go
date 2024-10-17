@@ -117,6 +117,7 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 				blk, _, _, _, err := wsCli.ListenBlock(bctx, parser)
 				if err != nil {
 					logger.Error("unable to listen block", "err", err)
+					cancel()
 					continue
 				}
 

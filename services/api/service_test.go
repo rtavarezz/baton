@@ -1832,6 +1832,7 @@ func TestRoBBuilderBids(t *testing.T) {
 		SeqChainID:     seqChainID,
 	}
 
+	// nolint:ineffassign
 	trace := common.BidTraceV3{
 		Slot:            slot,
 		IsTob:           false,
@@ -1977,6 +1978,7 @@ func TestToBBuilderBids(t *testing.T) {
 		SeqChainID:     testSeqChainID,
 	}
 
+	// nolint:ineffassign
 	trace := common.BidTraceV3{
 		Slot:            slot,
 		IsTob:           true,

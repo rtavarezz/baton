@@ -886,6 +886,7 @@ func (r *RedisCache) SaveToBBidAndUpdateTopBid(
 		// this update is safe since this bid is higher than the current top bid, so this bid will be saved by _updateToBTopBid
 	} else if err := r.sizeTracker.UpdateToB(payload.Slot(), len(payload.Chunk.Txs)); err != nil {
 		r.sizeTrakcerL.Unlock()
+		//lint:ignore nilerr reason
 		return state, nil
 	}
 	r.sizeTrakcerL.Unlock()
@@ -1059,6 +1060,7 @@ func (r *RedisCache) SaveRoBBidAndUpdateTopBid(
 		// this update is safe since this bid is higher than the current top bid, so this bid will be saved by _updateToBTopBid
 	} else if err := r.sizeTracker.Update(chainID, payload.Slot(), len(payload.Chunk.Txs)); err != nil {
 		r.sizeTrakcerL.Unlock()
+		//lint:ignore nilerr reason
 		return state, nil
 	}
 	r.sizeTrakcerL.Unlock()

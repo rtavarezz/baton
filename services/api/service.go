@@ -98,8 +98,7 @@ var (
 	pathGetProposerForSlot   = "/eth/v1/baton/get_proposer_for_slot/{slot:[0-9]+}"
 
 	// various timings
-	timeoutGetPayloadRetryMs  = cli.GetEnvInt("GETPAYLOAD_RETRY_TIMEOUT_MS", 100)
-	getPayloadRequestCutoffMs = cli.GetEnvInt("GETPAYLOAD_REQUEST_CUTOFF_MS", 4000)
+	timeoutGetPayloadRetryMs = cli.GetEnvInt("GETPAYLOAD_RETRY_TIMEOUT_MS", 100)
 
 	// api settings
 	apiReadTimeoutMs       = cli.GetEnvInt("API_TIMEOUT_READ_MS", 1500)
@@ -163,10 +162,10 @@ type BatonAPIOpts struct {
 	mockMode bool
 }
 
-type blockBuilderCacheEntry struct {
-	status     common.BuilderStatus
-	collateral *big.Int
-}
+// type blockBuilderCacheEntry struct {
+// 	status     common.BuilderStatus
+// 	collateral *big.Int
+// }
 
 type blockSimResult struct {
 	wasSimulated         bool
@@ -221,7 +220,7 @@ type BatonAPI struct {
 	ffMockSimulation             bool `jjj:"ff_mock_simulation"`                 // simulations always pass, intended for testing internal server functionality
 
 	// Cache for builder statuses and collaterals.
-	blockBuildersCache map[string]*blockBuilderCacheEntry `jjj:"block_builders_cache"`
+	// blockBuildersCache map[string]*blockBuilderCacheEntry `jjj:"block_builders_cache"`
 	// stores DeFi contract addresses rquired for state interference checks
 	defiAddresses map[string]common2.Address `jjj:"defi_addresses"`
 	// stores RoB chain IDs
@@ -493,7 +492,7 @@ func (api *BatonAPI) StartServer() (err error) {
 	}
 
 	// Initialize block builder cache.
-	api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
+	// api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
 
 	// create and start HTTP server
 	api.srv = &http.Server{
@@ -1554,37 +1553,37 @@ func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 	return true
 }
 
-func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry, builderPubkey phase0.BLSPubKey) (*blockBuilderCacheEntry, bool) {
-	builderEntry, ok := api.blockBuildersCache[builderPubkey.String()]
-	if !ok {
-		log.Warnf("unable to read builder: %s from the builder cache, using low-prio and no collateral", builderPubkey.String())
-		builderEntry = &blockBuilderCacheEntry{
-			status: common.BuilderStatus{
-				IsHighPrio:    false,
-				IsOptimistic:  false,
-				IsBlacklisted: false,
-			},
-			collateral: big.NewInt(0),
-		}
-	}
+// func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry, builderPubkey phase0.BLSPubKey) (*blockBuilderCacheEntry, bool) {
+// 	builderEntry, ok := api.blockBuildersCache[builderPubkey.String()]
+// 	if !ok {
+// 		log.Warnf("unable to read builder: %s from the builder cache, using low-prio and no collateral", builderPubkey.String())
+// 		builderEntry = &blockBuilderCacheEntry{
+// 			status: common.BuilderStatus{
+// 				IsHighPrio:    false,
+// 				IsOptimistic:  false,
+// 				IsBlacklisted: false,
+// 			},
+// 			collateral: big.NewInt(0),
+// 		}
+// 	}
 
-	if builderEntry.status.IsBlacklisted {
-		log.Info("builder is blacklisted")
-		time.Sleep(200 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-		return builderEntry, false
-	}
+// 	if builderEntry.status.IsBlacklisted {
+// 		log.Info("builder is blacklisted")
+// 		time.Sleep(200 * time.Millisecond)
+// 		w.WriteHeader(http.StatusOK)
+// 		return builderEntry, false
+// 	}
 
-	// In case only high-prio requests are accepted, fail others
-	if api.ffDisableLowPrioBuilders && !builderEntry.status.IsHighPrio {
-		log.Info("rejecting low-prio builder (ff-disable-low-prio-builders)")
-		time.Sleep(200 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-		return builderEntry, false
-	}
+// 	// In case only high-prio requests are accepted, fail others
+// 	if api.ffDisableLowPrioBuilders && !builderEntry.status.IsHighPrio {
+// 		log.Info("rejecting low-prio builder (ff-disable-low-prio-builders)")
+// 		time.Sleep(200 * time.Millisecond)
+// 		w.WriteHeader(http.StatusOK)
+// 		return builderEntry, false
+// 	}
 
-	return builderEntry, true
-}
+// 	return builderEntry, true
+// }
 
 func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, common.TobGasReservations)
