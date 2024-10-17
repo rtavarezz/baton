@@ -1,0 +1,23 @@
+version: '3.8'
+
+volumes:
+  psql_data:
+
+services:
+  db:
+    image: postgres
+    restart: always
+    # uncomment following for database testing
+    ports:
+      - 5432:5432
+    volumes:
+      - 'psql_data:/var/lib/postgresql/data'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    healthcheck:
+      test:  [ "CMD", "pg_isready", "-q", "-d", "postgres", "-U", "postgres" ]
+      interval: 3s
+      timeout: 3s
+      retries: 5
