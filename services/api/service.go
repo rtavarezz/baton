@@ -2697,6 +2697,10 @@ func (api *BatonAPI) GetRoBChainIDs() map[string]struct{} {
 // this method assume the lock was already acquired
 func (api *BatonAPI) pruneOldProposerDuties() {
 	headSlot := api.headSlot.Load()
+	if headSlot < uint64(api.opts.BlockSimDepth) {
+		return
+	}
+
 	for slot := range api.proposerDutiesMap {
 		if slot < headSlot-uint64(api.opts.BlockSimDepth) {
 			delete(api.proposerDutiesMap, slot)
