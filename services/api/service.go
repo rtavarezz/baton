@@ -98,8 +98,7 @@ var (
 	pathGetProposerForSlot   = "/eth/v1/baton/get_proposer_for_slot/{slot:[0-9]+}"
 
 	// various timings
-	timeoutGetPayloadRetryMs  = cli.GetEnvInt("GETPAYLOAD_RETRY_TIMEOUT_MS", 100)
-	getPayloadRequestCutoffMs = cli.GetEnvInt("GETPAYLOAD_REQUEST_CUTOFF_MS", 4000)
+	timeoutGetPayloadRetryMs = cli.GetEnvInt("GETPAYLOAD_RETRY_TIMEOUT_MS", 100)
 
 	// api settings
 	apiReadTimeoutMs       = cli.GetEnvInt("API_TIMEOUT_READ_MS", 1500)
@@ -144,7 +143,8 @@ type BatonAPIOpts struct {
 	Memcached    *datastore.Memcached
 	DB           database.IDatabaseService
 
-	SlotSizeLimit int // how many bytes are allowed in a slot, current SEQ upper bound for one block is 2MB, we should left space for normal SEQ txs and the overhead of wrapping a block
+	SlotSizeLimit      int // how many bytes are allowed in a slot, current SEQ upper bound for one block is 2MB, we should left space for normal SEQ txs and the overhead of wrapping a block
+	FutureSlotsAllowed int
 
 	SecretKey *bls.SecretKey // used to sign bids (getHeader responses)
 
@@ -162,10 +162,10 @@ type BatonAPIOpts struct {
 	mockMode bool
 }
 
-type blockBuilderCacheEntry struct {
-	status     common.BuilderStatus
-	collateral *big.Int
-}
+// type blockBuilderCacheEntry struct {
+// 	status     common.BuilderStatus
+// 	collateral *big.Int
+// }
 
 type blockSimResult struct {
 	wasSimulated         bool
@@ -220,7 +220,7 @@ type BatonAPI struct {
 	ffMockSimulation             bool `jjj:"ff_mock_simulation"`                 // simulations always pass, intended for testing internal server functionality
 
 	// Cache for builder statuses and collaterals.
-	blockBuildersCache map[string]*blockBuilderCacheEntry `jjj:"block_builders_cache"`
+	// blockBuildersCache map[string]*blockBuilderCacheEntry `jjj:"block_builders_cache"`
 	// stores DeFi contract addresses rquired for state interference checks
 	defiAddresses map[string]common2.Address `jjj:"defi_addresses"`
 	// stores RoB chain IDs
@@ -492,7 +492,7 @@ func (api *BatonAPI) StartServer() (err error) {
 	}
 
 	// Initialize block builder cache.
-	api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
+	// api.blockBuildersCache = make(map[string]*blockBuilderCacheEntry)
 
 	// create and start HTTP server
 	api.srv = &http.Server{
@@ -646,8 +646,7 @@ func (api *BatonAPI) onNewSeqBlock(blk *chain.StatefulBlock, nextProposer *hrpc.
 	}
 
 	// reset tracker
-	api.sizeTracker.SetSlot(blk.Hght + 1)
-	api.sizeTracker.Clear()
+	api.sizeTracker.SetLowestSlot(blk.Hght + 1)
 	api.redis.SetSizeTracker(api.sizeTracker)
 
 	api.proposerDutiesMap[blk.Hght+1] = &common.BuilderGetSEQValidatorResponseEntry{
@@ -1137,6 +1136,16 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
+	// we reject any slots that we didn't receive proposer duty, which was managed by listening blocks from SEQ(check seq_client for more detail)
+	api.proposerDutiesLock.RLock()
+	if _, ok := api.proposerDutiesMap[payload.Slot]; !ok {
+		log.WithField("slot", payload.Slot).Warn("proposer duty map didn't received, rejecting get payload request")
+		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("proposer duty map didn't receive for slot %d", payload.Slot))
+		api.proposerDutiesLock.RUnlock()
+		return
+	}
+	api.proposerDutiesLock.RUnlock()
+
 	// Take time after the decoding, and add to logging
 	decodeTime := time.Now().UTC()
 	// TODO: to be removed as not populated and needed
@@ -1544,37 +1553,37 @@ func (api *BatonAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 	return true
 }
 
-func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry, builderPubkey phase0.BLSPubKey) (*blockBuilderCacheEntry, bool) {
-	builderEntry, ok := api.blockBuildersCache[builderPubkey.String()]
-	if !ok {
-		log.Warnf("unable to read builder: %s from the builder cache, using low-prio and no collateral", builderPubkey.String())
-		builderEntry = &blockBuilderCacheEntry{
-			status: common.BuilderStatus{
-				IsHighPrio:    false,
-				IsOptimistic:  false,
-				IsBlacklisted: false,
-			},
-			collateral: big.NewInt(0),
-		}
-	}
+// func (api *BatonAPI) checkBuilderEntry(w http.ResponseWriter, log *logrus.Entry, builderPubkey phase0.BLSPubKey) (*blockBuilderCacheEntry, bool) {
+// 	builderEntry, ok := api.blockBuildersCache[builderPubkey.String()]
+// 	if !ok {
+// 		log.Warnf("unable to read builder: %s from the builder cache, using low-prio and no collateral", builderPubkey.String())
+// 		builderEntry = &blockBuilderCacheEntry{
+// 			status: common.BuilderStatus{
+// 				IsHighPrio:    false,
+// 				IsOptimistic:  false,
+// 				IsBlacklisted: false,
+// 			},
+// 			collateral: big.NewInt(0),
+// 		}
+// 	}
 
-	if builderEntry.status.IsBlacklisted {
-		log.Info("builder is blacklisted")
-		time.Sleep(200 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-		return builderEntry, false
-	}
+// 	if builderEntry.status.IsBlacklisted {
+// 		log.Info("builder is blacklisted")
+// 		time.Sleep(200 * time.Millisecond)
+// 		w.WriteHeader(http.StatusOK)
+// 		return builderEntry, false
+// 	}
 
-	// In case only high-prio requests are accepted, fail others
-	if api.ffDisableLowPrioBuilders && !builderEntry.status.IsHighPrio {
-		log.Info("rejecting low-prio builder (ff-disable-low-prio-builders)")
-		time.Sleep(200 * time.Millisecond)
-		w.WriteHeader(http.StatusOK)
-		return builderEntry, false
-	}
+// 	// In case only high-prio requests are accepted, fail others
+// 	if api.ffDisableLowPrioBuilders && !builderEntry.status.IsHighPrio {
+// 		log.Info("rejecting low-prio builder (ff-disable-low-prio-builders)")
+// 		time.Sleep(200 * time.Millisecond)
+// 		w.WriteHeader(http.StatusOK)
+// 		return builderEntry, false
+// 	}
 
-	return builderEntry, true
-}
+// 	return builderEntry, true
+// }
 
 func (api *BatonAPI) handleGetTobGasReservations(w http.ResponseWriter, req *http.Request) {
 	api.RespondOK(w, common.TobGasReservations)
@@ -1724,8 +1733,8 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 	isLargeRequest := len(payloadBytes) > fastTrackPayloadSizeLimit
 	slot := blockReq.Slot()
 
-	// We only allow bidding for block 1 slot prior
-	if (slot - headSlot) > 1 {
+	// We only allow [opts.FutureSLotsAllowed] to enter bidding
+	if (slot - headSlot) > uint64(api.opts.FutureSlotsAllowed) {
 		log.Error("Slot's TOB bid not yet started!!")
 		api.Respond(w, http.StatusBadRequest, "Slot's TOB bid not yet started!!")
 		return
@@ -2165,8 +2174,9 @@ func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID strin
 	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
 		if !ok {
-			// this shouldn't happen
-			return nil, nil, fmt.Errorf("unable to fetch proposer duty for slot: %d", slot)
+			// since we reject every duty map slot if the duty map for this slot didn't receive, so it's safe even we don't simulate the txs in that slot, same for below getTopRobTxs
+			api.log.Warnf("proposer duty map didn't received, skipping slot: %d", slot)
+			continue
 		}
 		parentHash := slotDutyInfo.ParentHash
 		proposerPubkey := slotDutyInfo.ProposerPubkey
@@ -2222,7 +2232,8 @@ func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[s
 	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
 		if !ok {
-			return nil, nil, fmt.Errorf("unable to fetch proposer duty for slot: %d", slot)
+			api.log.Warnf("proposer duty map didn't received, skipping slot: %d", slot)
+			continue
 		}
 		parentHash := slotDutyInfo.ParentHash
 		proposerPubkey := slotDutyInfo.ProposerPubkey
