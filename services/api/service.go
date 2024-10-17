@@ -644,6 +644,7 @@ func (api *BatonAPI) onNewSeqBlock(blk *chain.StatefulBlock, nextProposer *hrpc.
 	if err != nil {
 		api.log.Warn("unable to get block ID")
 	}
+	api.pruneOldProposerDuties()
 
 	// reset tracker
 	api.sizeTracker.SetLowestSlot(blk.Hght + 1)
@@ -902,6 +903,8 @@ func (api *BatonAPI) handleRegisterValidator(w http.ResponseWriter, req *http.Re
 }
 
 func (api *BatonAPI) FindProposerDutiesByPubKey(pk *bls.PublicKey) (*common.BuilderGetSEQValidatorResponseEntry, error) {
+	api.proposerDutiesLock.RLock()
+	defer api.proposerDutiesLock.RUnlock()
 	for _, entry := range api.proposerDutiesMap {
 		epk, err := bls.PublicKeyFromBytes(entry.Entry.Message.Pubkey)
 		if err != nil {
@@ -2172,7 +2175,9 @@ func (api *BatonAPI) getTopToBTxsByChainID(ctx context.Context, robChainID strin
 	blockNumbers := make([]map[string]uint64, 0, depth)
 
 	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
+		api.proposerDutiesLock.RLock()
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
+		api.proposerDutiesLock.RUnlock()
 		if !ok {
 			// since we reject every duty map slot if the duty map for this slot didn't receive, so it's safe even we don't simulate the txs in that slot, same for below getTopRobTxs
 			api.log.Warnf("proposer duty map didn't received, skipping slot: %d", slot)
@@ -2230,7 +2235,9 @@ func (api *BatonAPI) getTopRoBsTxsByChainIDs(ctx context.Context, chainIDs map[s
 	ret := make(map[string][]hexutil.Bytes, 0)
 	blockNumbers := make([]map[string]uint64, 0, len(chainIDs)*depth)
 	for slot := slot2bid - uint64(depth-1); slot <= slot2bid; slot++ {
+		api.proposerDutiesLock.RLock()
 		slotDutyInfo, ok := api.proposerDutiesMap[slot]
+		api.proposerDutiesLock.RUnlock()
 		if !ok {
 			api.log.Warnf("proposer duty map didn't received, skipping slot: %d", slot)
 			continue
@@ -2685,4 +2692,14 @@ func (api *BatonAPI) checkBlockRequestIsToB(txs []*chain.Transaction) (bool, err
 
 func (api *BatonAPI) GetRoBChainIDs() map[string]struct{} {
 	return api.robChainIDs
+}
+
+// this method assume the lock was already acquired
+func (api *BatonAPI) pruneOldProposerDuties() {
+	headSlot := api.headSlot.Load()
+	for slot := range api.proposerDutiesMap {
+		if slot < headSlot-uint64(api.opts.BlockSimDepth) {
+			delete(api.proposerDutiesMap, slot)
+		}
+	}
 }
