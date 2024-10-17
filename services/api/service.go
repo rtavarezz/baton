@@ -224,10 +224,10 @@ type BatonAPI struct {
 	// stores DeFi contract addresses rquired for state interference checks
 	defiAddresses map[string]common2.Address `jjj:"defi_addresses"`
 	// stores RoB chain IDs
-	robChainIDs    map[string]struct{}             `jjj:"rob_chain_i_ds"`
-	expectedHeader *common.AnchorGetHeaderResponse `jjj:"expected_header"`
-	seqClient      seq.BaseSeqClient
-	sizeTracker    *SizeTracker
+	workingRoBChainIDs map[uint64][]string             `jjj:"working_rob_chain_ids"` // tracks working RoB chain_ids per slot across operational flows. Each slot entry cleared on GetPayload.
+	expectedHeader     *common.AnchorGetHeaderResponse `jjj:"expected_header"`
+	seqClient          seq.BaseSeqClient
+	sizeTracker        *SizeTracker
 
 	// To prevent bugs resulting from overlapping requests, for now, let's have each mutating request be processed one at a time.
 	requestMu sync.Mutex
@@ -352,11 +352,11 @@ func NewBatonAPI(opts BatonAPIOpts) (api *BatonAPI, err error) {
 		blockSimDepth:          opts.BlockSimDepth,
 		tracer:                 NewTracer(opts.BlockSimURL), // TODO: check what the tracer does, since it depends on opts.BlockSimURL
 
-		validatorRegC: make(chan common.SignedSEQValidatorRegistration, 450_000),
-		defiAddresses: FillUpDefiAddresses(opts),
-		robChainIDs:   make(map[string]struct{}),
-		seqClient:     seqClient,
-		sizeTracker:   sizeTracker,
+		validatorRegC:      make(chan common.SignedSEQValidatorRegistration, 450_000),
+		defiAddresses:      FillUpDefiAddresses(opts),
+		workingRoBChainIDs: make(map[uint64][]string),
+		seqClient:          seqClient,
+		sizeTracker:        sizeTracker,
 
 		// should only be true in testing
 		mockMode: opts.mockMode,
@@ -1028,26 +1028,30 @@ func (api *BatonAPI) handleGetHeader(w http.ResponseWriter, req *http.Request) {
 		headers.ToBHash = bid
 	}
 
-	for chainID := range api.robChainIDs {
-		bid, err := api.redis.GetRoBBestBid(slot, parentHashStr, proposerPubkeyHex, chainID)
-		if err != nil {
-			log.WithError(err).Error("could not get bid for RoB: " + chainID)
-			api.RespondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
+	workingRoBChainIDs, workingRoBExists := api.GetRoBChainIDsForSlot(slot)
+	if workingRoBExists {
+		for _, chainID := range workingRoBChainIDs {
+			bid, err := api.redis.GetRoBBestBid(slot, parentHashStr, proposerPubkeyHex, chainID)
+			if err != nil {
+				log.WithError(err).Error("could not get bid for RoB: " + chainID)
+				api.RespondError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 
-		if bid == nil {
-			continue
-		}
+			if bid == nil {
+				continue
+			}
 
-		if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
-			log.Error("handleGetHeader: rob chunk had zero value")
-			w.WriteHeader(http.StatusNoContent)
-			return
+			if (bid.Header.Big().Cmp(big.NewInt(0))) == 0 {
+				log.Error("handleGetHeader: rob chunk had zero value")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			headers.RoBHashes[chainID] = bid
+			hasRoB = true
 		}
-		headers.RoBHashes[chainID] = bid
-		hasRoB = true
 	}
+
 	if !hasToB && !hasRoB {
 		log.Info("handleGetHeader: no valid rob or tob were found")
 		w.WriteHeader(http.StatusNoContent)
@@ -1324,44 +1328,47 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	}
 
 	robPayloads := make(map[string]*common.AnchorPayload)
-	for chainID := range api.robChainIDs {
-		robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
-		if err != nil || robAnchorPayload == nil {
-			log.WithError(err).Warn("failed getting execution payload (1/2)")
-			time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
-
-			// Try again
-			robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
+	workingRoBChainIDs, workingRoBExists := api.GetRoBChainIDsForSlot(payload.Slot)
+	if workingRoBExists {
+		for _, chainID := range workingRoBChainIDs {
+			robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
 			if err != nil || robAnchorPayload == nil {
-				// Still not found! Error out now.
-				// TODO: Is the below still needed?
-				/*
-					if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
-						// Couldn't find the execution payload, maybe it never was submitted to our baton! Check that now
-						_, err := api.db.GetBlockSubmissionEntry(payload.Slot, proposerPubkey.String(), payload.BlockHash)
-						if errors.Is(err, sql.ErrNoRows) {
-							log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this baton")
-							api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this baton")
-						} else if err != nil {
-							log.WithError(err).Error("failed getting execution payload (2/2) - payload not found, and error on checking bids")
-						} else {
-							log.Error("failed getting execution payload (2/2) - payload not found, but found bid in database")
-						}
-					} else { // some other error
-						log.WithError(err).Error("failed getting execution payload (2/2) - error")
-					}
-				*/
+				log.WithError(err).Warn("failed getting execution payload (1/2)")
+				time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
-				log.Info("no tob anchor execution payload for this request")
-				//api.RespondError(w, http.StatusBadRequest, "no tob anchor execution payload for this request")
-				//return
+				// Try again
+				robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
+				if err != nil || robAnchorPayload == nil {
+					// Still not found! Error out now.
+					// TODO: Is the below still needed?
+					/*
+						if errors.Is(err, datastore.ErrExecutionPayloadNotFound) {
+							// Couldn't find the execution payload, maybe it never was submitted to our baton! Check that now
+							_, err := api.db.GetBlockSubmissionEntry(payload.Slot, proposerPubkey.String(), payload.BlockHash)
+							if errors.Is(err, sql.ErrNoRows) {
+								log.Warn("failed getting execution payload (2/2) - payload not found, block was never submitted to this baton")
+								api.RespondError(w, http.StatusBadRequest, "no execution payload for this request - block was never seen by this baton")
+							} else if err != nil {
+								log.WithError(err).Error("failed getting execution payload (2/2) - payload not found, and error on checking bids")
+							} else {
+								log.Error("failed getting execution payload (2/2) - payload not found, but found bid in database")
+							}
+						} else { // some other error
+							log.WithError(err).Error("failed getting execution payload (2/2) - error")
+						}
+					*/
+
+					log.Info("no tob anchor execution payload for this request")
+					//api.RespondError(w, http.StatusBadRequest, "no tob anchor execution payload for this request")
+					//return
+				} else {
+					payloadWasFound = true
+					robPayloads[chainID] = robAnchorPayload
+				}
 			} else {
 				payloadWasFound = true
 				robPayloads[chainID] = robAnchorPayload
 			}
-		} else {
-			payloadWasFound = true
-			robPayloads[chainID] = robAnchorPayload
 		}
 	}
 
@@ -1467,8 +1474,10 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithFields(logrus.Fields{
 		"blockHash": payload.ParentHash,
 	})
-	api.robChainIDs = make(map[string]struct{})
+
+	api.ClearRoBChainIDsForSlot(payload.Slot)
 	api.expectedHeader = nil
+
 	log.Info("execution payload delivered")
 }
 
@@ -2096,8 +2105,9 @@ func (api *BatonAPI) handleSubmitNewBlockRequest(w http.ResponseWriter, req *htt
 				}
 			}()
 		}
+
 		if !isToB {
-			api.robChainIDs[chainID] = struct{}{}
+			api.AddWorkingRoBChainID(slot, chainID)
 		}
 
 		log.Infof("bid saved, slot: %+v, parnetHash: %s, proposerPubKkey: %s", blockReq.Slot(), blockReq.ParentHashAsStr(), blockReq.ProposerPubKeyAsStr())
@@ -2690,8 +2700,32 @@ func (api *BatonAPI) checkBlockRequestIsToB(txs []*chain.Transaction) (bool, err
 	return false, nil
 }
 
-func (api *BatonAPI) GetRoBChainIDs() map[string]struct{} {
-	return api.robChainIDs
+func (api *BatonAPI) GetRoBChainIDs() map[uint64][]string {
+	return api.workingRoBChainIDs
+}
+
+func (api *BatonAPI) GetRoBChainIDsForSlot(slot uint64) ([]string, bool) {
+	values, exists := api.workingRoBChainIDs[slot]
+	return values, exists
+}
+
+func (api *BatonAPI) AddWorkingRoBChainID(slot uint64, robChainID string) {
+	values, exists := api.workingRoBChainIDs[slot]
+	if exists {
+		// add robChainID if not already present
+		for _, chainID := range values {
+			if chainID == robChainID {
+				return
+			}
+		}
+		api.workingRoBChainIDs[slot] = append(api.workingRoBChainIDs[slot], robChainID)
+	} else {
+		api.workingRoBChainIDs[slot] = append(api.workingRoBChainIDs[slot], robChainID)
+	}
+}
+
+func (api *BatonAPI) ClearRoBChainIDsForSlot(slot uint64) {
+	delete(api.workingRoBChainIDs, slot)
 }
 
 // this method assume the lock was already acquired
