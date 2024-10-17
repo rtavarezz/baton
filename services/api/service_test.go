@@ -154,6 +154,10 @@ func newTestBackend(t *testing.T, numBeaconNodes int, network string) *testBacke
 	return &backend
 }
 
+func (be *testBackend) GetBaton() *BatonAPI {
+	return be.baton
+}
+
 func (be *testBackend) GetRedis() *datastore.RedisCache {
 	return be.redis
 }
@@ -210,6 +214,48 @@ func TestWebserverRootHandler(t *testing.T) {
 	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
 	rr := backend.request(http.MethodGet, "/", nil)
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestWorkingRoBChainIDsTracking(t *testing.T) {
+	backend := newTestBackend(t, 1, common.EthNetworkMainnet)
+	baton := backend.GetBaton()
+
+	testChainID1 := "chain1"
+	testChainID2 := "chain2"
+	currSlot := uint64(1)
+	futureSlot := uint64(2)
+
+	// check empty case
+	values, exists := baton.GetRoBChainIDsForSlot(currSlot)
+	require.False(t, exists)
+	require.Equal(t, len(values), 0)
+
+	// insert some values
+	baton.AddWorkingRoBChainID(currSlot, testChainID1)
+	baton.AddWorkingRoBChainID(currSlot, testChainID2)
+	baton.AddWorkingRoBChainID(futureSlot, testChainID1)
+
+	// check values
+	values, exists = baton.GetRoBChainIDsForSlot(currSlot)
+	require.True(t, exists)
+	require.Equal(t, 2, len(values))
+
+	values, exists = baton.GetRoBChainIDsForSlot(futureSlot)
+	require.True(t, exists)
+	require.Equal(t, 1, len(values))
+
+	// delete for slot
+	baton.ClearRoBChainIDsForSlot(currSlot)
+
+	// check that slot is empty
+	values, exists = baton.GetRoBChainIDsForSlot(currSlot)
+	require.False(t, exists)
+	require.Equal(t, len(values), 0)
+
+	// future slot should be unaffected
+	values, exists = baton.GetRoBChainIDsForSlot(futureSlot)
+	require.True(t, exists)
+	require.Equal(t, 1, len(values))
 }
 
 func TestStatus(t *testing.T) {
@@ -321,8 +367,8 @@ func TestGetHeader(t *testing.T) {
 	}
 	slot := uint64(1)
 	backend.baton.headSlot.Store(slot)
+	backend.baton.AddWorkingRoBChainID(slot, hexutil.EncodeBig(testChainID))
 
-	backend.baton.robChainIDs[hexutil.EncodeBig(testChainID)] = struct{}{}
 	// Build test builder keys
 	testBuilderSecretKey, err := bls.GenerateRandomSecretKey()
 	require.NoError(t, err)
@@ -1498,8 +1544,7 @@ func TestGetPayload(t *testing.T) {
 	seqChainID := backend.GetMockSeqClient().GetChainID()
 	seqNetworkID := backend.GetMockSeqClient().GetNetworkID()
 
-	robIDs := backend.baton.GetRoBChainIDs()
-	robIDs[hexutil.EncodeBig(testChainID)] = struct{}{}
+	backend.baton.AddWorkingRoBChainID(slot, hexutil.EncodeBig(testChainID))
 
 	// This is a default AnchorGetHeaderResp that can be used in our base case testing.
 	// TODO: the following unit tests have to be updated since the signature here is for verfity the identity of Baton for Anchor
