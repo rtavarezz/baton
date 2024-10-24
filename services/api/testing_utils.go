@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/big"
 	"testing"
@@ -256,8 +257,8 @@ func CreateHypersdkTx(seqChainID ids.ID, chainID *big.Int, ethTx []byte) *chain.
 		ChainID:   seqChainID,
 		MaxFee:    TestMaxFee,
 	}
-	base.Timestamp = int64(time.Now().Second() * 1000)
-	// fmt.Printf("base: %+v\n", base)
+	base.Timestamp = (base.Timestamp / 1000) * 1000
+	fmt.Printf("base: %+v\n", base)
 	pkBytes, err := hex.DecodeString(KEYHEX)
 	if err != nil {
 		panic(err)
@@ -285,7 +286,7 @@ func CreateTestProposerTransfer(seqChainID ids.ID, value uint64) *chain.Transact
 		ChainID:   seqChainID,
 		MaxFee:    TestMaxFee,
 	}
-	base.Timestamp = int64(time.Now().Second() * 1000)
+	base.Timestamp = (base.Timestamp / 1000) * 1000
 
 	pkBytes, err := hex.DecodeString(KEYHEX)
 	if err != nil {
