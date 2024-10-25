@@ -12,7 +12,7 @@ services:
         condition: service_healthy
       memcached:
         condition: service_healthy
-    build: 
+    build:
       context: .
     ports:
       - 9062:9062
@@ -36,12 +36,17 @@ services:
       - BELLATRIX_FORK_VERSION=0x00000000
       - CAPELLA_FORK_VERSION=0x00000000
       - DENEB_FORK_VERSION=0x00000000
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-external-labels: "container_name={{.Name}}"
 
   redis:
     image: redis
     restart: always
     healthcheck:
-      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
       interval: 3s
       timeout: 3s
       retries: 5
@@ -71,7 +76,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     healthcheck:
-      test:  [ "CMD", "pg_isready", "-q", "-d", "postgres", "-U", "postgres" ]
+      test: ["CMD", "pg_isready", "-q", "-d", "postgres", "-U", "postgres"]
       interval: 3s
       timeout: 3s
       retries: 5
