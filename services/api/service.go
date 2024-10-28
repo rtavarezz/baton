@@ -1238,7 +1238,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithField("timestampAfterSignatureVerify", time.Now().UTC().UnixMilli())
 	log.Info("getPayload request received")
 
-	var getPayloadResp common.AnchorGetPayloadResponse
+	var getPayloadResp common.GetPayloadResponse
 	var msNeededForPublishing uint64
 
 	// Save information about delivered payload

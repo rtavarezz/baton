@@ -139,7 +139,7 @@ func (db MockDB) SaveBuilderBlockSubmission(
 
 func (db MockDB) SaveDeliveredAnchorPayload(
 	bidTrace *common.BidTraceV3,
-	payloadResp *common.AnchorGetPayloadResponse,
+	payloadResp *common.GetPayloadResponse,
 	signedAt time.Time,
 	publishMs uint64,
 ) error {
@@ -215,7 +215,7 @@ func (db MockDB) GetBuilderSubmissionsBySlots(slotFrom, slotTo uint64) (entries 
 	return nil, nil
 }
 
-func (db MockDB) SaveDeliveredPayload(bidTrace *common.BidTraceV3, payloadResp *common.AnchorGetPayloadResponse, signedAt time.Time, publishMs uint64) error {
+func (db MockDB) SaveDeliveredPayload(bidTrace *common.BidTraceV3, payloadResp *common.GetPayloadResponse, signedAt time.Time, publishMs uint64) error {
 	return nil
 }
 

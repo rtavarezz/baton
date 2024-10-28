@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	boostSsz "github.com/flashbots/go-boost-utils/ssz"
+	"github.com/holiman/uint256"
 	"math/big"
 	"os"
+	"reflect"
 	"strings"
 
 	abls "github.com/ava-labs/avalanchego/utils/crypto/bls"
@@ -23,7 +27,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flashbots/go-boost-utils/bls"
-	boostSsz "github.com/flashbots/go-boost-utils/ssz"
 )
 
 var (
@@ -254,6 +257,84 @@ type BidTraceV2JSON struct {
 	NumTx                uint64 `json:"num_tx,string"`
 	BlockNumber          uint64 `json:"block_number,string"`
 }
+
+type Bytes32 [32]byte
+
+func (b *Bytes32) UnmarshalJSON(text []byte) error {
+	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
+}
+
+func (b *Bytes32) UnmarshalText(text []byte) error {
+	return hexutil.UnmarshalFixedText("Bytes32", text, b[:])
+}
+
+func (b Bytes32) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(b[:]).MarshalText()
+}
+
+func (b Bytes32) String() string {
+	return hexutil.Encode(b[:])
+}
+
+// TerminalString implements log.TerminalStringer, formatting a string for console
+// output during logging.
+func (b Bytes32) TerminalString() string {
+	return fmt.Sprintf("%x..%x", b[:3], b[29:])
+}
+
+type Bytes256 [256]byte
+
+func (b *Bytes256) UnmarshalJSON(text []byte) error {
+	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
+}
+
+func (b *Bytes256) UnmarshalText(text []byte) error {
+	return hexutil.UnmarshalFixedText("Bytes32", text, b[:])
+}
+
+func (b Bytes256) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(b[:]).MarshalText()
+}
+
+func (b Bytes256) String() string {
+	return hexutil.Encode(b[:])
+}
+
+// TerminalString implements log.TerminalStringer, formatting a string for console
+// output during logging.
+func (b Bytes256) TerminalString() string {
+	return fmt.Sprintf("%x..%x", b[:3], b[253:])
+}
+
+type Uint64Quantity = hexutil.Uint64
+
+type BytesMax32 []byte
+
+func (b *BytesMax32) UnmarshalJSON(text []byte) error {
+	if len(text) > 64+2+2 { // account for delimiter "", and 0x prefix
+		return fmt.Errorf("input too long, expected at most 32 hex-encoded, 0x-prefixed, bytes: %x", text)
+	}
+	return (*hexutil.Bytes)(b).UnmarshalJSON(text)
+}
+
+func (b *BytesMax32) UnmarshalText(text []byte) error {
+	if len(text) > 64+2 { // account for 0x prefix
+		return fmt.Errorf("input too long, expected at most 32 hex-encoded, 0x-prefixed, bytes: %x", text)
+	}
+	return (*hexutil.Bytes)(b).UnmarshalText(text)
+}
+
+func (b BytesMax32) MarshalText() ([]byte, error) {
+	return (hexutil.Bytes)(b).MarshalText()
+}
+
+func (b BytesMax32) String() string {
+	return hexutil.Encode(b)
+}
+
+type Uint256Quantity = uint256.Int
+
+type Data = hexutil.Bytes
 
 func (b BidTraceV2) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&BidTraceV2JSON{
@@ -820,25 +901,73 @@ type AnchorGetPayloadRequest struct {
 	SignedHeaders []byte `json:"signed_headers"`
 }
 
-type AnchorGetPayloadResponse struct {
+type GetPayloadResponse struct {
 	Slot uint64 `json:"slot"`
+	// adding epoch for tracking alongside slot or epoch not needed here?
+	Epoch uint64 `json:"epoch"`
 	// Contains actual hypersdk txs in byte format
 	ExecPayloads ExecPayloadsInfo `json:"execpayloads"`
 	// Exec payloads signed by baton's private key.
 	ExecPayloadsSig []byte `json:"execpayloads_sig"`
 }
 
-type ExecPayloadsInfo struct {
-	ToBPayload  *ExecutionPayload           `json:"tobpayload"`
-	RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
+type BundlesTypeTBD []byte
+type ethTxs map[string]ethtypes.Transactions
+
+// TODO: builder submitted blocks will include txs(RoB) & bundles(ToB). like below.
+type BuilderBlock struct {
+	Txs         ethTxs            `json:"txs"`
+	BlockNumber map[string]string `json:"blockNumber"`
+	//TODO: need type for bundles from builder
+	//Bundles 	[]*CrossRollupBundle
+	//placeholder below for bundles type
+	Bundles BundlesTypeTBD `json:"bundles"`
+	// value based off accumulated L2 native gas
+	Value int `json:"value"`
+}
+
+// TODO: If we cannot alter the original payload, then I created a wrapper to add builder block
+type Payload2 struct {
+	Payload ExecutionPayload `json:"payload"`
+	Block   BuilderBlock     `json:"block"`
 }
 
 type ExecutionPayload struct {
-	// hypersdk transactions in byte slice format
-	Transactions []byte `json:"transactions"`
+	ParentHash    common.Hash     `json:"parentHash"`
+	FeeRecipient  common.Address  `json:"feeRecipient"`
+	StateRoot     Bytes32         `json:"stateRoot"`
+	ReceiptsRoot  Bytes32         `json:"receiptsRoot"`
+	LogsBloom     Bytes256        `json:"logsBloom"`
+	PrevRandao    Bytes32         `json:"prevRandao"`
+	BlockNumber   Uint64Quantity  `json:"blockNumber"`
+	GasLimit      Uint64Quantity  `json:"gasLimit"`
+	GasUsed       Uint64Quantity  `json:"gasUsed"`
+	Timestamp     Uint64Quantity  `json:"timestamp"`
+	ExtraData     BytesMax32      `json:"extraData"`
+	BaseFeePerGas Uint256Quantity `json:"baseFeePerGas"`
+	BlockHash     common.Hash     `json:"blockHash"`
+	// Array of transaction objects, each object is a byte list (DATA) representing
+	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	// Transactions []Data 		  `json:"transactions"`
+	//TODO: originally was type []Data but changed it to ethTypes.Txs to match type from builders submitted txs(BuilderBlock)
+	Transactions []ethtypes.Transactions `json:"transactions"`
+	//TODO: ok to add BuilderBlock to payload itself or no? would that mess up compatibility? if so make a struct and wrap both payload and builder block(payload2 above0
+	BuilderBlock BuilderBlock `json:"builderBlock"`
 }
 
-func (r *AnchorGetPayloadResponse) GetExecPayloadsSig() (*bls.Signature, error) {
+func NewExecutionPayload() ExecutionPayload {
+	return ExecutionPayload{
+		Transactions: make([]ethtypes.Transactions, 0),
+	}
+}
+
+// TODO: changed from exec payloads to specific types from builders depending on RoB/ToB
+type ExecPayloadsInfo struct {
+	ToBPayload  BundlesTypeTBD    `json:"tobpayload"`
+	RoBPayloads map[string]ethTxs `json:"robpayloads"`
+}
+
+func (r *GetPayloadResponse) GetExecPayloadsSig() (*bls.Signature, error) {
 	signature, err := bls.SignatureFromBytes(r.ExecPayloadsSig)
 	if err != nil {
 		return nil, errors.New("invalid signed headers, err: " + err.Error())
@@ -858,23 +987,23 @@ func (r *AnchorGetPayloadRequest) GetSignedHeaders() (*bls.Signature, error) {
 	return signature, nil
 }
 
-func (r *AnchorGetPayloadResponse) SetExecPayloadsSig(sig *bls.Signature) {
+func (r *GetPayloadResponse) SetExecPayloadsSig(sig *bls.Signature) {
 	signatureAsBytes := sig.Bytes()
 	r.ExecPayloadsSig = signatureAsBytes[:]
 }
 
-func (r *AnchorGetPayloadResponse) IsEmpty() bool {
+func (r *GetPayloadResponse) IsEmpty() bool {
 	return r.ExecPayloads.ToBPayload == nil && len(r.ExecPayloads.RoBPayloads) == 0
 }
 
-func (r *AnchorGetPayloadResponse) NumToBTxs() int {
+func (r *GetPayloadResponse) NumToBTxs() int {
 	if r.ExecPayloads.ToBPayload == nil {
 		return 0
 	}
 	return len(r.ExecPayloads.ToBPayload.Transactions)
 }
 
-func (r *AnchorGetPayloadResponse) NumRoBTxs() int {
+func (r *GetPayloadResponse) NumRoBTxs() int {
 	var numTxs int
 	for _, txs := range r.ExecPayloads.RoBPayloads {
 		numTxs = numTxs + len(txs.Transactions)
@@ -882,7 +1011,7 @@ func (r *AnchorGetPayloadResponse) NumRoBTxs() int {
 	return numTxs
 }
 
-func NewAnchorGetPayloadResponse(slot uint64, needsToB bool) AnchorGetPayloadResponse {
+func NewAnchorGetPayloadResponse(slot uint64, needsToB bool) GetPayloadResponse {
 	var tob *ExecutionPayload
 	if needsToB {
 		payload := NewExecutionPayload()
@@ -894,15 +1023,9 @@ func NewAnchorGetPayloadResponse(slot uint64, needsToB bool) AnchorGetPayloadRes
 		RoBPayloads: make(map[string]ExecutionPayload),
 	}
 
-	return AnchorGetPayloadResponse{
+	return GetPayloadResponse{
 		Slot:         slot,
 		ExecPayloads: execPayloads,
-	}
-}
-
-func NewExecutionPayload() ExecutionPayload {
-	return ExecutionPayload{
-		Transactions: make([]byte, 0),
 	}
 }
 
@@ -926,7 +1049,7 @@ func VerifyHeaderSignature(h *AnchorGetHeaderResponse, pubKey bls.PublicKey) (bo
 }
 
 // VerifyPayloadSignature verifies that the getHeader ExecHeaders have been signed with the given public key
-func VerifyPayloadSignature(response *AnchorGetPayloadResponse, pubKey bls.PublicKey) (bool, error) {
+func VerifyPayloadSignature(response *GetPayloadResponse, pubKey bls.PublicKey) (bool, error) {
 	payloadHash, err := HashExecPayloads(&response.ExecPayloads)
 	if err != nil {
 		return false, err
@@ -992,7 +1115,7 @@ func SignAnchorGetHeaderResponse(response *AnchorGetHeaderResponse, secretKey *b
 	return nil
 }
 
-func SignAnchorGetPayloadResponse(response *AnchorGetPayloadResponse, secretKey *bls.SecretKey) error {
+func SignAnchorGetPayloadResponse(response *GetPayloadResponse, secretKey *bls.SecretKey) error {
 	signature, err := GetExecPayloadSignature(&response.ExecPayloads, secretKey)
 	if err != nil {
 		return errors.New("failed to sign anchor header response, err: " + err.Error())

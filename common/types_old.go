@@ -361,7 +361,7 @@ type AnchorGetHeaderResponse struct {
   ToBHash   common.Hash            `json:"tobhash"`
   RoBHashes map[string]common.Hash `json:"robhashes"`
 }
-type AnchorGetPayloadResponse struct {
+type GetPayloadResponse struct {
   Slot        uint64                      `json:"slot"`
   ToBPayload  ExecutionPayload            `json:"tobpayload"`
   RoBPayloads map[string]ExecutionPayload `json:"robpayloads"`
