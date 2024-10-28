@@ -4,8 +4,8 @@ go 1.22.5
 
 require (
 	github.com/AnomalyFi/flashbotsrpc v0.5.3
-	github.com/AnomalyFi/hypersdk v0.9.6-anchor.3
-	github.com/AnomalyFi/nodekit-seq v0.9.16-anchor.2
+	github.com/AnomalyFi/hypersdk v0.9.6-anchor.4
+	github.com/AnomalyFi/nodekit-seq v0.9.17-sidecar.1
 	github.com/NYTimes/gziphandler v1.1.1
 	github.com/alicebob/miniredis/v2 v2.31.0
 	github.com/attestantio/go-builder-client v0.4.3-0.20240124194555-d44db06f45fa

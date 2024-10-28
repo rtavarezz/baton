@@ -1,7 +1,10 @@
 package seq
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"sync"
 	"time"
 
@@ -37,6 +40,9 @@ type BaseSeqClient interface {
 	NextProposer(ctx context.Context) *hrpc.NextProposerReply
 	CurrentValidators(ctx context.Context) []*hrpc.Validator
 	SetOnNewBlockHandler(handler func(*chain.StatefulBlock, *hrpc.NextProposerReply))
+	GetBuilder() []byte
+	MarkEpochExit() uint64
+	IsEpochExited() uint64
 }
 
 type SeqClient struct {
@@ -59,8 +65,12 @@ type SeqClient struct {
 	NetworkID         uint32
 	onNewBlockHandler func(*chain.StatefulBlock, *hrpc.NextProposerReply)
 
-	logger *logrus.Entry
-	stop   chan struct{}
+	logger        *logrus.Entry
+	stop          chan struct{}
+	BuilderPubKey []byte
+	epochNum      uint64
+	epochMap      *ShardedMap[uint64, int]
+	epochL        sync.Mutex
 }
 
 func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
@@ -87,6 +97,8 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 
 	stopSig := make(chan struct{})
 	logger := config.Log
+	hashFn := func(key uint64) uint64 { return key }
+	epochMap := NewShardedMap[uint64, int](1024, 16, hashFn)
 
 	client := SeqClient{
 		srpc:   scli,
@@ -100,8 +112,10 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 		ChainID:   config.ChainID,
 		NetworkID: uint32(config.NetworkID),
 
-		logger: logger,
-		stop:   stopSig,
+		logger:        logger,
+		stop:          stopSig,
+		BuilderPubKey: nil,
+		epochMap:      epochMap,
 	}
 
 	// keep track of head of SEQ, this is used for calculating `Slot` in SubmitBlock to Baton
@@ -124,6 +138,12 @@ func NewSeqClient(config *SeqClientConfig) (*SeqClient, error) {
 				// release the lock after duty map is updated
 				client.blockHeadL.Lock()
 				client.blockHead = blk
+				if blk.Hght%6 == 0 {
+					client.epochL.Lock()
+					client.epochNum += 1
+					client.BuilderPubKey = client.GetBuilder()
+					client.epochL.Unlock()
+				}
 
 				// query next proposer on receiving a new block, this save us time while we do compuating during round trip
 				start := time.Now()
@@ -203,4 +223,80 @@ func (s *SeqClient) GetChainID() ids.ID {
 
 func (s *SeqClient) SetOnNewBlockHandler(handler func(*chain.StatefulBlock, *hrpc.NextProposerReply)) {
 	s.onNewBlockHandler = handler
+}
+
+func (s *SeqClient) GetBuilder() []byte {
+	s.epochL.Lock()
+	defer s.epochL.Unlock()
+
+	return s.BuilderPubKey
+}
+
+func (s *SeqClient) MarkEpochExit(epoch uint64) {
+	s.epochL.Lock()
+	defer s.epochL.Unlock()
+
+	count, ok := s.epochMap.Get(epoch)
+	if ok {
+		s.epochMap.Put(epoch, count+1)
+	} else {
+		s.epochMap.Put(epoch, 1)
+	}
+}
+
+func (s *SeqClient) IsEpochExited(epoch uint64) int {
+	s.epochL.Lock()
+	defer s.epochL.Unlock()
+
+	count, ok := s.epochMap.Get(epoch)
+	if ok {
+		return count
+	}
+
+	return 0
+}
+
+func (s *SeqClient) CurrentEpoch() uint64 {
+	s.epochL.Lock()
+	defer s.epochL.Unlock()
+
+	return s.epochNum
+}
+
+func (s *SeqClient) CheckCache(epoch uint64) bool {
+	_, ok := s.epochMap.Get(epoch)
+	return ok
+}
+
+// Updated version for checking ahead of time, assuming checkEpoch is the epoch to check for
+func (s *SeqClient) IsExited(checkEpoch uint64) (bool, error) {
+	if checkEpoch < 2 {
+		return false, fmt.Errorf("Cannot check epoch. Allowed exits only at n >= 2(epoch - n.")
+	}
+	ctx := context.Background()
+
+	s.epochL.Lock()
+	defer s.epochL.Unlock()
+	currEpoch := s.CurrentEpoch()
+
+	for i := uint64(2); i <= checkEpoch; i++ {
+		checkEpoch = currEpoch - i
+		if s.CheckCache(checkEpoch) {
+			return true, nil
+		}
+
+		info, err := s.srpc.GetEpochExits(ctx, currEpoch)
+		if err != nil {
+			log.Error("unable to get epoch exits", "err", err)
+			return false, err
+		}
+
+		for _, exit := range info.Exits {
+			if bytes.Equal(exit.Namespace, s.Namespace) && currEpoch == exit.Epoch {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }

@@ -6,8 +6,12 @@ github.com/AnomalyFi/flashbotsrpc v0.5.3 h1:1jQPcL0wU97hni4GHpSIj4AJcRM+72wzEFnC
 github.com/AnomalyFi/flashbotsrpc v0.5.3/go.mod h1:r5A0vSSYnv2G3FHcaa30uCjfBScveUCQHm1cmL8ATNA=
 github.com/AnomalyFi/hypersdk v0.9.6-anchor.3 h1:1ZBDs+dfuUVHKXRWcE3JaVTa4oqzpI2DpS0IN4x/FJE=
 github.com/AnomalyFi/hypersdk v0.9.6-anchor.3/go.mod h1:4vquPvlEBs4i3uApYzE73Ghv/hB2GdFybf0m8fnU3DU=
+github.com/AnomalyFi/hypersdk v0.9.6-anchor.4 h1:xV1cEQGjuRs60PEQVGvScJb2oc6p9kqvVnyjZjb6aiY=
+github.com/AnomalyFi/hypersdk v0.9.6-anchor.4/go.mod h1:4vquPvlEBs4i3uApYzE73Ghv/hB2GdFybf0m8fnU3DU=
 github.com/AnomalyFi/nodekit-seq v0.9.16-anchor.2 h1:cTxb9wRl1m6Ed+d/Hxj91AiOCwSHh+5bu/ctYKLZ9Hs=
 github.com/AnomalyFi/nodekit-seq v0.9.16-anchor.2/go.mod h1:N4q4xCiwcnQNS9Su7ke8SRzr9XAp2OFc+UmTlEaxNHQ=
+github.com/AnomalyFi/nodekit-seq v0.9.17-sidecar.1 h1:pcczoNYM+pQeOM6umILJP11DUD86qU1oPKMeuK0ysLA=
+github.com/AnomalyFi/nodekit-seq v0.9.17-sidecar.1/go.mod h1:aF2ceUKBLoJnQmZKpY5O49FAJKz7fJc43LqE/gFDiEo=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v1.2.0 h1:Rt8g24XnyGTyglgET/PRUNlrUeu9F5L+7FilkXfZgs0=
 github.com/BurntSushi/toml v1.2.0/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=
