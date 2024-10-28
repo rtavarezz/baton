@@ -18,6 +18,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+//TODO for arcadia
+
+// TODO 1: include rollup in slot n
+// TODO 2: preconf rollup block x to SEQ validators
+// TODO 3: GetPayload/GetPayloadResp
+// TODO 4: remove rollup at epoch n from epoch n - 2 or greater requests.
+
 type SeqClientConfig struct {
 	PrivateKey ed25519.PrivateKey // signer hex
 
