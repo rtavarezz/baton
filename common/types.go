@@ -918,26 +918,6 @@ type CrossRollupBundle struct {
 
 type ethTxs map[string]ethtypes.Transactions
 
-// TODO: builder submitted blocks will include txs(RoB) & bundles(ToB). like below.
-type BuilderBlock struct {
-	Txs         ethTxs            `json:"txs"`
-	BlockNumber map[string]string `json:"blockNumber"`
-	//TODO: need type for bundles from builder
-	//Bundles 	[]*CrossRollupBundle
-	//placeholder below for bundles type
-	Bundles CrossRollupBundle `json:"bundles"`
-	// value based off accumulated L2 native gas
-	Value int `json:"value"`
-	// to help keep track of ordering
-	Timestamp Uint64Quantity `json:"timestamp"`
-}
-
-// TODO: If we cannot alter the original payload, then I created a wrapper to add builder block
-type Payload2 struct {
-	Payload ExecutionPayload `json:"payload"`
-	Block   BuilderBlock     `json:"block"`
-}
-
 type ExecutionPayload struct {
 	ParentHash    common.Hash     `json:"parentHash"`
 	FeeRecipient  common.Address  `json:"feeRecipient"`
@@ -965,10 +945,9 @@ func NewExecutionPayload() ExecutionPayload {
 	}
 }
 
-// TODO: changed from exec payloads to specific types from builders depending on RoB/ToB
 type ExecPayloadsInfo struct {
-	ToBPayload  CrossRollupBundle `json:"tobpayload"`
-	RoBPayloads map[string]ethTxs `json:"robpayloads"`
+	ToBPayload  []*CrossRollupBundle `json:"tobpayload"`
+	RoBPayloads map[string]ethTxs    `json:"robpayloads"`
 }
 
 func (r *GetPayloadResponse) GetExecPayloadsSig() (*bls.Signature, error) {
@@ -997,14 +976,14 @@ func (r *GetPayloadResponse) SetExecPayloadsSig(sig *bls.Signature) {
 }
 
 func (r *GetPayloadResponse) IsEmpty() bool {
-	return r.ExecPayloads.ToBPayload.Txs == nil && len(r.ExecPayloads.RoBPayloads) == 0
+	return r.ExecPayloads.ToBPayload == nil && len(r.ExecPayloads.RoBPayloads) == 0
 }
 
 func (r *GetPayloadResponse) NumToBTxs() int {
-	if r.ExecPayloads.ToBPayload.Txs == nil {
+	if r.ExecPayloads.ToBPayload == nil {
 		return 0
 	}
-	return len(r.ExecPayloads.ToBPayload.Txs)
+	return len(r.ExecPayloads.ToBPayload)
 }
 
 func (r *GetPayloadResponse) NumRoBTxs() int {
@@ -1015,7 +994,7 @@ func (r *GetPayloadResponse) NumRoBTxs() int {
 	return numTxs
 }
 
-// TODO: to be changed
+// TODO: to be changed, figuring out response below as next steps.
 //func NewGetPayloadResponse(slot uint64, needsToB bool) GetPayloadResponse {
 //	var tob *ExecutionPayload
 //	if needsToB {
