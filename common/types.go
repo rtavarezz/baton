@@ -911,7 +911,11 @@ type GetPayloadResponse struct {
 	ExecPayloadsSig []byte `json:"execpayloads_sig"`
 }
 
-type BundlesTypeTBD []byte
+type CrossRollupBundle struct {
+	Txs         map[string]ethtypes.Transactions
+	BlockNumber map[string]string
+}
+
 type ethTxs map[string]ethtypes.Transactions
 
 // TODO: builder submitted blocks will include txs(RoB) & bundles(ToB). like below.
@@ -921,9 +925,11 @@ type BuilderBlock struct {
 	//TODO: need type for bundles from builder
 	//Bundles 	[]*CrossRollupBundle
 	//placeholder below for bundles type
-	Bundles BundlesTypeTBD `json:"bundles"`
+	Bundles CrossRollupBundle `json:"bundles"`
 	// value based off accumulated L2 native gas
 	Value int `json:"value"`
+	// to help keep track of ordering
+	Timestamp Uint64Quantity `json:"timestamp"`
 }
 
 // TODO: If we cannot alter the original payload, then I created a wrapper to add builder block
@@ -951,8 +957,6 @@ type ExecutionPayload struct {
 	// Transactions []Data 		  `json:"transactions"`
 	//TODO: originally was type []Data but changed it to ethTypes.Txs to match type from builders submitted txs(BuilderBlock)
 	Transactions []ethtypes.Transactions `json:"transactions"`
-	//TODO: ok to add BuilderBlock to payload itself or no? would that mess up compatibility? if so make a struct and wrap both payload and builder block(payload2 above0
-	BuilderBlock BuilderBlock `json:"builderBlock"`
 }
 
 func NewExecutionPayload() ExecutionPayload {
@@ -963,7 +967,7 @@ func NewExecutionPayload() ExecutionPayload {
 
 // TODO: changed from exec payloads to specific types from builders depending on RoB/ToB
 type ExecPayloadsInfo struct {
-	ToBPayload  BundlesTypeTBD    `json:"tobpayload"`
+	ToBPayload  CrossRollupBundle `json:"tobpayload"`
 	RoBPayloads map[string]ethTxs `json:"robpayloads"`
 }
 
@@ -993,41 +997,42 @@ func (r *GetPayloadResponse) SetExecPayloadsSig(sig *bls.Signature) {
 }
 
 func (r *GetPayloadResponse) IsEmpty() bool {
-	return r.ExecPayloads.ToBPayload == nil && len(r.ExecPayloads.RoBPayloads) == 0
+	return r.ExecPayloads.ToBPayload.Txs == nil && len(r.ExecPayloads.RoBPayloads) == 0
 }
 
 func (r *GetPayloadResponse) NumToBTxs() int {
-	if r.ExecPayloads.ToBPayload == nil {
+	if r.ExecPayloads.ToBPayload.Txs == nil {
 		return 0
 	}
-	return len(r.ExecPayloads.ToBPayload.Transactions)
+	return len(r.ExecPayloads.ToBPayload.Txs)
 }
 
 func (r *GetPayloadResponse) NumRoBTxs() int {
 	var numTxs int
 	for _, txs := range r.ExecPayloads.RoBPayloads {
-		numTxs = numTxs + len(txs.Transactions)
+		numTxs = numTxs + len(txs)
 	}
 	return numTxs
 }
 
-func NewAnchorGetPayloadResponse(slot uint64, needsToB bool) GetPayloadResponse {
-	var tob *ExecutionPayload
-	if needsToB {
-		payload := NewExecutionPayload()
-		tob = &payload
-	}
-
-	execPayloads := ExecPayloadsInfo{
-		ToBPayload:  tob,
-		RoBPayloads: make(map[string]ExecutionPayload),
-	}
-
-	return GetPayloadResponse{
-		Slot:         slot,
-		ExecPayloads: execPayloads,
-	}
-}
+// TODO: to be changed
+//func NewGetPayloadResponse(slot uint64, needsToB bool) GetPayloadResponse {
+//	var tob *ExecutionPayload
+//	if needsToB {
+//		payload := NewExecutionPayload()
+//		tob = &payload
+//	}
+//
+//	execPayloads := ExecPayloadsInfo{
+//		ToBPayload:  tob,
+//		RoBPayloads: make(map[string]ExecutionPayload),
+//	}
+//
+//	return GetPayloadResponse{
+//		Slot:         slot,
+//		ExecPayloads: execPayloads,
+//	}
+//}
 
 func NewExecutionHeader() ExecHeadersInfo {
 	return ExecHeadersInfo{
