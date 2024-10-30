@@ -15,7 +15,8 @@ var (
 	SecondsPerSlot  = uint64(cli.GetEnvInt("SEC_PER_SLOT", 12))
 	DurationPerSlot = time.Duration(SecondsPerSlot) * time.Second
 
-	SlotsPerEpoch    = uint64(cli.GetEnvInt("SLOTS_PER_EPOCH", 32))
+	// TODO: changed below to match SEQ, 6 seq blocks per epoch = 6 slots per epoch
+	SlotsPerEpoch    = uint64(cli.GetEnvInt("SLOTS_PER_EPOCH", 6))
 	DurationPerEpoch = DurationPerSlot * time.Duration(SlotsPerEpoch)
 )
 

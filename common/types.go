@@ -901,63 +901,6 @@ type AnchorGetPayloadRequest struct {
 	SignedHeaders []byte `json:"signed_headers"`
 }
 
-type GetPayloadResponse struct {
-	Slot uint64 `json:"slot"`
-	// adding epoch for tracking alongside slot or epoch not needed here?
-	Epoch uint64 `json:"epoch"`
-	// Contains actual hypersdk txs in byte format
-	ExecPayloads ExecPayloadsInfo `json:"execpayloads"`
-	// Exec payloads signed by baton's private key.
-	ExecPayloadsSig []byte `json:"execpayloads_sig"`
-}
-
-type CrossRollupBundle struct {
-	Txs         map[string]ethtypes.Transactions
-	BlockNumber map[string]string
-}
-
-type ethTxs map[string]ethtypes.Transactions
-
-type ExecutionPayload struct {
-	ParentHash    common.Hash     `json:"parentHash"`
-	FeeRecipient  common.Address  `json:"feeRecipient"`
-	StateRoot     Bytes32         `json:"stateRoot"`
-	ReceiptsRoot  Bytes32         `json:"receiptsRoot"`
-	LogsBloom     Bytes256        `json:"logsBloom"`
-	PrevRandao    Bytes32         `json:"prevRandao"`
-	BlockNumber   Uint64Quantity  `json:"blockNumber"`
-	GasLimit      Uint64Quantity  `json:"gasLimit"`
-	GasUsed       Uint64Quantity  `json:"gasUsed"`
-	Timestamp     Uint64Quantity  `json:"timestamp"`
-	ExtraData     BytesMax32      `json:"extraData"`
-	BaseFeePerGas Uint256Quantity `json:"baseFeePerGas"`
-	BlockHash     common.Hash     `json:"blockHash"`
-	// Array of transaction objects, each object is a byte list (DATA) representing
-	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
-	// Transactions []Data 		  `json:"transactions"`
-	//TODO: originally was type []Data but changed it to ethTypes.Txs to match type from builders submitted txs(BuilderBlock)
-	Transactions []ethtypes.Transactions `json:"transactions"`
-}
-
-func NewExecutionPayload() ExecutionPayload {
-	return ExecutionPayload{
-		Transactions: make([]ethtypes.Transactions, 0),
-	}
-}
-
-type ExecPayloadsInfo struct {
-	ToBPayload  []*CrossRollupBundle `json:"tobpayload"`
-	RoBPayloads map[string]ethTxs    `json:"robpayloads"`
-}
-
-func (r *GetPayloadResponse) GetExecPayloadsSig() (*bls.Signature, error) {
-	signature, err := bls.SignatureFromBytes(r.ExecPayloadsSig)
-	if err != nil {
-		return nil, errors.New("invalid signed headers, err: " + err.Error())
-	}
-	return signature, nil
-}
-
 func (r *AnchorGetPayloadRequest) GetSignedHeaders() (*bls.Signature, error) {
 	if r.SignedHeaders == nil {
 		return nil, errors.New("signed headers was empty")
@@ -1190,4 +1133,70 @@ func ParentHashToStr(parentHash ids.ID) string {
 
 func (r *AnchorGetPayloadRequest) GetPublicKey() (*bls.PublicKey, error) {
 	return bls.PublicKeyFromBytes(r.ProposerPubKey)
+}
+
+// TODO: BELOW ARE ARCADIA TYPES. When types are finalized, we can delete or change the above
+
+// TODO: map pool for preconf'd blocks to be done in handle functions themselves.
+// the block recieved from winning builder, to be preconf'd and added to pool described above.
+type RollupBlock struct {
+	ChainID string
+	Txs     ethTxs
+}
+
+// the response we send back to the sidecar
+type GetPayloadResponse struct {
+	// returning the preconf'd rollup block
+	Block RollupBlock `json:"block"`
+	// contains tob+rob txs of preconf'd block's txs ONLY
+	Transactions ethTxs `json:"transactions"`
+	// signature signed by arcadia's private key.
+	Signature []byte `json:"signature"`
+	PubKey    []byte `json:"pub_key"`
+}
+
+type ethTxs map[string]ethtypes.Transactions
+
+// the payload request Arcadia recieves from sidecar
+type ExecutionPayload struct {
+	// TODO: are slot and epoch needed in payload request? added for handlePayload function
+	Slot          uint64          `json:"slot"`
+	Epoch         uint64          `json:"epoch"`
+	ParentHash    common.Hash     `json:"parentHash"`
+	FeeRecipient  common.Address  `json:"feeRecipient"`
+	StateRoot     Bytes32         `json:"stateRoot"`
+	ReceiptsRoot  Bytes32         `json:"receiptsRoot"`
+	LogsBloom     Bytes256        `json:"logsBloom"`
+	PrevRandao    Bytes32         `json:"prevRandao"`
+	BlockNumber   Uint64Quantity  `json:"blockNumber"`
+	GasLimit      Uint64Quantity  `json:"gasLimit"`
+	GasUsed       Uint64Quantity  `json:"gasUsed"`
+	Timestamp     Uint64Quantity  `json:"timestamp"`
+	ExtraData     BytesMax32      `json:"extraData"`
+	BaseFeePerGas Uint256Quantity `json:"baseFeePerGas"`
+	BlockHash     common.Hash     `json:"blockHash"`
+	// Array of transaction objects, each object is a byte list (DATA) representing
+	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
+	// Transactions []Data 		  `json:"transactions"`
+	Transactions []ethtypes.Transactions `json:"transactions"`
+}
+
+func NewExecutionPayload() ExecutionPayload {
+	return ExecutionPayload{
+		Transactions: make([]ethtypes.Transactions, 0),
+	}
+}
+
+// just a note on how rollups register on seq
+type RegisterRollup struct {
+	Namespace  []byte `json:"namespace"`
+	StartEpoch uint64 `json:"start_epoch"`
+}
+
+func (r *GetPayloadResponse) GetExecPayloadsSig() (*bls.Signature, error) {
+	signature, err := bls.SignatureFromBytes(r.Signature)
+	if err != nil {
+		return nil, errors.New("invalid signed headers, err: " + err.Error())
+	}
+	return signature, nil
 }

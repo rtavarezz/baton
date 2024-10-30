@@ -1136,103 +1136,67 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	}
 
 	// Decode payload
-	payload := new(common.AnchorGetPayloadRequest)
+	payload := new(common.ExecutionPayload)
 	if err := json.NewDecoder(bytes.NewReader(body)).Decode(payload); err != nil {
 		log.WithError(err).Warn("failed to decode getPayload request")
 		api.RespondError(w, http.StatusBadRequest, "failed to decode anchor payload request")
 		return
 	}
 
+	// TODO: are below needed?
 	// we reject any slots that we didn't receive proposer duty, which was managed by listening blocks from SEQ(check seq_client for more detail)
-	api.proposerDutiesLock.RLock()
-	if _, ok := api.proposerDutiesMap[payload.Slot]; !ok {
-		log.WithField("slot", payload.Slot).Warn("proposer duty map didn't received, rejecting get payload request")
-		api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("proposer duty map didn't receive for slot %d", payload.Slot))
-		api.proposerDutiesLock.RUnlock()
-		return
-	}
-	api.proposerDutiesLock.RUnlock()
+	//api.proposerDutiesLock.RLock()
+	//if _, ok := api.proposerDutiesMap[payload.Slot]; !ok {
+	//	log.WithField("slot", payload.Slot).Warn("proposer duty map didn't received, rejecting get payload request")
+	//	api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("proposer duty map didn't receive for slot %d", payload.Slot))
+	//	api.proposerDutiesLock.RUnlock()
+	//	return
+	//}
+	//api.proposerDutiesLock.RUnlock()
 
 	// Take time after the decoding, and add to logging
 	decodeTime := time.Now().UTC()
-	// TODO: to be removed as not populated and needed
 	// slotStartTimestamp := api.genesisInfo.Data.GenesisTime + (payload.Slot * common.SecondsPerSlot)
 	// msIntoSlot := decodeTime.UnixMilli() - int64((slotStartTimestamp * 1000))
 
 	log = log.WithFields(logrus.Fields{
-		"slot":         payload.Slot,
-		"slotEpochPos": (payload.Slot % common.SlotsPerEpoch) + 1,
-		// "slotStartSec":         slotStartTimestamp,
-		// "msIntoSlot":           msIntoSlot,
+		"slot":                 payload.Slot,
+		"slotEpochPos":         (payload.Slot % common.SlotsPerEpoch) + 1,
+		"epoch":                payload.Epoch,
+		"parentHash":           payload.ParentHash,
+		"feeRecipient":         payload.FeeRecipient,
+		"stateRoot":            payload.StateRoot,
+		"receiptsRoot":         payload.ReceiptsRoot,
+		"prevRandao":           payload.PrevRandao,
+		"blockNumber":          payload.BlockNumber,
+		"gasLimit":             payload.GasLimit,
+		"gasUsed":              payload.GasUsed,
 		"timestampAfterDecode": decodeTime.UnixMilli(),
-		//"proposerIndex":        payload.ProposerIndex,
-		"proposerPubkey": hexutil.Encode(payload.ProposerPubKey),
+		"extraData":            payload.ExtraData,
+		"baseFeePerGas":        payload.BaseFeePerGas,
+		"blockHash":            payload.BlockHash,
 	})
 
-	//TODO: why we need following, we already stores expected proposer in payload and wrong payload fetcher will be rejected if signature not match
-	// Ensure the proposer index is expected
-	// api.proposerDutiesLock.RLock()
-	// slotDuty := api.proposerDutiesMap[payload.Slot]
-	// api.proposerDutiesLock.RUnlock()
-	// if slotDuty == nil {
-	// 	log.Error("unable to find proposer info from duty map")
-	// 	api.RespondError(w, http.StatusBadRequest, "unable to find proposer info from dutymap")
-	// 	return
-	// }
-	// pk, err := payload.GetPublicKey()
-	// if err != nil {
-	// 	log.WithError(err).Warn("failed to get public key from payload")
-	// 	api.RespondError(w, http.StatusBadRequest, "failed to get public key from payload")
-	// 	return
-	// }
-	// if slotDuty == nil {
-	// 	log.Warn("could not find slot duty")
-	// } else {
-	// 	log = log.WithField("feeRecipient", slotDuty.Entry.Message.FeeRecipient)
-	// 	entry, err := api.FindProposerDutiesByPubKey(pk)
-	// 	if err != nil || entry == nil {
-	// 		log.WithField("FindProposerDutiesByPubKey failed: ", err).WithField("entry", entry)
-	// 		log.Errorf("unable to find proposer duty against key or entry nil")
-	// 		api.RespondError(w, http.StatusBadRequest, "FindProposerDutiesByPubKey failed: "+err.Error())
-	// 		return
-	// 	}
-	// }
-	proposerPubkey, err := payload.GetPublicKey()
-	if err != nil {
-		log.WithField("Failed to get public key from payload", err)
-		api.RespondError(w, http.StatusBadRequest, "Failed to get public key from payload"+err.Error())
-		return
-	}
+	//if api.expectedHeader == nil {
+	//	log.WithError(err).Warn("payload request could not find expected headers (Was getHeaders() called?)")
+	//	api.RespondError(w, http.StatusBadRequest, "payload request could not find expected headers (Was getHeaders() called?)")
+	//	return
+	//}
 
-	// Add proposer pubkey to logs
-	log = log.WithField("proposerPubkey", proposerPubkey)
-
-	if len(payload.SignedHeaders) != 96 {
-		log.WithError(err).Warn("payload request failed because signed headers were bad")
-		api.RespondError(w, http.StatusBadRequest, "payload request failed because signed headers were bad")
-		return
-	}
-
-	if api.expectedHeader == nil {
-		log.WithError(err).Warn("payload request could not find expected headers (Was getHeaders() called?)")
-		api.RespondError(w, http.StatusBadRequest, "payload request could not find expected headers (Was getHeaders() called?)")
-		return
-	}
-
-	// TODO: need update that SEQ signs differently
-	ok, err := common.VerifySignedHeaders(api.seqClient.GetChainID(), api.seqClient.GetNetworkID(), &api.expectedHeader.ExecHeaders, payload, *proposerPubkey)
-	if err != nil {
-		logMsg := "payload request failed because error occurred during signed header verification, err: " + err.Error()
-		log.WithError(err).Warn(logMsg)
-		api.RespondError(w, http.StatusBadRequest, logMsg)
-		return
-	}
-	if !ok {
-		logMsg := "payload request failed because signed header verification contained mismatch"
-		log.WithError(err).Warn(logMsg)
-		api.RespondError(w, http.StatusBadRequest, logMsg)
-		return
-	}
+	// TODO: need update below on maybe verifying ,
+	//ok, err := common.VerifySignedHeaders(api.seqClient.GetChainID(), api.seqClient.GetNetworkID(), &api.expectedHeader.ExecHeaders, payload, *proposerPubkey)
+	//if err != nil {
+	//	logMsg := "payload request failed because error occurred during signed header verification, err: " + err.Error()
+	//	log.WithError(err).Warn(logMsg)
+	//	api.RespondError(w, http.StatusBadRequest, logMsg)
+	//	return
+	//}
+	//if !ok {
+	//	logMsg := "payload request failed because signed header verification contained mismatch"
+	//	log.WithError(err).Warn(logMsg)
+	//	api.RespondError(w, http.StatusBadRequest, logMsg)
+	//	return
+	//}
 
 	// Log about received payload (with a valid proposer signature)
 	log = log.WithField("timestampAfterSignatureVerify", time.Now().UTC().UnixMilli())
@@ -1241,7 +1205,10 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	var getPayloadResp common.GetPayloadResponse
 	var msNeededForPublishing uint64
 
+	// TODO: above was updated, below needs changing.
+
 	// Save information about delivered payload
+	// TODO: next step, update below based on new payload req/resp
 	defer func() {
 		var bidTrace *common.BidTraceV3
 
