@@ -937,25 +937,6 @@ func (r *GetPayloadResponse) NumRoBTxs() int {
 	return numTxs
 }
 
-// TODO: to be changed, figuring out response below as next steps.
-//func NewGetPayloadResponse(slot uint64, needsToB bool) GetPayloadResponse {
-//	var tob *ExecutionPayload
-//	if needsToB {
-//		payload := NewExecutionPayload()
-//		tob = &payload
-//	}
-//
-//	execPayloads := ExecPayloadsInfo{
-//		ToBPayload:  tob,
-//		RoBPayloads: make(map[string]ExecutionPayload),
-//	}
-//
-//	return GetPayloadResponse{
-//		Slot:         slot,
-//		ExecPayloads: execPayloads,
-//	}
-//}
-
 func NewExecutionHeader() ExecHeadersInfo {
 	return ExecHeadersInfo{
 		RoBHashes: make(map[string]*AnchorHeader),
@@ -1142,14 +1123,15 @@ func (r *AnchorGetPayloadRequest) GetPublicKey() (*bls.PublicKey, error) {
 type RollupBlock struct {
 	ChainID string
 	Txs     ethTxs
+	// status is used for if block has been preconf'd or not.
+	Status bool
 }
 
 // the response we send back to the sidecar
 type GetPayloadResponse struct {
-	// returning the preconf'd rollup block
+	// returning the preconf'd rollup block which already includes the preconf'd txs
+	// block will be the block from preconf'd block map which means txs are preconf'd
 	Block RollupBlock `json:"block"`
-	// contains tob+rob txs of preconf'd block's txs ONLY
-	Transactions ethTxs `json:"transactions"`
 	// signature signed by arcadia's private key.
 	Signature []byte `json:"signature"`
 	PubKey    []byte `json:"pub_key"`
@@ -1199,4 +1181,42 @@ func (r *GetPayloadResponse) GetExecPayloadsSig() (*bls.Signature, error) {
 		return nil, errors.New("invalid signed headers, err: " + err.Error())
 	}
 	return signature, nil
+}
+
+// TODO: to be changed, figuring out response below as next steps.
+func NewGetPayloadResponse(slot uint64, needsToB bool) GetPayloadResponse {
+	var tob *ExecutionPayload
+	if needsToB {
+		payload := NewExecutionPayload()
+		tob = &payload
+	}
+
+	execPayloads := ExecPayloadsInfo{
+		ToBPayload:  tob,
+		RoBPayloads: make(map[string]ExecutionPayload),
+	}
+
+	return GetPayloadResponse{
+		Slot:         slot,
+		ExecPayloads: execPayloads,
+	}
+}
+
+type ArcadiaToBChunk struct {
+	RollupIDs             []string
+	RollupIDToBlockNumber map[string]uint64
+	Txs                   []*chain.Transaction
+	Nonce                 uint64
+}
+
+type ArcadiaRoBChunk struct {
+	RollupID    string
+	BlockNumber uint64
+	Txs         []*chain.Transaction
+	Nonce       uint64 // Do we need nonce in this?
+}
+
+type ExecPayloadsInfo struct {
+	ToBPayload ArcadiaToBChunk `json:"tobpayload"`
+	RoBPayload ArcadiaRoBChunk `json:"robpayload"`
 }

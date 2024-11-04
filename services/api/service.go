@@ -1230,7 +1230,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 			for k := range getPayloadResp.ExecPayloads.RoBPayloads {
 				robFirstChainID = k
 			}
-			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, common.ProposerPubKeyAsStr(proposerPubkey), payload.ParentHash, robFirstChainID)
+			bidTrace, err = api.redis.GetRoBBidTrace(payload.Slot, common.ProposerPubKeyAsStr(proposerPubkey), payload.ParentHash.String(), robFirstChainID)
 			if err != nil {
 				log.WithError(err).Error("failed to get bidTrace for delivered payload from redis")
 				return
@@ -1257,13 +1257,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	var tobAnchorPayload *common.AnchorPayload
 	var payloadWasFound bool
 
-	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash)
+	tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash.String())
 	if err != nil || tobAnchorPayload == nil {
 		log.WithError(err).Warn("failed getting execution payload (1/2)")
 		time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 		// Try again
-		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash)
+		tobAnchorPayload, err = api.datastore.GetGetToBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash.String())
 		if err != nil || tobAnchorPayload == nil {
 			// Still not found! Error out now.
 			// TODO: Is the below still needed?
@@ -1298,13 +1298,13 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	workingRoBChainIDs, workingRoBExists := api.GetRoBChainIDsForSlot(payload.Slot)
 	if workingRoBExists {
 		for _, chainID := range workingRoBChainIDs {
-			robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
+			robAnchorPayload, err := api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash.String(), chainID)
 			if err != nil || robAnchorPayload == nil {
 				log.WithError(err).Warn("failed getting execution payload (1/2)")
 				time.Sleep(time.Duration(timeoutGetPayloadRetryMs) * time.Millisecond)
 
 				// Try again
-				robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash, chainID)
+				robAnchorPayload, err = api.datastore.GetGetRoBPayloadResponse(log, payload.Slot, common.BlsPubKeyToStr(proposerPubkey), payload.ParentHash.String(), chainID)
 				if err != nil || robAnchorPayload == nil {
 					// Still not found! Error out now.
 					// TODO: Is the below still needed?
@@ -1349,7 +1349,7 @@ func (api *BatonAPI) handleGetPayload(w http.ResponseWriter, req *http.Request) 
 	log = log.WithField("timestampAfterLoadResponse", time.Now().UTC().UnixMilli())
 
 	// Check whether getPayload has already been called -- TODO: do we need to allow multiple submissions of one blinded block?
-	err = api.redis.CheckAndSetLastSlotAndHashDelivered(payload.Slot, payload.ParentHash)
+	err = api.redis.CheckAndSetLastSlotAndHashDelivered(payload.Slot, payload.ParentHash.String())
 	log = log.WithField("timestampAfterAlreadyDeliveredCheck", time.Now().UTC().UnixMilli())
 	if err != nil {
 		if errors.Is(err, datastore.ErrAnotherPayloadAlreadyDeliveredForSlot) {
