@@ -168,6 +168,24 @@ func NewRedisCache(prefix, redisURI, readonlyURI string) (*RedisCache, error) {
 	}, nil
 }
 
+func (r *RedisCache) keyCacheGetAuctionBid(epoch uint64, builderSEQAddr string) string {
+	return fmt.Sprintf("%s:%d-%s", r.prefixTobTobTx, epoch, builderSEQAddr)
+}
+
+func (r *RedisCache) keyCacheGetBestAuctionBid(epoch uint64) string {
+	return fmt.Sprintf("%s:%d-%s", r.prefixTobTobTx, epoch)
+}
+
+func (r *RedisCache) keyCacheGetToBChunks(epoch uint64, builderSEQAddr string) string {
+	return fmt.Sprintf("%s:%d-%s", r.prefixTobTobTx, epoch, builderSEQAddr)
+}
+
+func (r *RedisCache) keyCacheGetRoBChunks(epoch uint64, builderSEQAddr string) string {
+	return fmt.Sprintf("%s:%d-%s", r.prefixTobTobTx, epoch, builderSEQAddr)
+}
+
+// ABOVE IS ARCADIA
+
 func (r *RedisCache) keyCacheGetTobTxs(slot uint64, parentHash string) string {
 	return fmt.Sprintf("%s:%d-%s", r.prefixTobTobTx, slot, parentHash)
 }

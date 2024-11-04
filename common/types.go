@@ -1216,7 +1216,14 @@ type ArcadiaRoBChunk struct {
 	Nonce       uint64 // Do we need nonce in this?
 }
 
-type ExecPayloadsInfo struct {
-	ToBPayload ArcadiaToBChunk `json:"tobpayload"`
-	RoBPayload ArcadiaRoBChunk `json:"robpayload"`
+type ArcadiaChunk struct {
+	ChunkID  ids.ID          `json:”chunkID”`
+	ToBChunk ArcadiaToBChunk `json:"tobpayload"`
+	RoBChunk ArcadiaRoBChunk `json:"robpayload"`
+}
+
+type ArcadiaChunkCertificate struct {
+	ChunkID        ids.ID         `json:”chunkID”`
+	Signature      *bls.Signature `json:"signature"`
+	ValidatorIndex uint64         `json:”validatorIndex”`
 }
